@@ -1,0 +1,21 @@
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapePolicy
+metadata:
+  # policy padrão — usada quando nenhuma annotation é especificada no VPA
+  name: default
+  namespace: kube-system
+spec:
+  # heurística padrão — p93 com histerese
+  heuristic: "p93-hysteresis"
+  cpu:
+    # percentil para calcular o target de CPU
+    percentile: 0.93
+    # banda da histerese — recomendação só muda se uso variar mais que 10%
+    headroom: 0.10
+  memory:
+    # percentil para calcular o target de memória
+    percentile: 0.93
+    # banda da histerese — recomendação só muda se uso variar mais que 10%
+    headroom: 0.10
+  # sem scaling rule — aplica sempre
+  scalingRule: ""

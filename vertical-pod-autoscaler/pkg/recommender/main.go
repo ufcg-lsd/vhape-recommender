@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	kube_client "k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/leaderelection"
@@ -115,6 +116,14 @@ var (
 	maxAllowedMemory          = resource.QuantityValue{}
 )
 
+// Recommendation format flags
+var (
+	humanizeMemory       = flag.Bool("humanize-memory", false, `Convert memory values in recommendations to the highest appropriate SI unit with up to 2 decimal places for better readability.`)
+	roundCPUMillicores   = flag.Int("round-cpu-millicores", 1, `CPU recommendation rounding factor in millicores.`)
+	roundMemoryBytes     = flag.Int("round-memory-bytes", 1, `Memory recommendation rounding factor in bytes.`)
+	checkpointsWriteTimeout = flag.Duration("checkpoints-timeout", time.Minute, `Timeout for writing checkpoints since the start of the recommender's main loop`)
+)
+
 const (
 	// aggregateContainerStateGCInterval defines how often expired AggregateContainerStates are garbage collected.
 	aggregateContainerStateGCInterval               = 1 * time.Hour
@@ -146,10 +155,6 @@ func main() {
 	if len(commonFlags.VpaObjectNamespace) > 0 && len(commonFlags.IgnoredVpaObjectNamespaces) > 0 {
 		klog.ErrorS(nil, "--vpa-object-namespace and --ignored-vpa-object-namespaces are mutually exclusive and can't be set together.")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
-	}
-
-	if *routines.MinCheckpointsPerRun != 10 { // Default value is 10
-		klog.InfoS("DEPRECATION WARNING: The 'min-checkpoints' flag is deprecated and has no effect. It will be removed in a future release.")
 	}
 
 	if *prometheusBearerToken != "" && *prometheusBearerTokenFile != "" && *username != "" {
@@ -245,6 +250,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 	defer close(stopCh)
 	config := common.CreateKubeConfigOrDie(commonFlag.KubeConfig, float32(commonFlag.KubeApiQps), int(commonFlag.KubeApiBurst))
 	kubeClient := kube_client.NewForConfigOrDie(config)
+	dynamicClient := dynamic.NewForConfigOrDie(config)
 	clusterState := model.NewClusterState(aggregateContainerStateGCInterval)
 	factory := informers.NewSharedInformerFactoryWithOptions(kubeClient, defaultResyncPeriod, informers.WithNamespace(commonFlag.VpaObjectNamespace))
 	controllerFetcher := controllerfetcher.NewControllerFetcher(config, kubeClient, factory, scaleCacheEntryFreshnessTime, scaleCacheEntryLifetime, scaleCacheEntryJitterFactor)
@@ -314,9 +320,15 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		ControllerFetcher:            controllerFetcher,
 		CheckpointWriter:             checkpoint.NewCheckpointWriter(clusterState, vpa_clientset.NewForConfigOrDie(config).AutoscalingV1()),
 		VpaClient:                    vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
-		PodResourceRecommender:       logic.CreatePodResourceRecommender(),
+		PodResourceRecommender: logic.CreatePodResourceRecommender(logic.RecommendationConfig{}, dynamicClient),
+		RecommendationFormat: logic.RecommendationFormat{
+			HumanizeMemory:     *humanizeMemory,
+			RoundCPUMillicores: *roundCPUMillicores,
+			RoundMemoryBytes:   *roundMemoryBytes,
+		},
 		RecommendationPostProcessors: postProcessors,
 		CheckpointsGCInterval:        *checkpointsGCInterval,
+		CheckpointsWriteTimeout:      *checkpointsWriteTimeout,
 		UseCheckpoints:               useCheckpoints,
 		UpdateWorkerCount:            *updateWorkerCount,
 	}.Make()

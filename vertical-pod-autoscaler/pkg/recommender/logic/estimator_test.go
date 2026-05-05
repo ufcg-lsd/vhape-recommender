@@ -181,12 +181,12 @@ func TestMinResourcesEstimator(t *testing.T) {
 	minCPU := model.CPUAmountFromCores(0.2)
 	cpuEstimator := WithCPUMinResource(minCPU, constCPUEstimator)
 	s := model.NewAggregateContainerState()
-	cpuEstimation := cpuEstimator.GetCPUEstimation(s)
+	cpuEstimation := cpuEstimator.GetCPUEstimation(s, "")
 	assert.Equal(t, 3.14, model.CoresFromCPUAmount(cpuEstimation))
 
 	constMemoryEstimator := NewConstMemoryEstimator(model.MemoryAmountFromBytes(4e8))
 	minMemory := model.MemoryAmountFromBytes(2e7)
 	memoryEstimator := WithMemoryMinResource(minMemory, constMemoryEstimator)
-	memoryEstimation := memoryEstimator.GetMemoryEstimation(s)
+	memoryEstimation := memoryEstimator.GetMemoryEstimation(s, "")
 	assert.Equal(t, 4e8, model.BytesFromMemoryAmount(memoryEstimation))
 }

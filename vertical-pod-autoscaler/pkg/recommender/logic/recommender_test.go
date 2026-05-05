@@ -24,65 +24,8 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
 
-func TestMinResourcesApplied(t *testing.T) {
-	constCPUEstimator := NewConstCPUEstimator(model.CPUAmountFromCores(0.001))
-	constMemoryEstimator := NewConstMemoryEstimator(model.MemoryAmountFromBytes(1e6))
-
-	recommender := podResourceRecommender{
-		targetCPU:        constCPUEstimator,
-		targetMemory:     constMemoryEstimator,
-		lowerBoundCPU:    constCPUEstimator,
-		lowerBoundMemory: constMemoryEstimator,
-		upperBoundCPU:    constCPUEstimator,
-		upperBoundMemory: constMemoryEstimator,
-	}
-
-	containerNameToAggregateStateMap := model.ContainerNameToAggregateStateMap{
-		"container-1": &model.AggregateContainerState{},
-	}
-
-	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap)
-	assert.Equal(t, model.CPUAmountFromCores(*podMinCPUMillicores/1000), recommendedResources["container-1"].Target[model.ResourceCPU])
-	assert.Equal(t, model.MemoryAmountFromBytes(*podMinMemoryMb*1024*1024), recommendedResources["container-1"].Target[model.ResourceMemory])
-}
-
-func TestMinResourcesSplitAcrossContainers(t *testing.T) {
-	constCPUEstimator := NewConstCPUEstimator(model.CPUAmountFromCores(0.001))
-	constMemoryEstimator := NewConstMemoryEstimator(model.MemoryAmountFromBytes(1e6))
-
-	recommender := podResourceRecommender{
-		targetCPU:        constCPUEstimator,
-		targetMemory:     constMemoryEstimator,
-		lowerBoundCPU:    constCPUEstimator,
-		lowerBoundMemory: constMemoryEstimator,
-		upperBoundCPU:    constCPUEstimator,
-		upperBoundMemory: constMemoryEstimator,
-	}
-
-	containerNameToAggregateStateMap := model.ContainerNameToAggregateStateMap{
-		"container-1": &model.AggregateContainerState{},
-		"container-2": &model.AggregateContainerState{},
-	}
-
-	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap)
-	assert.Equal(t, model.CPUAmountFromCores((*podMinCPUMillicores/1000)/2), recommendedResources["container-1"].Target[model.ResourceCPU])
-	assert.Equal(t, model.CPUAmountFromCores((*podMinCPUMillicores/1000)/2), recommendedResources["container-2"].Target[model.ResourceCPU])
-	assert.Equal(t, model.MemoryAmountFromBytes((*podMinMemoryMb*1024*1024)/2), recommendedResources["container-1"].Target[model.ResourceMemory])
-	assert.Equal(t, model.MemoryAmountFromBytes((*podMinMemoryMb*1024*1024)/2), recommendedResources["container-2"].Target[model.ResourceMemory])
-}
-
 func TestControlledResourcesFiltered(t *testing.T) {
-	constCPUEstimator := NewConstCPUEstimator(model.CPUAmountFromCores(0.001))
-	constMemoryEstimator := NewConstMemoryEstimator(model.MemoryAmountFromBytes(1e6))
-
-	recommender := podResourceRecommender{
-		targetCPU:        constCPUEstimator,
-		targetMemory:     constMemoryEstimator,
-		lowerBoundCPU:    constCPUEstimator,
-		lowerBoundMemory: constMemoryEstimator,
-		upperBoundCPU:    constCPUEstimator,
-		upperBoundMemory: constMemoryEstimator,
-	}
+	recommender := podResourceRecommender{}
 
 	containerName := "container-1"
 	containerNameToAggregateStateMap := model.ContainerNameToAggregateStateMap{
@@ -91,7 +34,7 @@ func TestControlledResourcesFiltered(t *testing.T) {
 		},
 	}
 
-	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap)
+	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap, "", nil)
 	assert.Contains(t, recommendedResources[containerName].Target, model.ResourceMemory)
 	assert.Contains(t, recommendedResources[containerName].LowerBound, model.ResourceMemory)
 	assert.Contains(t, recommendedResources[containerName].UpperBound, model.ResourceMemory)
@@ -101,17 +44,7 @@ func TestControlledResourcesFiltered(t *testing.T) {
 }
 
 func TestControlledResourcesFilteredDefault(t *testing.T) {
-	constCPUEstimator := NewConstCPUEstimator(model.CPUAmountFromCores(0.001))
-	constMemoryEstimator := NewConstMemoryEstimator(model.MemoryAmountFromBytes(1e6))
-
-	recommender := podResourceRecommender{
-		targetCPU:        constCPUEstimator,
-		targetMemory:     constMemoryEstimator,
-		lowerBoundCPU:    constCPUEstimator,
-		lowerBoundMemory: constMemoryEstimator,
-		upperBoundCPU:    constCPUEstimator,
-		upperBoundMemory: constMemoryEstimator,
-	}
+	recommender := podResourceRecommender{}
 
 	containerName := "container-1"
 	containerNameToAggregateStateMap := model.ContainerNameToAggregateStateMap{
@@ -120,7 +53,7 @@ func TestControlledResourcesFilteredDefault(t *testing.T) {
 		},
 	}
 
-	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap)
+	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap, "", nil)
 	assert.Contains(t, recommendedResources[containerName].Target, model.ResourceMemory)
 	assert.Contains(t, recommendedResources[containerName].LowerBound, model.ResourceMemory)
 	assert.Contains(t, recommendedResources[containerName].UpperBound, model.ResourceMemory)
@@ -168,7 +101,7 @@ func TestMapToListOfRecommendedContainerResources(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			outRecommendations := MapToListOfRecommendedContainerResources(tc.resources)
+			outRecommendations := MapToListOfRecommendedContainerResources(tc.resources, RecommendationFormat{RoundCPUMillicores: 1, RoundMemoryBytes: 1})
 			for i, outRecommendation := range outRecommendations.ContainerRecommendations {
 				containerName := tc.expectedLast[i]
 				assert.Equal(t, containerName, outRecommendation.ContainerName)

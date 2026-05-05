@@ -17,95 +17,125 @@ limitations under the License.
 package logic
 
 import (
-	"flag"
 	"sort"
 	"time"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	logictypes "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/types"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/klog/v2"
 )
 
-var (
-	safetyMarginFraction       = flag.Float64("recommendation-margin-fraction", 0.15, `Fraction of usage added as the safety margin to the recommended request`)
-	podMinCPUMillicores        = flag.Float64("pod-recommendation-min-cpu-millicores", 25, `Minimum CPU recommendation for a pod`)
-	podMinMemoryMb             = flag.Float64("pod-recommendation-min-memory-mb", 250, `Minimum memory recommendation for a pod`)
-	targetCPUPercentile        = flag.Float64("target-cpu-percentile", 0.9, "CPU usage percentile that will be used as a base for CPU target recommendation. Doesn't affect CPU lower bound, CPU upper bound nor memory recommendations.")
-	lowerBoundCPUPercentile    = flag.Float64("recommendation-lower-bound-cpu-percentile", 0.5, `CPU usage percentile that will be used for the lower bound on CPU recommendation.`)
-	upperBoundCPUPercentile    = flag.Float64("recommendation-upper-bound-cpu-percentile", 0.95, `CPU usage percentile that will be used for the upper bound on CPU recommendation.`)
-	confidenceIntervalCPU      = flag.Duration("confidence-interval-cpu", time.Hour*24, "The time interval used for computing the confidence multiplier for the CPU lower and upper bound. Default: 24h")
-	targetMemoryPercentile     = flag.Float64("target-memory-percentile", 0.9, "Memory usage percentile that will be used as a base for memory target recommendation. Doesn't affect memory lower bound nor memory upper bound.")
-	lowerBoundMemoryPercentile = flag.Float64("recommendation-lower-bound-memory-percentile", 0.5, `Memory usage percentile that will be used for the lower bound on memory recommendation.`)
-	upperBoundMemoryPercentile = flag.Float64("recommendation-upper-bound-memory-percentile", 0.95, `Memory usage percentile that will be used for the upper bound on memory recommendation.`)
-	confidenceIntervalMemory   = flag.Duration("confidence-interval-memory", time.Hour*24, "The time interval used for computing the confidence multiplier for the memory lower and upper bound. Default: 24h")
-	humanizeMemory             = flag.Bool("humanize-memory", false, "DEPRECATED: Convert memory values in recommendations to the highest appropriate SI unit with up to 2 decimal places for better readability. This flag is deprecated and will be removed in a future version. Use --round-memory-bytes instead.")
-	roundCPUMillicores         = flag.Int("round-cpu-millicores", 1, `CPU recommendation rounding factor in millicores. The CPU value will always be rounded up to the nearest multiple of this factor.`)
-	roundMemoryBytes           = flag.Int("round-memory-bytes", 1, `Memory recommendation rounding factor in bytes. The Memory value will always be rounded up to the nearest multiple of this factor.`)
-)
+type RecommendationConfig struct {
+	SafetyMarginFraction       float64
+	PodMinCPUMillicores        float64
+	PodMinMemoryMb             float64
+	TargetCPUPercentile        float64
+	LowerBoundCPUPercentile    float64
+	UpperBoundCPUPercentile    float64
+	ConfidenceIntervalCPU      time.Duration
+	TargetMemoryPercentile     float64
+	LowerBoundMemoryPercentile float64
+	UpperBoundMemoryPercentile float64
+	ConfidenceIntervalMemory   time.Duration
+}
+
+// RecommendationFormat controls how numeric values are rendered in outputs.
+type RecommendationFormat struct {
+	HumanizeMemory     bool
+	RoundCPUMillicores int
+	RoundMemoryBytes   int
+}
 
 // PodResourceRecommender computes resource recommendation for a Vpa object.
 type PodResourceRecommender interface {
-	GetRecommendedPodResources(containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap) RecommendedPodResources
+	GetRecommendedPodResources(
+		containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
+		namespace string,
+		annotations map[string]string,
+	) RecommendedPodResources
 }
+
+// RecommendedContainerResources is an alias for logictypes.RecommendedContainerResources.
+type RecommendedContainerResources = logictypes.RecommendedContainerResources
 
 // RecommendedPodResources is a Map from container name to recommended resources.
 type RecommendedPodResources map[string]RecommendedContainerResources
 
-// RecommendedContainerResources is the recommendation of resources for a
-// container.
-type RecommendedContainerResources struct {
-	// Recommended optimal amount of resources.
-	Target model.Resources
-	// Recommended minimum amount of resources.
-	LowerBound model.Resources
-	// Recommended maximum amount of resources.
-	UpperBound model.Resources
-}
-
+// podResourceRecommender computes resource recommendation for each container.
 type podResourceRecommender struct {
-	targetCPU        CPUEstimator
-	targetMemory     MemoryEstimator
-	lowerBoundCPU    CPUEstimator
-	lowerBoundMemory MemoryEstimator
-	upperBoundCPU    CPUEstimator
-	upperBoundMemory MemoryEstimator
+	dynamicClient dynamic.Interface
 }
 
-func (r *podResourceRecommender) GetRecommendedPodResources(containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap) RecommendedPodResources {
+func (r *podResourceRecommender) GetRecommendedPodResources(
+	containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
+	namespace string,
+	annotations map[string]string,
+) RecommendedPodResources {
 	var recommendation = make(RecommendedPodResources)
 	if len(containerNameToAggregateStateMap) == 0 {
 		return recommendation
 	}
-
-	fraction := 1.0 / float64(len(containerNameToAggregateStateMap))
-	minCPU := model.ScaleResource(model.CPUAmountFromCores(*podMinCPUMillicores*0.001), fraction)
-	minMemory := model.ScaleResource(model.MemoryAmountFromBytes(*podMinMemoryMb*1024*1024), fraction)
-
-	recommender := &podResourceRecommender{
-		WithCPUMinResource(minCPU, r.targetCPU),
-		WithMemoryMinResource(minMemory, r.targetMemory),
-		WithCPUMinResource(minCPU, r.lowerBoundCPU),
-		WithMemoryMinResource(minMemory, r.lowerBoundMemory),
-		WithCPUMinResource(minCPU, r.upperBoundCPU),
-		WithMemoryMinResource(minMemory, r.upperBoundMemory),
-	}
-
+	policyName := annotations["vhape/policy"]
+	policy, _ := FetchVhapePolicy(r.dynamicClient, namespace, policyName)
 	for containerName, aggregatedContainerState := range containerNameToAggregateStateMap {
-		recommendation[containerName] = recommender.estimateContainerResources(aggregatedContainerState)
+		recommendation[containerName] = r.estimateContainerResources(aggregatedContainerState, containerName, policy)
 	}
 	return recommendation
 }
 
-// Takes AggregateContainerState and returns a container recommendation.
-func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateContainerState) RecommendedContainerResources {
+func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateContainerState, containerName string, policy *VhapePolicy) logictypes.RecommendedContainerResources {
 	resources := s.GetControlledResources()
-	target := model.Resources{model.ResourceCPU: r.targetCPU.GetCPUEstimation(s), model.ResourceMemory: r.targetMemory.GetMemoryEstimation(s)}
-	lowerBound := model.Resources{model.ResourceCPU: r.lowerBoundCPU.GetCPUEstimation(s), model.ResourceMemory: r.lowerBoundMemory.GetMemoryEstimation(s)}
-	upperBound := model.Resources{model.ResourceCPU: r.upperBoundCPU.GetCPUEstimation(s), model.ResourceMemory: r.upperBoundMemory.GetMemoryEstimation(s)}
-	return RecommendedContainerResources{
-		FilterControlledResources(target, resources),
-		FilterControlledResources(lowerBound, resources),
-		FilterControlledResources(upperBound, resources),
+
+	cpuEstimator, memEstimator := selectHeuristic(policy)
+
+	targetCPUVal := cpuEstimator.GetCPUEstimation(s, containerName)
+	targetMemVal := memEstimator.GetMemoryEstimation(s, containerName)
+
+	cpuHeadroom := policy.Spec.CPU.Headroom
+	memHeadroom := policy.Spec.Memory.Headroom
+
+	target := model.Resources{
+		model.ResourceCPU:    targetCPUVal,
+		model.ResourceMemory: targetMemVal,
 	}
+	lowerBound := model.Resources{
+		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1-cpuHeadroom),
+		model.ResourceMemory: model.ScaleResource(targetMemVal, 1-memHeadroom),
+	}
+	upperBound := model.Resources{
+		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1+cpuHeadroom),
+		model.ResourceMemory: model.ScaleResource(targetMemVal, 1+memHeadroom),
+	}
+
+	rec := logictypes.RecommendedContainerResources{
+		Target:     FilterControlledResources(target, resources),
+		LowerBound: FilterControlledResources(lowerBound, resources),
+		UpperBound: FilterControlledResources(upperBound, resources),
+	}
+
+	rule := selectScalingRule(policy)
+	if rule != nil {
+		ctx := logictypes.ScalingRuleContext{
+			ContainerName: containerName,
+		}
+		rec = rule.Apply(rec, ctx)
+	}
+
+	klog.V(4).InfoS("estimateContainerResources resultado",
+		"containerName", containerName,
+		"targetCPUCores", float64(targetCPUVal)/1000,
+		"targetCPUMillicores", targetCPUVal,
+		"lowerCPUMillicores", float64(lowerBound[model.ResourceCPU]),
+		"upperCPUMillicores", float64(upperBound[model.ResourceCPU]),
+		"targetMemBytes", targetMemVal,
+		"targetMemMB", float64(targetMemVal)/1024/1024,
+		"lowerMemMB", float64(lowerBound[model.ResourceMemory])/1024/1024,
+		"upperMemMB", float64(upperBound[model.ResourceMemory])/1024/1024,
+	)
+
+	return rec
 }
 
 // FilterControlledResources returns estimations from 'estimation' only for resources present in 'controlledResources'.
@@ -120,88 +150,30 @@ func FilterControlledResources(estimation model.Resources, controlledResources [
 }
 
 // CreatePodResourceRecommender returns the primary recommender.
-func CreatePodResourceRecommender() PodResourceRecommender {
-	targetCPU := NewPercentileCPUEstimator(*targetCPUPercentile)
-	lowerBoundCPU := NewPercentileCPUEstimator(*lowerBoundCPUPercentile)
-	upperBoundCPU := NewPercentileCPUEstimator(*upperBoundCPUPercentile)
-
-	// Create base memory estimators
-	targetMemory := NewPercentileMemoryEstimator(*targetMemoryPercentile)
-	lowerBoundMemory := NewPercentileMemoryEstimator(*lowerBoundMemoryPercentile)
-	upperBoundMemory := NewPercentileMemoryEstimator(*upperBoundMemoryPercentile)
-
-	// Apply safety margins
-	targetCPU = WithCPUMargin(*safetyMarginFraction, targetCPU)
-	lowerBoundCPU = WithCPUMargin(*safetyMarginFraction, lowerBoundCPU)
-	upperBoundCPU = WithCPUMargin(*safetyMarginFraction, upperBoundCPU)
-
-	targetMemory = WithMemoryMargin(*safetyMarginFraction, targetMemory)
-	lowerBoundMemory = WithMemoryMargin(*safetyMarginFraction, lowerBoundMemory)
-	upperBoundMemory = WithMemoryMargin(*safetyMarginFraction, upperBoundMemory)
-
-	// Apply confidence multiplier to the upper bound estimator. This means
-	// that the updater will be less eager to evict pods with short history
-	// in order to reclaim unused resources.
-	// Using the confidence multiplier 1 with exponent +1 means that
-	// the upper bound is multiplied by (1 + 1/history-length-in-days).
-	// See estimator.go to see how the history length and the confidence
-	// multiplier are determined. The formula yields the following multipliers:
-	// No history     : *INF  (do not force pod eviction)
-	// 12h history    : *3    (force pod eviction if the request is > 3 * upper bound)
-	// 24h history    : *2
-	// 1 week history : *1.14
-
-	upperBoundCPU = WithCPUConfidenceMultiplier(1.0, 1.0, upperBoundCPU, *confidenceIntervalCPU)
-	upperBoundMemory = WithMemoryConfidenceMultiplier(1.0, 1.0, upperBoundMemory, *confidenceIntervalMemory)
-
-	// Apply confidence multiplier to the lower bound estimator. This means
-	// that the updater will be less eager to evict pods with short history
-	// in order to provision them with more resources.
-	// Using the confidence multiplier 0.001 with exponent -2 means that
-	// the lower bound is multiplied by the factor (1 + 0.001/history-length-in-days)^-2
-	// (which is very rapidly converging to 1.0).
-	// See estimator.go to see how the history length and the confidence
-	// multiplier are determined. The formula yields the following multipliers:
-	// No history   : *0   (do not force pod eviction)
-	// 5m history   : *0.6 (force pod eviction if the request is < 0.6 * lower bound)
-	// 30m history  : *0.9
-	// 60m history  : *0.95
-	lowerBoundCPU = WithCPUConfidenceMultiplier(0.001, -2.0, lowerBoundCPU, *confidenceIntervalCPU)
-	lowerBoundMemory = WithMemoryConfidenceMultiplier(0.001, -2.0, lowerBoundMemory, *confidenceIntervalMemory)
+func CreatePodResourceRecommender(config RecommendationConfig, dynamicClient dynamic.Interface) PodResourceRecommender {
 	return &podResourceRecommender{
-		targetCPU,
-		targetMemory,
-		lowerBoundCPU,
-		lowerBoundMemory,
-		upperBoundCPU,
-		upperBoundMemory,
+		dynamicClient: dynamicClient,
 	}
 }
 
-// MapToListOfRecommendedContainerResources converts the map of RecommendedContainerResources into a stable sorted list
-// This can be used to get a stable sequence while ranging on the data
-func MapToListOfRecommendedContainerResources(resources RecommendedPodResources) *vpa_types.RecommendedPodResources {
+// MapToListOfRecommendedContainerResources converts the map into a stable sorted list.
+func MapToListOfRecommendedContainerResources(resources RecommendedPodResources, format RecommendationFormat) *vpa_types.RecommendedPodResources {
 	containerResources := make([]vpa_types.RecommendedContainerResources, 0, len(resources))
-	// Sort the container names from the map. This is because maps are an
-	// unordered data structure, and iterating through the map will return
-	// a different order on every call.
 	containerNames := make([]string, 0, len(resources))
 	for containerName := range resources {
 		containerNames = append(containerNames, containerName)
 	}
 	sort.Strings(containerNames)
-	// Create the list of recommendations for each container.
 	for _, name := range containerNames {
 		containerResources = append(containerResources, vpa_types.RecommendedContainerResources{
 			ContainerName:  name,
-			Target:         model.ResourcesAsResourceList(resources[name].Target, *humanizeMemory, *roundCPUMillicores, *roundMemoryBytes),
-			LowerBound:     model.ResourcesAsResourceList(resources[name].LowerBound, *humanizeMemory, *roundCPUMillicores, *roundMemoryBytes),
-			UpperBound:     model.ResourcesAsResourceList(resources[name].UpperBound, *humanizeMemory, *roundCPUMillicores, *roundMemoryBytes),
-			UncappedTarget: model.ResourcesAsResourceList(resources[name].Target, *humanizeMemory, *roundCPUMillicores, *roundMemoryBytes),
+			Target:         model.ResourcesAsResourceList(resources[name].Target, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
+			LowerBound:     model.ResourcesAsResourceList(resources[name].LowerBound, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
+			UpperBound:     model.ResourcesAsResourceList(resources[name].UpperBound, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
+			UncappedTarget: model.ResourcesAsResourceList(resources[name].Target, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
 		})
 	}
-	recommendation := &vpa_types.RecommendedPodResources{
+	return &vpa_types.RecommendedPodResources{
 		ContainerRecommendations: containerResources,
 	}
-	return recommendation
 }

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/heuristics"
 )
 
 // ResourceEstimator is a function from AggregateContainerState to
@@ -32,12 +33,12 @@ type ResourceEstimator interface {
 
 // CPUEstimator predicts CPU resources needed by a container
 type CPUEstimator interface {
-	GetCPUEstimation(s *model.AggregateContainerState) model.ResourceAmount
+	GetCPUEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount
 }
 
 // MemoryEstimator predicts memory resources needed by a container
 type MemoryEstimator interface {
-	GetMemoryEstimation(s *model.AggregateContainerState) model.ResourceAmount
+	GetMemoryEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount
 }
 
 // combinedEstimator is a ResourceEstimator that combines two estimators: one for CPU and one for memory.
@@ -111,15 +112,15 @@ func NewMemoryEstimator(percentile float64) MemoryEstimator {
 }
 
 // GetCPUEstimation returns the CPU estimation for the given AggregateContainerState.
-func (e *cpuMarginEstimator) GetCPUEstimation(s *model.AggregateContainerState) model.ResourceAmount {
-	base := e.baseEstimator.GetCPUEstimation(s)
+func (e *cpuMarginEstimator) GetCPUEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount {
+	base := e.baseEstimator.GetCPUEstimation(s, containerName)
 	margin := model.ScaleResource(base, e.marginFraction)
 	return base + margin
 }
 
 // GetMemoryEstimation returns the memory estimation for the given AggregateContainerState.
-func (e *memoryMarginEstimator) GetMemoryEstimation(s *model.AggregateContainerState) model.ResourceAmount {
-	base := e.baseEstimator.GetMemoryEstimation(s)
+func (e *memoryMarginEstimator) GetMemoryEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount {
+	base := e.baseEstimator.GetMemoryEstimation(s, containerName)
 	margin := model.ScaleResource(base, e.marginFraction)
 	return base + margin
 }
@@ -154,11 +155,11 @@ func WithMemoryConfidenceMultiplier(multiplier, exponent float64, baseEstimator 
 	}
 }
 
-func (e *percentileCPUEstimator) GetCPUEstimation(s *model.AggregateContainerState) model.ResourceAmount {
+func (e *percentileCPUEstimator) GetCPUEstimation(s *model.AggregateContainerState, _ string) model.ResourceAmount {
 	return model.CPUAmountFromCores(s.AggregateCPUUsage.Percentile(e.percentile))
 }
 
-func (e *percentileMemoryEstimator) GetMemoryEstimation(s *model.AggregateContainerState) model.ResourceAmount {
+func (e *percentileMemoryEstimator) GetMemoryEstimation(s *model.AggregateContainerState, _ string) model.ResourceAmount {
 	return model.MemoryAmountFromBytes(s.AggregateMemoryPeaks.Percentile(e.percentile))
 }
 
@@ -172,8 +173,8 @@ func (e *percentileMemoryEstimator) GetMemoryEstimation(s *model.AggregateContai
 // estimators depending on how much input data is available to the estimators.
 func (c *combinedEstimator) GetResourceEstimation(s *model.AggregateContainerState) model.Resources {
 	return model.Resources{
-		model.ResourceCPU:    c.cpuEstimator.GetCPUEstimation(s),
-		model.ResourceMemory: c.memoryEstimator.GetMemoryEstimation(s),
+		model.ResourceCPU:    c.cpuEstimator.GetCPUEstimation(s, ""),
+		model.ResourceMemory: c.memoryEstimator.GetMemoryEstimation(s, ""),
 	}
 }
 
@@ -192,15 +193,15 @@ func getConfidence(s *model.AggregateContainerState, confidenceInterval time.Dur
 	return math.Min(lifespanInDays, samplesAmount)
 }
 
-func (e *cpuConfidenceMultiplier) GetCPUEstimation(s *model.AggregateContainerState) model.ResourceAmount {
+func (e *cpuConfidenceMultiplier) GetCPUEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount {
 	confidence := getConfidence(s, e.confidenceInterval)
-	base := e.baseEstimator.GetCPUEstimation(s)
+	base := e.baseEstimator.GetCPUEstimation(s, containerName)
 	return model.ScaleResource(base, math.Pow(1.+e.multiplier/confidence, e.exponent))
 }
 
-func (e *memoryConfidenceMultiplier) GetMemoryEstimation(s *model.AggregateContainerState) model.ResourceAmount {
+func (e *memoryConfidenceMultiplier) GetMemoryEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount {
 	confidence := getConfidence(s, e.confidenceInterval)
-	base := e.baseEstimator.GetMemoryEstimation(s)
+	base := e.baseEstimator.GetMemoryEstimation(s, containerName)
 	return model.ScaleResource(base, math.Pow(1.+e.multiplier/confidence, e.exponent))
 }
 
@@ -214,12 +215,12 @@ func WithMemoryMinResource(minResource model.ResourceAmount, baseEstimator Memor
 	return &memoryMinResourceEstimator{minResource, baseEstimator}
 }
 
-func (e *cpuMinResourceEstimator) GetCPUEstimation(s *model.AggregateContainerState) model.ResourceAmount {
-	return model.ResourceAmountMax(e.baseEstimator.GetCPUEstimation(s), e.minResource)
+func (e *cpuMinResourceEstimator) GetCPUEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount {
+	return model.ResourceAmountMax(e.baseEstimator.GetCPUEstimation(s, containerName), e.minResource)
 }
 
-func (e *memoryMinResourceEstimator) GetMemoryEstimation(s *model.AggregateContainerState) model.ResourceAmount {
-	return model.ResourceAmountMax(e.baseEstimator.GetMemoryEstimation(s), e.minResource)
+func (e *memoryMinResourceEstimator) GetMemoryEstimation(s *model.AggregateContainerState, containerName string) model.ResourceAmount {
+	return model.ResourceAmountMax(e.baseEstimator.GetMemoryEstimation(s, containerName), e.minResource)
 }
 
 // NewConstMemoryEstimator returns a Memory estimator that always returns the same value
@@ -235,15 +236,34 @@ type constMemoryEstimator struct {
 	value model.ResourceAmount
 }
 
-func (e *constCPUEstimator) GetCPUEstimation(_ *model.AggregateContainerState) model.ResourceAmount {
+func (e *constCPUEstimator) GetCPUEstimation(_ *model.AggregateContainerState, _ string) model.ResourceAmount {
 	return e.value
 }
 
-func (e *constMemoryEstimator) GetMemoryEstimation(_ *model.AggregateContainerState) model.ResourceAmount {
+func (e *constMemoryEstimator) GetMemoryEstimation(_ *model.AggregateContainerState, _ string) model.ResourceAmount {
 	return e.value
 }
 
 // NewConstCPUEstimator returns a CPU estimator that always returns the same value
 func NewConstCPUEstimator(cpu model.ResourceAmount) CPUEstimator {
 	return &constCPUEstimator{cpu}
+}
+
+// heuristic names
+const (
+    HeuristicP93Hysteresis = "p93-hysteresis"
+    HeuristicKRR           = "p95-max-memory"
+)
+
+// selectHeuristic returns the estimators based on the VhapePolicy.
+func selectHeuristic(policy *VhapePolicy) (CPUEstimator, MemoryEstimator) {
+    switch policy.Spec.Heuristic {
+    case HeuristicKRR:
+        // TODO: implementar krr_estimator.go
+        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile, policy.Spec.CPU.Headroom),
+            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile, policy.Spec.Memory.Headroom)
+    default:
+        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile, policy.Spec.CPU.Headroom),
+            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile, policy.Spec.Memory.Headroom)
+    }
 }

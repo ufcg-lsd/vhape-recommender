@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: custom-recommender
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: custom-recommender
+  template:
+    metadata:
+      labels:
+        app: custom-recommender
+    spec:
+      serviceAccountName: vpa-recommender
+      containers:
+        - name: custom-recommender
+          image: brunogb123/custom-recommender-vhapev1:latest
+          command:
+            - /recommender
+          args:
+            - --recommender-name=custom-recommender
