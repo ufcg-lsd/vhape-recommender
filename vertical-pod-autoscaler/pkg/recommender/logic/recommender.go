@@ -1,23 +1,8 @@
-/*
-Copyright 2017 The Kubernetes Authors.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 package logic
 
 import (
 	"sort"
+	"sync"
 	"time"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -63,9 +48,30 @@ type RecommendedContainerResources = logictypes.RecommendedContainerResources
 // RecommendedPodResources is a Map from container name to recommended resources.
 type RecommendedPodResources map[string]RecommendedContainerResources
 
+// cachedEstimators holds the estimators for a given policy — persists between cycles.
+type cachedEstimators struct {
+	cpu    CPUEstimator
+	memory MemoryEstimator
+}
+
 // podResourceRecommender computes resource recommendation for each container.
 type podResourceRecommender struct {
 	dynamicClient dynamic.Interface
+	mu            sync.Mutex
+	estimators    map[string]*cachedEstimators // key: "namespace/policyName"
+}
+
+func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy) (CPUEstimator, MemoryEstimator) {
+	key := policy.Namespace + "/" + policy.Name
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if cached, ok := r.estimators[key]; ok {
+		return cached.cpu, cached.memory
+	}
+	cpu, mem := selectHeuristic(policy)
+	r.estimators[key] = &cachedEstimators{cpu: cpu, memory: mem}
+	klog.V(4).InfoS("Criando novos estimadores para policy", "key", key, "heuristic", policy.Spec.Heuristic)
+	return cpu, mem
 }
 
 func (r *podResourceRecommender) GetRecommendedPodResources(
@@ -88,7 +94,7 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateContainerState, containerName string, policy *VhapePolicy) logictypes.RecommendedContainerResources {
 	resources := s.GetControlledResources()
 
-	cpuEstimator, memEstimator := selectHeuristic(policy)
+	cpuEstimator, memEstimator := r.getOrCreateEstimators(policy)
 
 	targetCPUVal := cpuEstimator.GetCPUEstimation(s, containerName)
 	targetMemVal := memEstimator.GetMemoryEstimation(s, containerName)
@@ -153,6 +159,7 @@ func FilterControlledResources(estimation model.Resources, controlledResources [
 func CreatePodResourceRecommender(config RecommendationConfig, dynamicClient dynamic.Interface) PodResourceRecommender {
 	return &podResourceRecommender{
 		dynamicClient: dynamicClient,
+		estimators:    make(map[string]*cachedEstimators),
 	}
 }
 
