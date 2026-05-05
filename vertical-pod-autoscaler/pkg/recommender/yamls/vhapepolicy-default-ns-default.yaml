@@ -1,0 +1,14 @@
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapePolicy
+metadata:
+  name: default
+  namespace: default
+spec:
+  heuristic: "p93-hysteresis"
+  cpu:
+    percentile: 0.93
+    headroom: 0.10
+  memory:
+    percentile: 0.93
+    headroom: 0.10
+  scalingRule: ""

@@ -1,0 +1,26 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vhapepolicy-reader
+rules:
+- apiGroups:
+  - autoscaling.vhape.io
+  resources:
+  - vhapepolicies
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vpa-recommender-vhapepolicy-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vhapepolicy-reader
+subjects:
+- kind: ServiceAccount
+  name: vpa-recommender
+  namespace: kube-system
