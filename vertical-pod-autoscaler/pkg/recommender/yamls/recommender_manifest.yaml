@@ -2,17 +2,19 @@ apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
   name: vpa-vanilla
-  namespace: vendor-jwpepper
+  namespace: default
+  annotations:
+    vhape/policy: "default"
 spec:
   recommenders:
     - name: custom-recommender
   targetRef:
     apiVersion: "apps/v1"
     kind: Deployment
-    name: jwpepper-givex-1-0-5-a8885dbdf9ccf3d
+    name: my-app
   updatePolicy:
-    updateMode: "Recreate"  # Off, Initial, Recreate, InPlaceOrRecreate
+    updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
-    - containerName: "*"
-      controlledValues: RequestsOnly
+      - containerName: "*"
+        controlledValues: RequestsOnly
