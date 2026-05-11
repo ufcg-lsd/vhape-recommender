@@ -38,48 +38,36 @@ type VhapePolicy struct {
 	Spec      VhapePolicySpec
 }
 
-// DefaultVhapePolicy returns the default policy when none is specified.
-func DefaultVhapePolicy() *VhapePolicy {
-	return &VhapePolicy{
-		Spec: VhapePolicySpec{
-			Heuristic: HeuristicP93Hysteresis,
-			CPU: VhapeResourceConfig{
-				Percentile: 0.93,
-				Headroom:   0.10,
-			},
-			Memory: VhapeResourceConfig{
-				Percentile: 0.93,
-				Headroom:   0.10,
-			},
-			ScalingRule: "",
-		},
-	}
-}
-
 // FetchVhapePolicy fetches a VhapePolicy from the cluster by name and namespace.
 // If name is empty or the object is not found, returns the default policy.
 func FetchVhapePolicy(client dynamic.Interface, namespace, name string) (*VhapePolicy, error) {
 	if name == "" {
-		klog.V(4).InfoS("VhapePolicy: nenhuma policy especificada, usando default")
-		return DefaultVhapePolicy(), nil
-	}
+        return nil, fmt.Errorf("VhapePolicy: annotation vhape/policy não definida no VPA")
+    }
 
-	unstructured, err := client.Resource(VhapePolicyGVR).Namespace(namespace).Get(
-		context.TODO(), name, metav1.GetOptions{},
-	)
-	if err != nil {
-		klog.V(4).InfoS("VhapePolicy: policy não encontrada, usando default", "name", name, "error", err)
-		return DefaultVhapePolicy(), nil
-	}
+    unstructured, err := client.Resource(VhapePolicyGVR).Namespace("kube-system").Get(
+        context.TODO(), name, metav1.GetOptions{},
+    )
+
+    if err != nil {
+        return nil, fmt.Errorf("VhapePolicy %q não encontrada no namespace kube-system: %w", name, err)
+    }
 
 	spec, ok := unstructured.Object["spec"].(map[string]interface{})
 	if !ok {
 		return nil, fmt.Errorf("VhapePolicy %s: campo spec inválido", name)
 	}
 
-	policy := DefaultVhapePolicy()
-	policy.Name = name
-	policy.Namespace = namespace
+	policy := &VhapePolicy{
+		Name:      name,
+		Namespace: namespace,
+		Spec: VhapePolicySpec{
+			Heuristic:   HeuristicP93Hysteresis,
+			ScalingRule: "",
+			CPU:         VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10},
+			Memory:      VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10},
+		},
+	}
 
 	if heuristic, ok := spec["heuristic"].(string); ok {
 		policy.Spec.Heuristic = heuristic

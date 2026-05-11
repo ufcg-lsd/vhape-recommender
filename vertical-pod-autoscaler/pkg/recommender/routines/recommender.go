@@ -172,6 +172,7 @@ func (r *recommender) RunOnce() {
 
 	ctx := context.Background()
 
+	klog.V(3).InfoS("----------------------------------------------------------------")
 	klog.V(3).InfoS("Recommender Run")
 
 	r.clusterStateFeeder.LoadVPAs(ctx)

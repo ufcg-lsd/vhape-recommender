@@ -296,11 +296,13 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 
 	ignoredNamespaces := strings.Split(commonFlag.IgnoredVpaObjectNamespaces, ",")
 
+	metricsClient := input_metrics.NewMetricsClient(source, commonFlag.VpaObjectNamespace, "default-metrics-client")
+
 	clusterStateFeeder := input.ClusterStateFeederFactory{
 		PodLister:           podLister,
 		OOMObserver:         oomObserver,
 		KubeClient:          kubeClient,
-		MetricsClient:       input_metrics.NewMetricsClient(source, commonFlag.VpaObjectNamespace, "default-metrics-client"),
+		MetricsClient: metricsClient,
 		VpaCheckpointClient: vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
 		VpaLister:           vpa_api_util.NewVpasLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
 		VpaCheckpointLister: vpa_api_util.NewVpaCheckpointLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
@@ -320,7 +322,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		ControllerFetcher:            controllerFetcher,
 		CheckpointWriter:             checkpoint.NewCheckpointWriter(clusterState, vpa_clientset.NewForConfigOrDie(config).AutoscalingV1()),
 		VpaClient:                    vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
-		PodResourceRecommender: logic.CreatePodResourceRecommender(logic.RecommendationConfig{}, dynamicClient),
+		PodResourceRecommender: logic.CreatePodResourceRecommender(logic.RecommendationConfig{}, dynamicClient, metricsClient),
 		RecommendationFormat: logic.RecommendationFormat{
 			HumanizeMemory:     *humanizeMemory,
 			RoundCPUMillicores: *roundCPUMillicores,
