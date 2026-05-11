@@ -4,17 +4,23 @@ metadata:
   name: vpa-vanilla
   namespace: default
   annotations:
+    # referência à VhapePolicy que será usada para calcular as recomendações
     vhape/policy: "default"
 spec:
   recommenders:
+    # delega as recomendações ao recommender customizado (em vez do padrão do VPA)
     - name: custom-recommender
   targetRef:
     apiVersion: "apps/v1"
     kind: Deployment
+    # Deployment alvo cujos pods terão os recursos ajustados
     name: my-app
   updatePolicy:
+    # recria os pods para aplicar as novas recomendações de recursos
     updateMode: "Recreate"
   resourcePolicy:
     containerPolicies:
-      - containerName: "*"
+      - # aplica a política a todos os containers do pod
+        containerName: "*"
+        # controla apenas requests, não limits
         controlledValues: RequestsOnly
