@@ -27,7 +27,7 @@ spec:
             spec:
               type: object
               properties:
-                # qual heurística usar: p93-hysteresis, p95-max-memory
+                # qual heurística usar: percentile-hysteresis, p95-max-memory
                 heuristic:
                   type: string
                 # regra de negócio: scale-down-only, scale-up-only ou vazio

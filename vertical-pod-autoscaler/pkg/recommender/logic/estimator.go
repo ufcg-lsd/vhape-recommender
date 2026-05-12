@@ -251,7 +251,7 @@ func NewConstCPUEstimator(cpu model.ResourceAmount) CPUEstimator {
 
 // heuristic names
 const (
-    HeuristicP93Hysteresis = "p93-hysteresis"
+    HeuristicPercentileHysteresis = "percentile-hysteresis"
     HeuristicKRR           = "p95-max-memory"
 )
 

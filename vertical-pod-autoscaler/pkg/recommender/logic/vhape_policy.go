@@ -62,7 +62,7 @@ func FetchVhapePolicy(client dynamic.Interface, namespace, name string) (*VhapeP
 		Name:      name,
 		Namespace: namespace,
 		Spec: VhapePolicySpec{
-			Heuristic:   HeuristicP93Hysteresis,
+			Heuristic:   HeuristicPercentileHysteresis,
 			ScalingRule: "",
 			CPU:         VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10},
 			Memory:      VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10},

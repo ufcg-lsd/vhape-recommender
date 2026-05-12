@@ -5,8 +5,8 @@ metadata:
   name: default
   namespace: kube-system
 spec:
-  # heurística padrão — p93 com histerese
-  heuristic: "p93-hysteresis"
+  # heurística padrão — percentil com histerese
+  heuristic: "percentile-hysteresis"
   cpu:
     # percentil para calcular o target de CPU
     percentile: 0.93
