@@ -131,20 +131,17 @@ func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateCo
 	targetCPUVal := cpuEstimator.GetCPUEstimation(s, containerName, currentCPUs)
 	targetMemVal := memEstimator.GetMemoryEstimation(s, containerName, currentMemories)
 
-	cpuHeadroom := policy.Spec.CPU.Headroom
-	memHeadroom := policy.Spec.Memory.Headroom
-
 	target := model.Resources{
 		model.ResourceCPU:    targetCPUVal,
 		model.ResourceMemory: targetMemVal,
 	}
 	lowerBound := model.Resources{
-		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1-cpuHeadroom),
-		model.ResourceMemory: model.ScaleResource(targetMemVal, 1-memHeadroom),
+		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1-policy.Spec.CPU.LowerBound),
+		model.ResourceMemory: model.ScaleResource(targetMemVal, 1-policy.Spec.Memory.LowerBound),
 	}
 	upperBound := model.Resources{
-		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1+cpuHeadroom),
-		model.ResourceMemory: model.ScaleResource(targetMemVal, 1+memHeadroom),
+		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1+policy.Spec.CPU.UpperBound),
+		model.ResourceMemory: model.ScaleResource(targetMemVal, 1+policy.Spec.Memory.UpperBound),
 	}
 
 	rec := logictypes.RecommendedContainerResources{

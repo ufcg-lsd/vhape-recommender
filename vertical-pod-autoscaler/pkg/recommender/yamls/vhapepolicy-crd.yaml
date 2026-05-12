@@ -42,6 +42,14 @@ spec:
                     # banda da histerese (ex: 0.10 = 10%)
                     headroom:
                       type: number
+                    lowerBound:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                    upperBound:
+                      type: number
+                      minimum: 0
+                  required: ["percentile", "headroom", "lowerBound", "upperBound"]
                 memory:
                   type: object
                   properties:
@@ -51,6 +59,14 @@ spec:
                     # banda da histerese (ex: 0.10 = 10%)
                     headroom:
                       type: number
+                    lowerBound:
+                      type: number
+                      minimum: 0
+                      maximum: 1
+                    upperBound:
+                      type: number
+                      minimum: 0
+                  required: ["percentile", "headroom", "lowerBound", "upperBound"]
       # colunas extras no kubectl get vhapepolicies
       additionalPrinterColumns:
         - jsonPath: .spec.heuristic

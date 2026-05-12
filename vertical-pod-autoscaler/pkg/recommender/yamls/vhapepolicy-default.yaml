@@ -12,10 +12,14 @@ spec:
     percentile: 0.93
     # banda da histerese — recomendação só muda se uso variar mais que 10%
     headroom: 0.10
+    lowerBound: 0.10
+    upperBound: 0.10
   memory:
     # percentil para calcular o target de memória
     percentile: 0.93
     # banda da histerese — recomendação só muda se uso variar mais que 10%
     headroom: 0.10
+    lowerBound: 0.10
+    upperBound: 0.10
   # sem scaling rule — aplica sempre
   scalingRule: ""

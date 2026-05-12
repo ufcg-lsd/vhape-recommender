@@ -21,6 +21,8 @@ var VhapePolicyGVR = schema.GroupVersionResource{
 type VhapeResourceConfig struct {
 	Percentile float64
 	Headroom   float64
+	LowerBound float64
+	UpperBound float64
 }
 
 // VhapePolicySpec defines the desired state of a VhapePolicy.
@@ -64,8 +66,8 @@ func FetchVhapePolicy(client dynamic.Interface, namespace, name string) (*VhapeP
 		Spec: VhapePolicySpec{
 			Heuristic:   HeuristicPercentileHysteresis,
 			ScalingRule: "",
-			CPU:         VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10},
-			Memory:      VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10},
+			CPU:         VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10, LowerBound: 0.10, UpperBound: 0.10},
+			Memory:      VhapeResourceConfig{Percentile: 0.93, Headroom: 0.10, LowerBound: 0.10, UpperBound: 0.10},
 		},
 	}
 
@@ -83,6 +85,12 @@ func FetchVhapePolicy(client dynamic.Interface, namespace, name string) (*VhapeP
 		if headroom, ok := cpu["headroom"].(float64); ok {
 			policy.Spec.CPU.Headroom = headroom
 		}
+		if lowerBound, ok := cpu["lowerBound"].(float64); ok {
+			policy.Spec.CPU.LowerBound = lowerBound
+		}
+		if upperBound, ok := cpu["upperBound"].(float64); ok {
+			policy.Spec.CPU.UpperBound = upperBound
+		}
 	}
 
 	if memory, ok := spec["memory"].(map[string]interface{}); ok {
@@ -92,6 +100,12 @@ func FetchVhapePolicy(client dynamic.Interface, namespace, name string) (*VhapeP
 		if headroom, ok := memory["headroom"].(float64); ok {
 			policy.Spec.Memory.Headroom = headroom
 		}
+		if lowerBound, ok := memory["lowerBound"].(float64); ok {
+			policy.Spec.Memory.LowerBound = lowerBound
+		}
+		if upperBound, ok := memory["upperBound"].(float64); ok {
+			policy.Spec.Memory.UpperBound = upperBound
+		}
 	}
 
 	klog.V(4).InfoS("VhapePolicy carregada do cluster",
@@ -99,8 +113,12 @@ func FetchVhapePolicy(client dynamic.Interface, namespace, name string) (*VhapeP
 		"heuristic", policy.Spec.Heuristic,
 		"cpuPercentile", policy.Spec.CPU.Percentile,
 		"cpuHeadroom", policy.Spec.CPU.Headroom,
+		"cpuLowerBound", policy.Spec.CPU.LowerBound,
+		"cpuUpperBound", policy.Spec.CPU.UpperBound,
 		"memoryPercentile", policy.Spec.Memory.Percentile,
 		"memoryHeadroom", policy.Spec.Memory.Headroom,
+		"memoryLowerBound", policy.Spec.Memory.LowerBound,
+		"memoryUpperBound", policy.Spec.Memory.UpperBound,
 		"scalingRule", policy.Spec.ScalingRule,
 	)
 
