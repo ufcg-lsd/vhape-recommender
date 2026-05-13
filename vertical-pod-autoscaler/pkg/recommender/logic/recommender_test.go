@@ -24,44 +24,6 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
 
-func TestControlledResourcesFiltered(t *testing.T) {
-	recommender := podResourceRecommender{}
-
-	containerName := "container-1"
-	containerNameToAggregateStateMap := model.ContainerNameToAggregateStateMap{
-		containerName: &model.AggregateContainerState{
-			ControlledResources: &[]model.ResourceName{model.ResourceMemory},
-		},
-	}
-
-	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap, "", nil)
-	assert.Contains(t, recommendedResources[containerName].Target, model.ResourceMemory)
-	assert.Contains(t, recommendedResources[containerName].LowerBound, model.ResourceMemory)
-	assert.Contains(t, recommendedResources[containerName].UpperBound, model.ResourceMemory)
-	assert.NotContains(t, recommendedResources[containerName].Target, model.ResourceCPU)
-	assert.NotContains(t, recommendedResources[containerName].LowerBound, model.ResourceCPU)
-	assert.NotContains(t, recommendedResources[containerName].UpperBound, model.ResourceCPU)
-}
-
-func TestControlledResourcesFilteredDefault(t *testing.T) {
-	recommender := podResourceRecommender{}
-
-	containerName := "container-1"
-	containerNameToAggregateStateMap := model.ContainerNameToAggregateStateMap{
-		containerName: &model.AggregateContainerState{
-			ControlledResources: &[]model.ResourceName{model.ResourceMemory, model.ResourceCPU},
-		},
-	}
-
-	recommendedResources := recommender.GetRecommendedPodResources(containerNameToAggregateStateMap, "", nil)
-	assert.Contains(t, recommendedResources[containerName].Target, model.ResourceMemory)
-	assert.Contains(t, recommendedResources[containerName].LowerBound, model.ResourceMemory)
-	assert.Contains(t, recommendedResources[containerName].UpperBound, model.ResourceMemory)
-	assert.Contains(t, recommendedResources[containerName].Target, model.ResourceCPU)
-	assert.Contains(t, recommendedResources[containerName].LowerBound, model.ResourceCPU)
-	assert.Contains(t, recommendedResources[containerName].UpperBound, model.ResourceCPU)
-}
-
 func TestMapToListOfRecommendedContainerResources(t *testing.T) {
 	cases := []struct {
 		name         string

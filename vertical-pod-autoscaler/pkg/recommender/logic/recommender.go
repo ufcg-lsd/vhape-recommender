@@ -152,8 +152,21 @@ func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateCo
 
 	rule := selectScalingRule(policy)
 	if rule != nil {
+		lastRec := s.GetLastRecommendation()
+		cpuRequest := 0.0
+		memRequest := 0.0
+		if lastRec != nil {
+			if q := lastRec.Cpu(); q != nil {
+				cpuRequest = float64(q.MilliValue()) / 1000.0
+			}
+			if q := lastRec.Memory(); q != nil {
+				memRequest = float64(q.Value())
+			}
+		}
 		ctx := logictypes.ScalingRuleContext{
-			ContainerName: containerName,
+			ContainerName:        containerName,
+			CurrentCPURequest:    cpuRequest,
+			CurrentMemoryRequest: memRequest,
 		}
 		rec = rule.Apply(rec, ctx)
 	}
