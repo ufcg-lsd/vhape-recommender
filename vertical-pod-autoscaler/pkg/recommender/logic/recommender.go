@@ -128,20 +128,23 @@ func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateCo
 
 	cpuEstimator, memEstimator := r.getOrCreateEstimators(policy)
 
-	targetCPUVal := cpuEstimator.GetCPUEstimation(s, containerName, currentCPUs)
-	targetMemVal := memEstimator.GetMemoryEstimation(s, containerName, currentMemories)
+	p93CPU := cpuEstimator.GetCPUEstimation(s, containerName, currentCPUs)
+	p93Mem := memEstimator.GetMemoryEstimation(s, containerName, currentMemories)
+
+	cpuH := 1 + policy.Spec.CPU.Headroom
+	memH := 1 + policy.Spec.Memory.Headroom
 
 	target := model.Resources{
-		model.ResourceCPU:    targetCPUVal,
-		model.ResourceMemory: targetMemVal,
+		model.ResourceCPU:    model.ScaleResource(p93CPU, cpuH),
+		model.ResourceMemory: model.ScaleResource(p93Mem, memH),
 	}
 	lowerBound := model.Resources{
-		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1-policy.Spec.CPU.LowerBound),
-		model.ResourceMemory: model.ScaleResource(targetMemVal, 1-policy.Spec.Memory.LowerBound),
+		model.ResourceCPU:    model.ScaleResource(p93CPU, (1-policy.Spec.CPU.LowerBound)*cpuH),
+		model.ResourceMemory: model.ScaleResource(p93Mem, (1-policy.Spec.Memory.LowerBound)*memH),
 	}
 	upperBound := model.Resources{
-		model.ResourceCPU:    model.ScaleResource(targetCPUVal, 1+policy.Spec.CPU.UpperBound),
-		model.ResourceMemory: model.ScaleResource(targetMemVal, 1+policy.Spec.Memory.UpperBound),
+		model.ResourceCPU:    model.ScaleResource(p93CPU, (1+policy.Spec.CPU.UpperBound)*cpuH),
+		model.ResourceMemory: model.ScaleResource(p93Mem, (1+policy.Spec.Memory.UpperBound)*memH),
 	}
 
 	rec := logictypes.RecommendedContainerResources{
@@ -173,12 +176,12 @@ func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateCo
 
 	klog.V(4).InfoS("estimateContainerResources resultado",
 		"containerName", containerName,
-		"targetCPUCores", float64(targetCPUVal)/1000,
-		"targetCPUMillicores", targetCPUVal,
+		"p93CPUCores", float64(p93CPU)/1000,
+		"targetCPUMillicores", float64(target[model.ResourceCPU]),
 		"lowerCPUMillicores", float64(lowerBound[model.ResourceCPU]),
 		"upperCPUMillicores", float64(upperBound[model.ResourceCPU]),
-		"targetMemBytes", targetMemVal,
-		"targetMemMB", float64(targetMemVal)/1024/1024,
+		"p93MemBytes", p93Mem,
+		"targetMemMB", float64(target[model.ResourceMemory])/1024/1024,
 		"lowerMemMB", float64(lowerBound[model.ResourceMemory])/1024/1024,
 		"upperMemMB", float64(upperBound[model.ResourceMemory])/1024/1024,
 	)

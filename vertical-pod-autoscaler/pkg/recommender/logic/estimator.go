@@ -260,10 +260,10 @@ func selectHeuristic(policy *VhapePolicy) (CPUEstimator, MemoryEstimator) {
     switch policy.Spec.Heuristic {
     case HeuristicKRR:
         // TODO: implementar krr_estimator.go
-        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile, policy.Spec.CPU.Headroom),
-            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile, policy.Spec.Memory.Headroom)
+        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile),
+            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile)
     default:
-        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile, policy.Spec.CPU.Headroom),
-            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile, policy.Spec.Memory.Headroom)
+        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile),
+            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile)
     }
 }

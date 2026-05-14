@@ -38,21 +38,17 @@ type TimedSample struct {
 
 type HysteresisCPUEstimator struct {
     mu         sync.Mutex
-    prevOpt    map[string]float64
     samples    map[string][]TimedSample
     minCores   float64
     percentile float64
-    headroom   float64
     gcCounter  int
 }
 
-func NewHysteresisCPUEstimator(percentile, headroom float64) *HysteresisCPUEstimator {
+func NewHysteresisCPUEstimator(percentile float64) *HysteresisCPUEstimator {
     return &HysteresisCPUEstimator{
-        prevOpt:    make(map[string]float64),
         samples:    make(map[string][]TimedSample),
         minCores:   CPUMinCores,
         percentile: percentile,
-        headroom:   headroom,
     }
 }
 
@@ -76,13 +72,11 @@ func (e *HysteresisCPUEstimator) gcOrphanedKeys() {
     for key, samples := range e.samples {
         if len(samples) == 0 {
             delete(e.samples, key)
-            delete(e.prevOpt, key)
             deleted++
             continue
         }
         if samples[len(samples)-1].Timestamp.Before(cutoff) {
             delete(e.samples, key)
-            delete(e.prevOpt, key)
             deleted++
         }
     }
@@ -148,38 +142,9 @@ func (e *HysteresisCPUEstimator) GetCPUEstimation(s *model.AggregateContainerSta
         return model.CPUAmountFromCores(e.minCores)
     }
 
-    prev, hasPrev := e.prevOpt[key]
-    if !hasPrev {
-        result := math.Max(p, e.minCores)
-        klog.V(4).InfoS("Hysteresis CPU: primeira estimativa", "p", p, "result", result)
-        e.prevOpt[key] = result
-        return model.CPUAmountFromCores(result)
-    }
-
-    lower := p * (1 - e.headroom)
-    upper := p * (1 + e.headroom)
-    var current float64
-    if p >= prev {
-        if prev >= lower {
-            current = prev
-            klog.V(4).InfoS("Hysteresis CPU: mantendo (p subiu, prev dentro da banda)", "prev", prev, "p", p, "lower", lower)
-        } else {
-            current = p
-            klog.V(4).InfoS("Hysteresis CPU: atualizando para cima", "prev", prev, "p", p, "lower", lower)
-        }
-    } else {
-        if prev <= upper {
-            current = prev
-            klog.V(4).InfoS("Hysteresis CPU: mantendo (p caiu, prev dentro da banda)", "prev", prev, "p", p, "upper", upper)
-        } else {
-            current = p
-            klog.V(4).InfoS("Hysteresis CPU: atualizando para baixo", "prev", prev, "p", p, "upper", upper)
-        }
-    }
-    current = math.Max(current, e.minCores)
-    klog.V(4).InfoS("Hysteresis CPU resultado", "p", p, "prev", prev, "current", current)
-    e.prevOpt[key] = current
-    return model.CPUAmountFromCores(current)
+    result := math.Max(p, e.minCores)
+    klog.V(4).InfoS("Hysteresis CPU resultado", "p", p, "result", result)
+    return model.CPUAmountFromCores(result)
 }
 
 // =====================
@@ -188,21 +153,17 @@ func (e *HysteresisCPUEstimator) GetCPUEstimation(s *model.AggregateContainerSta
 
 type HysteresisMemoryEstimator struct {
     mu         sync.Mutex
-    prevOpt    map[string]float64
     samples    map[string][]TimedSample
     minBytes   float64
     percentile float64
-    headroom   float64
     gcCounter  int
 }
 
-func NewHysteresisMemoryEstimator(percentile, headroom float64) *HysteresisMemoryEstimator {
+func NewHysteresisMemoryEstimator(percentile float64) *HysteresisMemoryEstimator {
     return &HysteresisMemoryEstimator{
-        prevOpt:    make(map[string]float64),
         samples:    make(map[string][]TimedSample),
         minBytes:   MemoryMinBytes,
         percentile: percentile,
-        headroom:   headroom,
     }
 }
 
@@ -226,13 +187,11 @@ func (e *HysteresisMemoryEstimator) gcOrphanedKeys() {
     for key, samples := range e.samples {
         if len(samples) == 0 {
             delete(e.samples, key)
-            delete(e.prevOpt, key)
             deleted++
             continue
         }
         if samples[len(samples)-1].Timestamp.Before(cutoff) {
             delete(e.samples, key)
-            delete(e.prevOpt, key)
             deleted++
         }
     }
@@ -298,36 +257,7 @@ func (e *HysteresisMemoryEstimator) GetMemoryEstimation(s *model.AggregateContai
         return model.MemoryAmountFromBytes(e.minBytes)
     }
 
-    prev, hasPrev := e.prevOpt[key]
-    if !hasPrev {
-        result := math.Max(p, e.minBytes)
-        klog.V(4).InfoS("Hysteresis Memory: primeira estimativa", "p", p, "result", result)
-        e.prevOpt[key] = result
-        return model.MemoryAmountFromBytes(result)
-    }
-
-    lower := p * (1 - e.headroom)
-    upper := p * (1 + e.headroom)
-    var current float64
-    if p >= prev {
-        if prev >= lower {
-            current = prev
-            klog.V(4).InfoS("Hysteresis Memory: mantendo (p subiu, prev dentro da banda)", "prev", prev, "p", p, "lower", lower)
-        } else {
-            current = p
-            klog.V(4).InfoS("Hysteresis Memory: atualizando para cima", "prev", prev, "p", p, "lower", lower)
-        }
-    } else {
-        if prev <= upper {
-            current = prev
-            klog.V(4).InfoS("Hysteresis Memory: mantendo (p caiu, prev dentro da banda)", "prev", prev, "p", p, "upper", upper)
-        } else {
-            current = p
-            klog.V(4).InfoS("Hysteresis Memory: atualizando para baixo", "prev", prev, "p", p, "upper", upper)
-        }
-    }
-    current = math.Max(current, e.minBytes)
-    klog.V(4).InfoS("Hysteresis Memory resultado", "p", p, "prev", prev, "current", current)
-    e.prevOpt[key] = current
-    return model.MemoryAmountFromBytes(current)
+    result := math.Max(p, e.minBytes)
+    klog.V(4).InfoS("Hysteresis Memory resultado", "p", p, "result", result)
+    return model.MemoryAmountFromBytes(result)
 }
