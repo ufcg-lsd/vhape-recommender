@@ -50,12 +50,6 @@ type RecommendedContainerResources = logictypes.RecommendedContainerResources
 // RecommendedPodResources is a Map from container name to recommended resources.
 type RecommendedPodResources map[string]RecommendedContainerResources
 
-// cachedEstimators holds the estimators for a given policy — persists between cycles.
-type cachedEstimators struct {
-	cpu    CPUEstimator
-	memory MemoryEstimator
-}
-
 // podResourceRecommender computes resource recommendation for each container.
 type podResourceRecommender struct {
     dynamicClient dynamic.Interface
@@ -64,17 +58,17 @@ type podResourceRecommender struct {
     estimators    map[string]*cachedEstimators
 }
 
-func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy) (CPUEstimator, MemoryEstimator) {
+func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy) *cachedEstimators {
 	key := policy.Namespace + "/" + policy.Name
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if cached, ok := r.estimators[key]; ok {
-		return cached.cpu, cached.memory
+		return cached
 	}
-	cpu, mem := selectHeuristic(policy)
-	r.estimators[key] = &cachedEstimators{cpu: cpu, memory: mem}
+	cached := selectHeuristic(policy)
+	r.estimators[key] = cached
 	klog.V(4).InfoS("Criando novos estimadores para policy", "key", key, "heuristic", policy.Spec.Heuristic)
-	return cpu, mem
+	return cached
 }
 
 func (r *podResourceRecommender) GetRecommendedPodResources(
@@ -111,40 +105,34 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
         }
     }
 
+    est := r.getOrCreateEstimators(policy)
     for containerName, aggregatedContainerState := range containerNameToAggregateStateMap {
+        est.baseCPU.FeedSamples(containerName, cpuUsageMap[containerName])
+        est.baseMemory.FeedSamples(containerName, memUsageMap[containerName])
         recommendation[containerName] = r.estimateContainerResources(
             aggregatedContainerState,
             containerName,
             policy,
-            cpuUsageMap[containerName],
-            memUsageMap[containerName],
+            est,
         )
     }
     return recommendation
 }
 
-func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateContainerState, containerName string, policy *VhapePolicy, currentCPUs []float64, currentMemories []float64) logictypes.RecommendedContainerResources {
+func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateContainerState, containerName string, policy *VhapePolicy, est *cachedEstimators) logictypes.RecommendedContainerResources {
 	resources := s.GetControlledResources()
 
-	cpuEstimator, memEstimator := r.getOrCreateEstimators(policy)
-
-	p93CPU := cpuEstimator.GetCPUEstimation(s, containerName, currentCPUs)
-	p93Mem := memEstimator.GetMemoryEstimation(s, containerName, currentMemories)
-
-	cpuH := 1 + policy.Spec.CPU.Headroom
-	memH := 1 + policy.Spec.Memory.Headroom
-
 	target := model.Resources{
-		model.ResourceCPU:    model.ScaleResource(p93CPU, cpuH),
-		model.ResourceMemory: model.ScaleResource(p93Mem, memH),
+		model.ResourceCPU:    est.targetCPU.GetCPUEstimation(s, containerName, nil),
+		model.ResourceMemory: est.targetMemory.GetMemoryEstimation(s, containerName, nil),
 	}
 	lowerBound := model.Resources{
-		model.ResourceCPU:    model.ScaleResource(p93CPU, (1-policy.Spec.CPU.LowerBound)*cpuH),
-		model.ResourceMemory: model.ScaleResource(p93Mem, (1-policy.Spec.Memory.LowerBound)*memH),
+		model.ResourceCPU:    est.lowerBoundCPU.GetCPUEstimation(s, containerName, nil),
+		model.ResourceMemory: est.lowerBoundMemory.GetMemoryEstimation(s, containerName, nil),
 	}
 	upperBound := model.Resources{
-		model.ResourceCPU:    model.ScaleResource(p93CPU, (1+policy.Spec.CPU.UpperBound)*cpuH),
-		model.ResourceMemory: model.ScaleResource(p93Mem, (1+policy.Spec.Memory.UpperBound)*memH),
+		model.ResourceCPU:    est.upperBoundCPU.GetCPUEstimation(s, containerName, nil),
+		model.ResourceMemory: est.upperBoundMemory.GetMemoryEstimation(s, containerName, nil),
 	}
 
 	rec := logictypes.RecommendedContainerResources{
@@ -176,11 +164,9 @@ func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateCo
 
 	klog.V(4).InfoS("estimateContainerResources resultado",
 		"containerName", containerName,
-		"p93CPUCores", float64(p93CPU)/1000,
 		"targetCPUMillicores", float64(target[model.ResourceCPU]),
 		"lowerCPUMillicores", float64(lowerBound[model.ResourceCPU]),
 		"upperCPUMillicores", float64(upperBound[model.ResourceCPU]),
-		"p93MemBytes", p93Mem,
 		"targetMemMB", float64(target[model.ResourceMemory])/1024/1024,
 		"lowerMemMB", float64(lowerBound[model.ResourceMemory])/1024/1024,
 		"upperMemMB", float64(upperBound[model.ResourceMemory])/1024/1024,

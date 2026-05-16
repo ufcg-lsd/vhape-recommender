@@ -109,39 +109,42 @@ func (e *HysteresisCPUEstimator) calculatePercentile(key string) float64 {
     return result
 }
 
-func (e *HysteresisCPUEstimator) GetCPUEstimation(s *model.AggregateContainerState, containerName string, currentUsagesCPU []float64) model.ResourceAmount {
-    key := containerName
+func (e *HysteresisCPUEstimator) FeedSamples(containerName string, samples []float64) {
     e.mu.Lock()
     defer e.mu.Unlock()
 
     now := time.Now()
-    for _, usage := range currentUsagesCPU {
+    for _, usage := range samples {
         if usage > 0 {
-            e.samples[key] = append(e.samples[key], TimedSample{
+            e.samples[containerName] = append(e.samples[containerName], TimedSample{
                 Value:     usage / 1000.0,
                 Timestamp: now,
             })
-            klog.V(5).InfoS("Hysteresis CPU: amostra inserida", "containerName", key, "valueCores", usage/1000.0)
+            klog.V(5).InfoS("Hysteresis CPU: amostra inserida", "containerName", containerName, "valueCores", usage/1000.0)
         }
     }
-    klog.V(4).InfoS("Hysteresis CPU: amostras inseridas", "containerName", key, "podsNoCiclo", len(currentUsagesCPU), "totalAmostras", len(e.samples[key]))
+    klog.V(4).InfoS("Hysteresis CPU: amostras inseridas", "containerName", containerName, "podsNoCiclo", len(samples), "totalAmostras", len(e.samples[containerName]))
 
-    before := len(e.samples[key])
-    e.purgeSamples(key)
-    after := len(e.samples[key])
-    klog.V(4).InfoS("Hysteresis CPU: purge", "containerName", key, "descartadas", before-after, "restantes", after)
+    before := len(e.samples[containerName])
+    e.purgeSamples(containerName)
+    after := len(e.samples[containerName])
+    klog.V(4).InfoS("Hysteresis CPU: purge", "containerName", containerName, "descartadas", before-after, "restantes", after)
     e.gcCounter++
     if e.gcCounter >= 60 {
         e.gcOrphanedKeys()
         e.gcCounter = 0
     }
+}
 
-    p := e.calculatePercentile(key)
+func (e *HysteresisCPUEstimator) GetCPUEstimation(s *model.AggregateContainerState, containerName string, _ []float64) model.ResourceAmount {
+    e.mu.Lock()
+    defer e.mu.Unlock()
+
+    p := e.calculatePercentile(containerName)
     if p <= 0 {
         klog.V(4).InfoS("Hysteresis CPU: sem amostras suficientes, retornando mínimo")
         return model.CPUAmountFromCores(e.minCores)
     }
-
     result := math.Max(p, e.minCores)
     klog.V(4).InfoS("Hysteresis CPU resultado", "p", p, "result", result)
     return model.CPUAmountFromCores(result)
@@ -224,39 +227,42 @@ func (e *HysteresisMemoryEstimator) calculatePercentile(key string) float64 {
     return result
 }
 
-func (e *HysteresisMemoryEstimator) GetMemoryEstimation(s *model.AggregateContainerState, containerName string, currentUsagesMemory []float64) model.ResourceAmount {
-    key := containerName
+func (e *HysteresisMemoryEstimator) FeedSamples(containerName string, samples []float64) {
     e.mu.Lock()
     defer e.mu.Unlock()
 
     now := time.Now()
-    for _, usage := range currentUsagesMemory {
+    for _, usage := range samples {
         if usage > 0 {
-            e.samples[key] = append(e.samples[key], TimedSample{
+            e.samples[containerName] = append(e.samples[containerName], TimedSample{
                 Value:     usage,
                 Timestamp: now,
             })
-            klog.V(5).InfoS("Hysteresis Memory: amostra inserida", "containerName", key, "valueBytes", usage)
+            klog.V(5).InfoS("Hysteresis Memory: amostra inserida", "containerName", containerName, "valueBytes", usage)
         }
     }
-    klog.V(4).InfoS("Hysteresis Memory: amostras inseridas", "containerName", key, "podsNoCiclo", len(currentUsagesMemory), "totalAmostras", len(e.samples[key]))
+    klog.V(4).InfoS("Hysteresis Memory: amostras inseridas", "containerName", containerName, "podsNoCiclo", len(samples), "totalAmostras", len(e.samples[containerName]))
 
-    before := len(e.samples[key])
-    e.purgeSamples(key)
-    after := len(e.samples[key])
-    klog.V(4).InfoS("Hysteresis Memory: purge", "containerName", key, "descartadas", before-after, "restantes", after)
+    before := len(e.samples[containerName])
+    e.purgeSamples(containerName)
+    after := len(e.samples[containerName])
+    klog.V(4).InfoS("Hysteresis Memory: purge", "containerName", containerName, "descartadas", before-after, "restantes", after)
     e.gcCounter++
     if e.gcCounter >= 60 {
         e.gcOrphanedKeys()
         e.gcCounter = 0
     }
+}
 
-    p := e.calculatePercentile(key)
+func (e *HysteresisMemoryEstimator) GetMemoryEstimation(s *model.AggregateContainerState, containerName string, _ []float64) model.ResourceAmount {
+    e.mu.Lock()
+    defer e.mu.Unlock()
+
+    p := e.calculatePercentile(containerName)
     if p <= 0 {
         klog.V(4).InfoS("Hysteresis Memory: sem amostras suficientes, retornando mínimo")
         return model.MemoryAmountFromBytes(e.minBytes)
     }
-
     result := math.Max(p, e.minBytes)
     klog.V(4).InfoS("Hysteresis Memory resultado", "p", p, "result", result)
     return model.MemoryAmountFromBytes(result)

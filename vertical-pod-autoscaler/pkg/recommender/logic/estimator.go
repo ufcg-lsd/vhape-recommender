@@ -252,18 +252,37 @@ func NewConstCPUEstimator(cpu model.ResourceAmount) CPUEstimator {
 // heuristic names
 const (
     HeuristicPercentileHysteresis = "percentile-hysteresis"
-    HeuristicKRR           = "p95-max-memory"
 )
 
+// cachedEstimators holds the estimators for a given policy — persists between cycles.
+type cachedEstimators struct {
+    baseCPU          *heuristics.HysteresisCPUEstimator
+    baseMemory       *heuristics.HysteresisMemoryEstimator
+    targetCPU        CPUEstimator
+    targetMemory     MemoryEstimator
+    lowerBoundCPU    CPUEstimator
+    lowerBoundMemory MemoryEstimator
+    upperBoundCPU    CPUEstimator
+    upperBoundMemory MemoryEstimator
+}
+
 // selectHeuristic returns the estimators based on the VhapePolicy.
-func selectHeuristic(policy *VhapePolicy) (CPUEstimator, MemoryEstimator) {
+func selectHeuristic(policy *VhapePolicy) *cachedEstimators {
     switch policy.Spec.Heuristic {
-    case HeuristicKRR:
-        // TODO: implementar krr_estimator.go
-        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile),
-            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile)
     default:
-        return heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile),
-            heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile)
+        baseCPU := heuristics.NewHysteresisCPUEstimator(policy.Spec.CPU.Percentile)
+        baseMem := heuristics.NewHysteresisMemoryEstimator(policy.Spec.Memory.Percentile)
+        cpuH := policy.Spec.CPU.Headroom
+        memH := policy.Spec.Memory.Headroom
+        return &cachedEstimators{
+            baseCPU:          baseCPU,
+            baseMemory:       baseMem,
+            targetCPU:        WithCPUMargin(cpuH, baseCPU),
+            targetMemory:     WithMemoryMargin(memH, baseMem),
+            lowerBoundCPU:    WithCPUMargin(cpuH-policy.Spec.CPU.LowerBound*(1+cpuH), baseCPU),
+            lowerBoundMemory: WithMemoryMargin(memH-policy.Spec.Memory.LowerBound*(1+memH), baseMem),
+            upperBoundCPU:    WithCPUMargin(cpuH+policy.Spec.CPU.UpperBound*(1+cpuH), baseCPU),
+            upperBoundMemory: WithMemoryMargin(memH+policy.Spec.Memory.UpperBound*(1+memH), baseMem),
+        }
     }
 }
