@@ -38,6 +38,14 @@ type ResourceAmount int64
 // Resources is a map from resource name to the corresponding ResourceAmount.
 type Resources map[ResourceName]ResourceAmount
 
+// Resource represents a single resource value.
+// CPU amounts are represented in millicores.
+// Memory amounts are represented in bytes.
+type Resource struct {
+	Name   ResourceName
+	Amount ResourceAmount
+}
+
 const (
 	// ResourceCPU represents CPU in millicores (1core = 1000millicores).
 	ResourceCPU ResourceName = "cpu"
