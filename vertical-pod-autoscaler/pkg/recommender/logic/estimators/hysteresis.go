@@ -10,15 +10,6 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// percentileBufPool makes it possible to calculatePercentile reutilize the
-// same slice, avoiding reallocating some KBs at every recommendation cycle.
-var percentileBufPool = sync.Pool{
-	New: func() interface{} {
-		buf := make([]float64, 0, 1500)
-		return &buf
-	},
-}
-
 type TimedSample struct {
 	Value     model.ResourceAmount
 	Timestamp time.Time
@@ -31,6 +22,7 @@ type HysteresisEstimator struct {
 	percentile    float64
 	headroom      float64
 	slidingWindow time.Duration
+	percentileBuf []model.ResourceAmount
 }
 
 
@@ -47,6 +39,7 @@ func NewHysteresisEstimator(
 		percentile:    percentile,
 		headroom:      headroom,
 		slidingWindow: slidingWindow,
+		percentileBuf: make([]model.ResourceAmount, 0),
 	}
 }
 
@@ -89,31 +82,21 @@ func (e *HysteresisEstimator) calculatePercentile(key string) model.ResourceAmou
 		return 0
 	}
 
-	bufPtr := percentileBufPool.Get().(*[]model.ResourceAmount)
-	values := (*bufPtr)[:0]
-
-	if cap(values) < len(samples) {
-		values = make([]model.ResourceAmount, len(samples))
-	} else {
-		values = values[:len(samples)]
+	buffer := e.percentileBuf[:0]
+	for _, sample := range samples {
+		buffer = append(buffer, sample.Value)
 	}
 
-	for i, sample := range samples {
-		values[i] = sample.Value
-	}
-
-	sort.Slice(values, func(i, j int) bool {
-		return values[i] < values[j]
+	sort.Slice(buffer, func(i, j int) bool {
+		return buffer[i] < buffer[j]
 	})
-	*bufPtr = values
-	percentileBufPool.Put(bufPtr)
 
-	idx := int(math.Ceil(e.percentile*float64(len(values)))) - 1
+	idx := int(math.Ceil(e.percentile*float64(len(buffer)))) - 1
 	if idx < 0 {
 		idx = 0
 	}
-	result := values[idx]
-	
+	result := buffer[idx]
+	e.percentileBuf = buffer
 	return result
 }
 
