@@ -131,7 +131,7 @@ func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, sample
 	e.purgeSamples(containerName)
 }
 
-func (e *PercentileHysteresisEstimator) GetResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.ResourceRecommendation {
+func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.SingleResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -156,7 +156,7 @@ func (e *PercentileHysteresisEstimator) GetResourceRecommendation(containerName 
 		"upperBound", upperBound,
 	)
 
-	return recommendation.ResourceRecommendation{
+	return recommendation.SingleResourceRecommendation{
 		Target:         target,
 		LowerBound:     lowerBound,
 		UpperBound:     upperBound,

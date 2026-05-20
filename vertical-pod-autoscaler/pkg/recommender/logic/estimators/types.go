@@ -5,6 +5,7 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 )
 
+
 type ResourceConstraints struct {
 	Min model.ResourceAmount
 	Max model.ResourceAmount
@@ -12,5 +13,5 @@ type ResourceConstraints struct {
 
 type ResourceEstimator interface {
 	FeedSamples(containerName string, samples []model.ResourceAmount)
-	GetResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.ResourceRecommendation
+	GetSingleResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.SingleResourceRecommendation
 }
