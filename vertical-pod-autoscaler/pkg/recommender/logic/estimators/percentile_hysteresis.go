@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/klog/v2"
 )
 
@@ -130,7 +131,7 @@ func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, sample
 	e.purgeSamples(containerName)
 }
 
-func (e *PercentileHysteresisEstimator) GetResourceRecommendation(containerName string, constraints ResourceConstraints) ResourceRecommendation {
+func (e *PercentileHysteresisEstimator) GetResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.ResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -155,7 +156,7 @@ func (e *PercentileHysteresisEstimator) GetResourceRecommendation(containerName 
 		"upperBound", upperBound,
 	)
 
-	return ResourceRecommendation{
+	return recommendation.ResourceRecommendation{
 		Target:         target,
 		LowerBound:     lowerBound,
 		UpperBound:     upperBound,
