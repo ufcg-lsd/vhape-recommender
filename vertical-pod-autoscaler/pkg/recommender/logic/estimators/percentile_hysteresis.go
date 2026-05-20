@@ -15,7 +15,7 @@ type TimedSample struct {
 	Timestamp time.Time
 }
 
-type HysteresisEstimator struct {
+type PercentileHysteresisEstimator struct {
 	mu            sync.Mutex
 	resourceName  model.ResourceName
 	samples       map[string][]TimedSample
@@ -25,15 +25,14 @@ type HysteresisEstimator struct {
 	percentileBuf []model.ResourceAmount
 }
 
-
-func NewHysteresisEstimator(
+func NewPercentileHysteresisEstimator(
 	resourceName model.ResourceName,
 	percentile float64,
 	headroom float64,
 	slidingWindow time.Duration,
-) *HysteresisEstimator {
+) *PercentileHysteresisEstimator {
 
-	return &HysteresisEstimator{
+	return &PercentileHysteresisEstimator{
 		resourceName:  resourceName,
 		samples:       make(map[string][]TimedSample),
 		percentile:    percentile,
@@ -43,7 +42,7 @@ func NewHysteresisEstimator(
 	}
 }
 
-func (e *HysteresisEstimator) purgeSamples(key string) {
+func (e *PercentileHysteresisEstimator) purgeSamples(key string) {
 	samples := e.samples[key]
 	before := len(samples)
 
@@ -63,7 +62,7 @@ func (e *HysteresisEstimator) purgeSamples(key string) {
 		copy(newSlice, samples[i:])
 		e.samples[key] = newSlice
 	}
-		
+
 	after := len(e.samples[key])
 
 	klog.V(4).InfoS(
@@ -75,10 +74,10 @@ func (e *HysteresisEstimator) purgeSamples(key string) {
 	)
 }
 
-func (e *HysteresisEstimator) calculatePercentile(key string) model.ResourceAmount {
+func (e *PercentileHysteresisEstimator) calculatePercentile(key string) model.ResourceAmount {
 	samples := e.samples[key]
-	
-    if len(samples) == 0 {
+
+	if len(samples) == 0 {
 		return 0
 	}
 
@@ -100,7 +99,7 @@ func (e *HysteresisEstimator) calculatePercentile(key string) model.ResourceAmou
 	return result
 }
 
-func (e *HysteresisEstimator) FeedSamples(containerName string, samples []model.ResourceAmount) {
+func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, samples []model.ResourceAmount) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -131,11 +130,10 @@ func (e *HysteresisEstimator) FeedSamples(containerName string, samples []model.
 	e.purgeSamples(containerName)
 }
 
-
-func (e *HysteresisEstimator) GetResourceRecommendation(containerName string, constraints ResourceConstraints) ResourceRecommendation {
+func (e *PercentileHysteresisEstimator) GetResourceRecommendation(containerName string, constraints ResourceConstraints) ResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
+
 	e.purgeSamples(containerName)
 
 	base := e.calculatePercentile(containerName)
@@ -156,11 +154,11 @@ func (e *HysteresisEstimator) GetResourceRecommendation(containerName string, co
 		"lowerBound", lowerBound,
 		"upperBound", upperBound,
 	)
-	
+
 	return ResourceRecommendation{
-		Target: target,
-		LowerBound: lowerBound,
-		UpperBound: upperBound,
+		Target:         target,
+		LowerBound:     lowerBound,
+		UpperBound:     upperBound,
 		UncappedTarget: uncappedTarget,
 	}
 }
