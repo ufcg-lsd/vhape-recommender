@@ -1,20 +1,20 @@
 package scalingrules
 
 import (
-	logictypes "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/types"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/recommendation"
 	"k8s.io/klog/v2"
 )
 
 type ScaleUpOnlyRule struct{}
 
-func (r *ScaleUpOnlyRule) Apply(rec logictypes.RecommendedContainerResources, ctx logictypes.ScalingRuleContext) logictypes.RecommendedContainerResources {
-	currentCPU := model.CPUAmountFromCores(ctx.CurrentCPURequest)
-	currentMemory := model.MemoryAmountFromBytes(ctx.CurrentMemoryRequest)
+func (r *ScaleUpOnlyRule) Apply(rec recommendation.ResourceRecommendation, ctx ScalingRuleContext) recommendation.ResourceRecommendation {
+	currentCPU := ctx.CurrentRequest[model.ResourceCPU]
+	currentMemory := ctx.CurrentRequest[model.ResourceMemory]
 
 	if rec.Target[model.ResourceCPU] < currentCPU {
-		klog.V(4).InfoS("ScaleUpOnly: bloqueando scale-down de CPU",
-			"current", ctx.CurrentCPURequest,
+		klog.V(4).InfoS("ScaleUpOnly: blocking CPU scale-down.",
+			"current", currentCPU,
 			"recommended", rec.Target[model.ResourceCPU],
 		)
 		rec.Target[model.ResourceCPU] = currentCPU
@@ -22,8 +22,8 @@ func (r *ScaleUpOnlyRule) Apply(rec logictypes.RecommendedContainerResources, ct
 	}
 
 	if rec.Target[model.ResourceMemory] < currentMemory {
-		klog.V(4).InfoS("ScaleUpOnly: bloqueando scale-down de memory",
-			"current", ctx.CurrentMemoryRequest,
+		klog.V(4).InfoS("ScaleUpOnly: blocking memory scale-down.",
+			"current", currentMemory,
 			"recommended", rec.Target[model.ResourceMemory],
 		)
 		rec.Target[model.ResourceMemory] = currentMemory

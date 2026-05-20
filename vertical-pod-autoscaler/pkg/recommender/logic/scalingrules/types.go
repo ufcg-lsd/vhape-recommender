@@ -12,7 +12,7 @@ const (
 
 type ScalingRuleContext struct {
 	ContainerName string
-	Current       model.Resources
+	CurrentRequest model.Resources
 }
 
 type ScalingRule interface {
