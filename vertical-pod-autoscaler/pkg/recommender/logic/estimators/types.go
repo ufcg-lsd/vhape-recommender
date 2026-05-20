@@ -1,13 +1,9 @@
 package estimators
 
-import "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
-
-type ResourceRecommendation struct {
-	Target         model.ResourceAmount
-	LowerBound     model.ResourceAmount
-	UpperBound     model.ResourceAmount
-	UncappedTarget model.ResourceAmount
-}
+import (
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
+)
 
 type ResourceConstraints struct {
 	Min model.ResourceAmount
@@ -16,5 +12,5 @@ type ResourceConstraints struct {
 
 type ResourceEstimator interface {
 	FeedSamples(containerName string, samples []model.ResourceAmount)
-	GetResourceRecommendation(containerName string, constraints ResourceConstraints) ResourceRecommendation
+	GetResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.ResourceRecommendation
 }
