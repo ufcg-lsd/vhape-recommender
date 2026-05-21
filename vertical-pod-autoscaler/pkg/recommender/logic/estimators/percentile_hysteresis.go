@@ -173,7 +173,7 @@ func applyConstraints(amount model.ResourceAmount, constraints ResourceConstrain
 		return constraints.Min
 	}
 
-	if amount > constraints.Max {
+	if constraints.Max > 0 && amount > constraints.Max {
 		return constraints.Max
 	}
 
