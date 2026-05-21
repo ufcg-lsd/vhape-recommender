@@ -169,7 +169,9 @@ func (cluster *clusterState) AddOrUpdatePod(podID PodID, newLabels labels.Set, p
 		// Set the links between the containers and aggregations based on the current pod labels.
 		for containerName, container := range pod.Containers {
 			containerID := ContainerID{PodID: podID, ContainerName: containerName}
-			container.aggregator = cluster.findOrCreateAggregateContainerState(containerID)
+			aggregate := cluster.findOrCreateAggregateContainerState(containerID)
+			aggregate.ObserveRequest(container.Request, time.Now())
+			container.aggregator = aggregate
 		}
 
 		cluster.addPodToItsVpa(pod)
@@ -227,8 +229,11 @@ func (cluster *clusterState) AddOrUpdateContainer(containerID ContainerID, reque
 	if !podExists {
 		return NewKeyError(containerID.PodID)
 	}
+
+	aggregate := cluster.findOrCreateAggregateContainerState(containerID)
+	aggregate.ObserveRequest(request, time.Now())
+
 	if container, containerExists := pod.Containers[containerID.ContainerName]; !containerExists {
-		cluster.findOrCreateAggregateContainerState(containerID)
 		pod.Containers[containerID.ContainerName] = NewContainerState(request, NewContainerStateAggregatorProxy(cluster, containerID))
 	} else {
 		// Container aleady exists. Possibly update the request.

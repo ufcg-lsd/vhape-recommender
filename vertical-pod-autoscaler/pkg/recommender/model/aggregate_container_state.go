@@ -108,6 +108,9 @@ type AggregateContainerState struct {
 	TotalSamplesCount int
 	CreationTime      time.Time
 
+	LastObservedRequest   Resources
+	LastObservedRequestAt time.Time
+
 	// Following fields are needed to correctly report quality metrics
 	// for VPA. When we record a new sample in an AggregateContainerState
 	// we want to know if it needs recommendation, if the recommendation
@@ -197,6 +200,11 @@ func (a *AggregateContainerState) MergeContainerState(other *AggregateContainerS
 		a.LastSampleStart = other.LastSampleStart
 	}
 	a.TotalSamplesCount += other.TotalSamplesCount
+
+	if other.LastObservedRequestAt.After(a.LastObservedRequestAt) {
+		a.LastObservedRequest = other.LastObservedRequest
+		a.LastObservedRequestAt = other.LastObservedRequestAt
+	}
 }
 
 // NewAggregateContainerState returns a new, empty AggregateContainerState.
@@ -423,4 +431,13 @@ func (p *ContainerStateAggregatorProxy) GetOOMMinBumpUp() float64 {
 func (p *ContainerStateAggregatorProxy) GetOOMBumpUpRatio() float64 {
 	aggregator := p.cluster.findOrCreateAggregateContainerState(p.containerID)
 	return aggregator.GetOOMBumpUpRatio()
+}
+
+func (a *AggregateContainerState) ObserveRequest(request Resources, observedAt time.Time) {
+	a.LastObservedRequest = request
+	a.LastObservedRequestAt = observedAt
+}
+
+func (a *AggregateContainerState) GetLastObservedRequest() Resources {
+	return a.LastObservedRequest
 }
