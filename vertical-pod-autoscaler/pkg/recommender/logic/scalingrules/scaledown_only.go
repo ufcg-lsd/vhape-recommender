@@ -9,10 +9,10 @@ import (
 type ScaleDownOnlyRule struct{}
 
 func (r *ScaleDownOnlyRule) Apply(rec recommendation.ResourceRecommendation, ctx ScalingRuleContext) recommendation.ResourceRecommendation {
-	currentCPU := ctx.CurrentRequest[model.ResourceCPU]
-	currentMemory := ctx.CurrentRequest[model.ResourceMemory]
+	currentCPU, hasCPU := ctx.CurrentRequest[model.ResourceCPU]	
+	currentMemory, hasMem := ctx.CurrentRequest[model.ResourceMemory]
 
-	if rec.Target[model.ResourceCPU] > currentCPU {
+	if hasCPU && rec.Target[model.ResourceCPU] > currentCPU {
 		klog.V(4).InfoS("ScaleDownOnly: blocking CPU scale-up",
 			"current", currentCPU,
 			"recommended", rec.Target[model.ResourceCPU],
@@ -21,7 +21,7 @@ func (r *ScaleDownOnlyRule) Apply(rec recommendation.ResourceRecommendation, ctx
 		rec.UpperBound[model.ResourceCPU] = currentCPU
 	}
 
-	if rec.Target[model.ResourceMemory] > currentMemory {
+	if hasMem && rec.Target[model.ResourceMemory] > currentMemory {
 		klog.V(4).InfoS("ScaleDownOnly: blocking memory scale-up",
 			"current", currentMemory,
 			"recommended", rec.Target[model.ResourceMemory],
