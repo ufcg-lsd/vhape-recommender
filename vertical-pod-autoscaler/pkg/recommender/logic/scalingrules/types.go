@@ -20,7 +20,7 @@ type ScalingRule interface {
 }
 
 // selectScalingRule returns the active scaling rule based on the VhapePolicy.
-func selectScalingRule(name string) ScalingRule {
+func SelectScalingRule(name string) ScalingRule {
 	switch name {
 		case ScalingRuleScaleDownOnly:
 			return &ScaleDownOnlyRule{}
