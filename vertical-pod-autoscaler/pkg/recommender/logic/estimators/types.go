@@ -15,8 +15,3 @@ type ResourceEstimator interface {
 	FeedSamples(containerName string, samples []model.ResourceAmount)
 	GetSingleResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.SingleResourceRecommendation
 }
-
-type ResourceEstimators struct {
-	CPU    ResourceEstimator
-	Memory ResourceEstimator
-}
