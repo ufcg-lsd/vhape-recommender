@@ -96,7 +96,7 @@ func (e *PercentileHysteresisEstimator) calculatePercentile(key string) model.Re
 		idx = 0
 	}
 	result := buffer[idx]
-	e.percentileBuf = buffer
+	e.percentileBuf = buffer[:0]
 	return result
 }
 
