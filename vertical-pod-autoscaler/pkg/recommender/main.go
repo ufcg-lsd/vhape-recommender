@@ -68,6 +68,8 @@ var (
 	storage                = flag.String("storage", "", `Specifies storage mode. Supported values: prometheus, checkpoint (default)`)
 	memorySaver            = flag.Bool("memory-saver", false, `If true, only track pods which have an associated VPA`)
 	updateWorkerCount      = flag.Int("update-worker-count", 10, "Number of concurrent workers to update VPA recommendations and checkpoints. When increasing this setting, make sure the client-side rate limits ('kube-api-qps' and 'kube-api-burst') are either increased or turned off as well. Determines the minimum number of VPA checkpoints written per recommender loop.")
+	podMinCPUMillicores = flag.Float64("pod-recommendation-min-cpu-millicores", 25, "Minimum CPU recommendation for a pod.",)
+	podMinMemoryMb = flag.Float64("pod-recommendation-min-memory-mb", 250, "Minimum memory recommendation for a pod.",)
 )
 
 // Prometheus history provider flags
@@ -322,7 +324,14 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		ControllerFetcher:            controllerFetcher,
 		CheckpointWriter:             checkpoint.NewCheckpointWriter(clusterState, vpa_clientset.NewForConfigOrDie(config).AutoscalingV1()),
 		VpaClient:                    vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
-		PodResourceRecommender: logic.CreatePodResourceRecommender(logic.RecommendationConfig{}, dynamicClient, metricsClient),
+		PodResourceRecommender: logic.CreatePodResourceRecommender(
+			logic.RecommendationLimits{
+				PodMinCPUMillicores: *podMinCPUMillicores,
+				PodMinMemoryMb:      *podMinMemoryMb,
+			},
+			dynamicClient,
+			metricsClient,
+		),
 		RecommendationFormat: logic.RecommendationFormat{
 			HumanizeMemory:     *humanizeMemory,
 			RoundCPUMillicores: *roundCPUMillicores,
