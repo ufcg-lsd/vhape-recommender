@@ -1,77 +1,63 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  # nome do CRD: plural.group
   name: vhapepolicies.autoscaling.vhape.io
 spec:
-  # domínio da API
-  group: autoscaling.vhape.io
-  names:
-    # nome do tipo usado no kind:
-    kind: VhapePolicy
-    listKind: VhapePolicyList
-    # nome para listar: kubectl get vhapepolicies
-    plural: vhapepolicies
-    # nome singular: kubectl get vhapepolicy
-    singular: vhapepolicy
-  # existe dentro de um namespace
-  scope: Namespaced
-  versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      schema:
-        openAPIV3Schema:
+  type: object
+  required:
+    - resources
+  properties:
+    resources:
+      type: object
+      required:
+        - cpu
+        - memory
+      properties:
+        cpu:
           type: object
+          minProperties: 1
+          maxProperties: 1
           properties:
-            spec:
+            percentile-hysteresis:
               type: object
+              required:
+                - percentile
+                - headroom
+                - slidingWindow
               properties:
-                # qual heurística usar: percentile-hysteresis, p95-max-memory
-                heuristic:
+                percentile:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                headroom:
+                  type: number
+                  minimum: 0
+                slidingWindow:
                   type: string
-                # regra de negócio: scale-down-only, scale-up-only ou vazio
-                scalingRule:
+        memory:
+          type: object
+          minProperties: 1
+          maxProperties: 1
+          properties:
+            percentile-hysteresis:
+              type: object
+              required:
+                - percentile
+                - headroom
+                - slidingWindow
+              properties:
+                percentile:
+                  type: number
+                  minimum: 0
+                  maximum: 1
+                headroom:
+                  type: number
+                  minimum: 0
+                slidingWindow:
                   type: string
-                cpu:
-                  type: object
-                  properties:
-                    # percentil para calcular o target de CPU (ex: 0.93)
-                    percentile:
-                      type: number
-                    # banda da histerese (ex: 0.10 = 10%)
-                    headroom:
-                      type: number
-                    lowerBound:
-                      type: number
-                      minimum: 0
-                      maximum: 1
-                    upperBound:
-                      type: number
-                      minimum: 0
-                  required: ["percentile", "headroom", "lowerBound", "upperBound"]
-                memory:
-                  type: object
-                  properties:
-                    # percentil para calcular o target de memória (ex: 0.93, 1.0 = max)
-                    percentile:
-                      type: number
-                    # banda da histerese (ex: 0.10 = 10%)
-                    headroom:
-                      type: number
-                    lowerBound:
-                      type: number
-                      minimum: 0
-                      maximum: 1
-                    upperBound:
-                      type: number
-                      minimum: 0
-                  required: ["percentile", "headroom", "lowerBound", "upperBound"]
-      # colunas extras no kubectl get vhapepolicies
-      additionalPrinterColumns:
-        - jsonPath: .spec.heuristic
-          name: Heuristic
-          type: string
-        - jsonPath: .spec.scalingRule
-          name: ScalingRule
-          type: string
+    scalingRule:
+      type: string
+      enum:
+        - ""
+        - scale-up-only
+        - scale-down-only
