@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/klog/v2"
 )
 
@@ -131,7 +131,7 @@ func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, sample
 	e.purgeSamples(containerName)
 }
 
-func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containerName string, constraints ResourceConstraints) recommendation.SingleResourceRecommendation {
+func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containerName string, constraints ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -168,7 +168,7 @@ func scaleResourceAmount(amount model.ResourceAmount, factor float64) model.Reso
 	return model.ResourceAmount(math.Ceil(float64(amount) * factor))
 }
 
-func applyConstraints(amount model.ResourceAmount, constraints ResourceConstraints) model.ResourceAmount {
+func applyConstraints(amount model.ResourceAmount, constraints ContainerResourceConstraints) model.ResourceAmount {
 	if amount < constraints.Min {
 		return constraints.Min
 	}
