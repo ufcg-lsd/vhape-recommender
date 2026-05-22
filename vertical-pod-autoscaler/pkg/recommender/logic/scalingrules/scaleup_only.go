@@ -9,6 +9,10 @@ import (
 type ScaleUpOnlyRule struct{}
 
 func (r *ScaleUpOnlyRule) Apply(rec recommendation.ResourceRecommendation, ctx ScalingRuleContext) recommendation.ResourceRecommendation {
+	if ctx.CurrentRequest == nil {
+		return rec
+	}
+	
 	currentCPU, hasCPU := ctx.CurrentRequest[model.ResourceCPU]	
 	currentMemory, hasMem := ctx.CurrentRequest[model.ResourceMemory]
 
