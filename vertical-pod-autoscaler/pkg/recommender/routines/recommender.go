@@ -80,6 +80,7 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 		GetContainerNameToAggregateStateMap(vpa),
 		observedVpa.Namespace,
 		observedVpa.Annotations,
+		r.clusterState.GetMatchingPods(vpa),
 	)
 	had := vpa.HasRecommendation()
 

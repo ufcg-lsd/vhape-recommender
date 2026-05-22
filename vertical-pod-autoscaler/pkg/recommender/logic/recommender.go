@@ -3,29 +3,49 @@ package logic
 import (
 	"sort"
 	"sync"
-	"time"
 	"context"
-
+	
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
-	logictypes "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/types"
+	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/scalingrules"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
-	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 )
 
-type RecommendationConfig struct {
-	SafetyMarginFraction       float64
-	PodMinCPUMillicores        float64
-	PodMinMemoryMb             float64
-	TargetCPUPercentile        float64
-	LowerBoundCPUPercentile    float64
-	UpperBoundCPUPercentile    float64
-	ConfidenceIntervalCPU      time.Duration
-	TargetMemoryPercentile     float64
-	LowerBoundMemoryPercentile float64
-	UpperBoundMemoryPercentile float64
-	ConfidenceIntervalMemory   time.Duration
+// PodResourceRecommender computes resource recommendation for a Vpa object.
+type PodResourceRecommender interface {
+	GetRecommendedPodResources(
+		containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
+		namespace string,
+		annotations map[string]string,
+		matchingPods []model.PodID,
+	) RecommendedPodResources
+}
+
+type podResourceRecommender struct {
+	config        RecommendationLimits
+	dynamicClient dynamic.Interface
+	metricsClient input_metrics.MetricsClient
+	mu            sync.Mutex
+	estimators    map[string]*ResourceEstimators
+}
+
+// CreatePodResourceRecommender returns the primary recommender.
+func CreatePodResourceRecommender(config RecommendationLimits, dynamicClient dynamic.Interface, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
+	return &podResourceRecommender{
+		config:        config,
+		dynamicClient: dynamicClient,
+		metricsClient: metricsClient,
+		estimators:    make(map[string]*ResourceEstimators),
+	}
+}
+
+type RecommendationLimits struct {
+	PodMinCPUMillicores float64
+	PodMinMemoryMb      float64
 }
 
 // RecommendationFormat controls how numeric values are rendered in outputs.
@@ -35,144 +55,226 @@ type RecommendationFormat struct {
 	RoundMemoryBytes   int
 }
 
-// PodResourceRecommender computes resource recommendation for a Vpa object.
-type PodResourceRecommender interface {
-	GetRecommendedPodResources(
-		containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
-		namespace string,
-		annotations map[string]string,
-	) RecommendedPodResources
-}
-
-// RecommendedContainerResources is an alias for logictypes.RecommendedContainerResources.
-type RecommendedContainerResources = logictypes.RecommendedContainerResources
-
 // RecommendedPodResources is a Map from container name to recommended resources.
-type RecommendedPodResources map[string]RecommendedContainerResources
+type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 
-// podResourceRecommender computes resource recommendation for each container.
-type podResourceRecommender struct {
-    dynamicClient dynamic.Interface
-    metricsClient input_metrics.MetricsClient
-    mu            sync.Mutex
-    estimators    map[string]*cachedEstimators
+type ResourceEstimators struct {
+	CPU    estimators.ResourceEstimator
+	Memory estimators.ResourceEstimator
 }
 
-func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy) *cachedEstimators {
-	key := policy.Namespace + "/" + policy.Name
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if cached, ok := r.estimators[key]; ok {
-		return cached
-	}
-	cached := selectHeuristic(policy)
-	r.estimators[key] = cached
-	klog.V(4).InfoS("Criando novos estimadores para policy", "key", key, "heuristic", policy.Spec.Heuristic)
-	return cached
+type containerUsage struct {
+	CPU    map[string][]model.ResourceAmount
+	Memory map[string][]model.ResourceAmount
 }
 
 func (r *podResourceRecommender) GetRecommendedPodResources(
-    containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
-    namespace string,
-    annotations map[string]string,
+	containerStates model.ContainerNameToAggregateStateMap,
+	namespace string,
+	annotations map[string]string,
+	matchingPods []model.PodID,
 ) RecommendedPodResources {
-    var recommendation = make(RecommendedPodResources)
-    if len(containerNameToAggregateStateMap) == 0 {
-        return recommendation
-    }
-    policyName := annotations["vhape/policy"]
-    policy, err := FetchVhapePolicy(r.dynamicClient, namespace, policyName)
-    if err != nil {
-        klog.Warningf("Skipping VPA in namespace %q: %v", namespace, err)
-        return recommendation
-    }
+	recommendations := make(RecommendedPodResources)
 
-    // coleta métricas atuais uma vez por ciclo
-    snapshots, err := r.metricsClient.GetContainersMetrics(context.TODO())
-    if err != nil {
-        klog.Warningf("Falha ao coletar métricas em namespace %q: %v", namespace, err)
-        snapshots = nil
-    }
+	if len(containerStates) == 0 {
+		return recommendations
+	}
 
-    // monta mapa containerName → slice de amostras (uma por pod)
-    cpuUsageMap := make(map[string][]float64)
-    memUsageMap := make(map[string][]float64)
-    for _, snap := range snapshots {
-        if snap.ID.PodID.Namespace == namespace {
-            name := snap.ID.ContainerName
-            cpuUsageMap[name] = append(cpuUsageMap[name], float64(snap.Usage[model.ResourceCPU]))
-            memUsageMap[name] = append(memUsageMap[name], float64(snap.Usage[model.ResourceMemory]))
-        }
-    }
+	policy, ok := r.fetchPolicy(namespace, annotations["vhape/policy"])
+	if !ok {
+		return recommendations
+	}
 
-    est := r.getOrCreateEstimators(policy)
-    for containerName, aggregatedContainerState := range containerNameToAggregateStateMap {
-        est.baseCPU.FeedSamples(containerName, cpuUsageMap[containerName])
-        est.baseMemory.FeedSamples(containerName, memUsageMap[containerName])
-        recommendation[containerName] = r.estimateContainerResources(
-            aggregatedContainerState,
-            containerName,
-            policy,
-            est,
-        )
-    }
-    return recommendation
+	usage := r.collectCurrentUsage(namespace, matchingPods)
+	estimators := r.getOrCreateEstimators(policy)
+	for containerName := range containerStates {
+		estimators.CPU.FeedSamples(containerName, usage.CPU[containerName])
+		estimators.Memory.FeedSamples(containerName, usage.Memory[containerName])
+	}
+
+	for containerName, state := range containerStates {
+		recommendations[containerName] = r.recommendContainerResources(
+			containerName,
+			state,
+			policy,
+			estimators,
+			len(containerStates),
+		)
+	}
+
+	return recommendations
 }
 
-func (r *podResourceRecommender) estimateContainerResources(s *model.AggregateContainerState, containerName string, policy *VhapePolicy, est *cachedEstimators) logictypes.RecommendedContainerResources {
-	resources := s.GetControlledResources()
-
-	target := model.Resources{
-		model.ResourceCPU:    est.targetCPU.GetCPUEstimation(s, containerName, nil),
-		model.ResourceMemory: est.targetMemory.GetMemoryEstimation(s, containerName, nil),
-	}
-	lowerBound := model.Resources{
-		model.ResourceCPU:    est.lowerBoundCPU.GetCPUEstimation(s, containerName, nil),
-		model.ResourceMemory: est.lowerBoundMemory.GetMemoryEstimation(s, containerName, nil),
-	}
-	upperBound := model.Resources{
-		model.ResourceCPU:    est.upperBoundCPU.GetCPUEstimation(s, containerName, nil),
-		model.ResourceMemory: est.upperBoundMemory.GetMemoryEstimation(s, containerName, nil),
+func (r *podResourceRecommender) fetchPolicy(namespace string, policyName string) (*VhapePolicy, bool) {
+	policy, err := FetchVhapePolicy(r.dynamicClient, namespace, policyName)
+	if err != nil {
+		klog.Warningf("Skipping VPA in namespace %q: %v", namespace, err)
+		return nil, false
 	}
 
-	rec := logictypes.RecommendedContainerResources{
-		Target:     FilterControlledResources(target, resources),
-		LowerBound: FilterControlledResources(lowerBound, resources),
-		UpperBound: FilterControlledResources(upperBound, resources),
+	return policy, true
+}
+
+func (r *podResourceRecommender) collectCurrentUsage(namespace string, matchingPods []model.PodID) containerUsage {
+	usage := containerUsage{
+		CPU:    make(map[string][]model.ResourceAmount),
+		Memory: make(map[string][]model.ResourceAmount),
 	}
 
-	rule := selectScalingRule(policy)
-	if rule != nil {
-		lastRec := s.GetLastRecommendation()
-		cpuRequest := 0.0
-		memRequest := 0.0
-		if lastRec != nil {
-			if q := lastRec.Cpu(); q != nil {
-				cpuRequest = float64(q.MilliValue()) / 1000.0
-			}
-			if q := lastRec.Memory(); q != nil {
-				memRequest = float64(q.Value())
-			}
+	podSet := make(map[model.PodID]struct{}, len(matchingPods))
+	for _, podID := range matchingPods {
+		podSet[podID] = struct{}{}
+	}
+
+	snapshots, err := r.metricsClient.GetContainersMetrics(context.TODO())
+	if err != nil {
+		klog.Warningf("Failed to collect metrics in namespace %q: %v", namespace, err)
+		return usage
+	}
+
+	for _, snap := range snapshots {
+		if snap.ID.PodID.Namespace != namespace {
+			continue
 		}
-		ctx := logictypes.ScalingRuleContext{
-			ContainerName:        containerName,
-			CurrentCPURequest:    cpuRequest,
-			CurrentMemoryRequest: memRequest,
+		
+		if _, ok := podSet[snap.ID.PodID]; !ok {
+			continue
 		}
-		rec = rule.Apply(rec, ctx)
+
+		containerName := snap.ID.ContainerName
+
+		usage.CPU[containerName] = append(
+			usage.CPU[containerName],
+			snap.Usage[model.ResourceCPU],
+		)
+
+		usage.Memory[containerName] = append(
+			usage.Memory[containerName],
+			snap.Usage[model.ResourceMemory],
+		)
 	}
 
-	klog.V(4).InfoS("estimateContainerResources resultado",
+	return usage
+}
+
+func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy) *ResourceEstimators {
+	key := policy.Namespace + "/" + policy.Name
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if cached, ok := r.estimators[key]; ok {
+		klog.V(4).InfoS("Cached estimators found for the policy", "key", key)
+		return cached
+	}
+
+	created := &ResourceEstimators{
+		CPU:    policy.Spec.Resources.CPU.Heuristic.NewEstimator(model.ResourceCPU),
+		Memory: policy.Spec.Resources.Memory.Heuristic.NewEstimator(model.ResourceMemory),
+	}
+
+	r.estimators[key] = created
+
+	return created
+}
+
+func (r *podResourceRecommender) recommendContainerResources(
+	containerName string,
+	state *model.AggregateContainerState,
+	policy *VhapePolicy,
+	est *ResourceEstimators,
+	containerCount int,
+) recommendation.ResourceRecommendation {
+	controlledResources := state.GetControlledResources()
+
+	cpuRec := est.CPU.GetSingleResourceRecommendation(
+		containerName,
+		r.calculateContainerCpuConstraints(containerCount),
+	)
+
+	memRec := est.Memory.GetSingleResourceRecommendation(
+		containerName,
+		r.calculateContainerMemoryConstraints(containerCount),
+	)
+
+	rec := recommendation.ResourceRecommendation{
+		Target: FilterControlledResources(model.Resources{
+			model.ResourceCPU:    cpuRec.Target,
+			model.ResourceMemory: memRec.Target,
+		}, controlledResources),
+
+		LowerBound: FilterControlledResources(model.Resources{
+			model.ResourceCPU:    cpuRec.LowerBound,
+			model.ResourceMemory: memRec.LowerBound,
+		}, controlledResources),
+
+		UpperBound: FilterControlledResources(model.Resources{
+			model.ResourceCPU:    cpuRec.UpperBound,
+			model.ResourceMemory: memRec.UpperBound,
+		}, controlledResources),
+
+		UncappedTarget: FilterControlledResources(model.Resources{
+			model.ResourceCPU:    cpuRec.UncappedTarget,
+			model.ResourceMemory: memRec.UncappedTarget,
+		}, controlledResources),
+	}
+
+	rec = r.applyScalingRule(rec, policy, containerName, state)
+
+	klog.V(4).InfoS("Estimated container resources",
 		"containerName", containerName,
-		"targetCPUMillicores", float64(target[model.ResourceCPU]),
-		"lowerCPUMillicores", float64(lowerBound[model.ResourceCPU]),
-		"upperCPUMillicores", float64(upperBound[model.ResourceCPU]),
-		"targetMemMB", float64(target[model.ResourceMemory])/1024/1024,
-		"lowerMemMB", float64(lowerBound[model.ResourceMemory])/1024/1024,
-		"upperMemMB", float64(upperBound[model.ResourceMemory])/1024/1024,
+		"targetCPUMillicores", rec.Target[model.ResourceCPU],
+		"lowerCPUMillicores", rec.LowerBound[model.ResourceCPU],
+		"upperCPUMillicores", rec.UpperBound[model.ResourceCPU],
+		"targetMemMB", float64(rec.Target[model.ResourceMemory])/1024/1024,
+		"lowerMemMB", float64(rec.LowerBound[model.ResourceMemory])/1024/1024,
+		"upperMemMB", float64(rec.UpperBound[model.ResourceMemory])/1024/1024,
 	)
 
 	return rec
+}
+
+func (r *podResourceRecommender) calculateContainerCpuConstraints(containerCount int) estimators.ContainerResourceConstraints {
+	if containerCount <= 0 {
+		return estimators.ContainerResourceConstraints{}
+	}
+
+	minCPU := model.ResourceAmount(r.config.PodMinCPUMillicores / float64(containerCount))
+
+	return estimators.ContainerResourceConstraints{
+		Min: minCPU,
+	}
+}
+
+func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCount int) estimators.ContainerResourceConstraints {
+	if containerCount <= 0 {
+		return estimators.ContainerResourceConstraints{}
+	}
+
+	minMemory := model.ResourceAmount(
+		(r.config.PodMinMemoryMb * 1024 * 1024) / float64(containerCount),
+	)
+
+	return estimators.ContainerResourceConstraints{
+		Min: minMemory,
+	}
+}
+
+func (r *podResourceRecommender) applyScalingRule(
+	rec recommendation.ResourceRecommendation,
+	policy *VhapePolicy,
+	containerName string,
+	state *model.AggregateContainerState,
+) recommendation.ResourceRecommendation {
+	rule := scalingrules.SelectScalingRule(policy.Spec.ScalingRule)
+	if rule == nil {
+		return rec
+	}
+
+	return rule.Apply(rec, scalingrules.ScalingRuleContext{
+		ContainerName:  containerName,
+		CurrentRequest: state.GetLastObservedRequest(),
+	})
 }
 
 // FilterControlledResources returns estimations from 'estimation' only for resources present in 'controlledResources'.
@@ -186,14 +288,6 @@ func FilterControlledResources(estimation model.Resources, controlledResources [
 	return result
 }
 
-// CreatePodResourceRecommender returns the primary recommender.
-func CreatePodResourceRecommender(config RecommendationConfig, dynamicClient dynamic.Interface, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
-    return &podResourceRecommender{
-        dynamicClient: dynamicClient,
-        metricsClient: metricsClient,
-        estimators:    make(map[string]*cachedEstimators),
-    }
-}
 
 // MapToListOfRecommendedContainerResources converts the map into a stable sorted list.
 func MapToListOfRecommendedContainerResources(resources RecommendedPodResources, format RecommendationFormat) *vpa_types.RecommendedPodResources {
