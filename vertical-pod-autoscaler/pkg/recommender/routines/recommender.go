@@ -79,6 +79,7 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 	resources := r.podResourceRecommender.GetRecommendedPodResources(
 		GetContainerNameToAggregateStateMap(vpa),
 		observedVpa.Namespace,
+		observedVpa.Name,
 		observedVpa.Annotations,
 		r.clusterState.GetMatchingPods(vpa),
 	)

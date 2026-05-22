@@ -20,6 +20,7 @@ type PodResourceRecommender interface {
 	GetRecommendedPodResources(
 		containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
 		namespace string,
+		vpaName string,
 		annotations map[string]string,
 		matchingPods []model.PodID,
 	) RecommendedPodResources
@@ -71,6 +72,7 @@ type containerUsage struct {
 func (r *podResourceRecommender) GetRecommendedPodResources(
 	containerStates model.ContainerNameToAggregateStateMap,
 	namespace string,
+	vpaName string,
 	annotations map[string]string,
 	matchingPods []model.PodID,
 ) RecommendedPodResources {
@@ -86,10 +88,10 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 	}
 
 	usage := r.collectCurrentUsage(namespace, matchingPods)
-	estimators := r.getOrCreateEstimators(policy)
+	resourceEstimators := r.getOrCreateEstimators(policy, namespace, vpaName)
 	for containerName := range containerStates {
-		estimators.CPU.FeedSamples(containerName, usage.CPU[containerName])
-		estimators.Memory.FeedSamples(containerName, usage.Memory[containerName])
+		resourceEstimators.CPU.FeedSamples(containerName, usage.CPU[containerName])
+		resourceEstimators.Memory.FeedSamples(containerName, usage.Memory[containerName])
 	}
 
 	for containerName, state := range containerStates {
@@ -97,7 +99,7 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 			containerName,
 			state,
 			policy,
-			estimators,
+			resourceEstimators,
 			len(containerStates),
 		)
 	}
@@ -157,8 +159,8 @@ func (r *podResourceRecommender) collectCurrentUsage(namespace string, matchingP
 	return usage
 }
 
-func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy) *ResourceEstimators {
-	key := policy.Namespace + "/" + policy.Name
+func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy, namespace string, vpaName string) *ResourceEstimators {
+	key := namespace + "/" + vpaName + "|" + policy.Namespace + "/" + policy.Name
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -186,15 +188,16 @@ func (r *podResourceRecommender) recommendContainerResources(
 	containerCount int,
 ) recommendation.ResourceRecommendation {
 	controlledResources := state.GetControlledResources()
-
+	observedRequest := state.GetLastObservedRequest()
+	
 	cpuRec := est.CPU.GetSingleResourceRecommendation(
 		containerName,
-		r.calculateContainerCpuConstraints(containerCount),
+		r.calculateContainerCpuConstraints(containerCount, observedRequest[model.ResourceCPU]),
 	)
 
 	memRec := est.Memory.GetSingleResourceRecommendation(
 		containerName,
-		r.calculateContainerMemoryConstraints(containerCount),
+		r.calculateContainerMemoryConstraints(containerCount, observedRequest[model.ResourceMemory]),
 	)
 
 	rec := recommendation.ResourceRecommendation{
@@ -234,7 +237,7 @@ func (r *podResourceRecommender) recommendContainerResources(
 	return rec
 }
 
-func (r *podResourceRecommender) calculateContainerCpuConstraints(containerCount int) estimators.ContainerResourceConstraints {
+func (r *podResourceRecommender) calculateContainerCpuConstraints(containerCount int, request model.ResourceAmount) estimators.ContainerResourceConstraints {
 	if containerCount <= 0 {
 		return estimators.ContainerResourceConstraints{}
 	}
@@ -243,10 +246,11 @@ func (r *podResourceRecommender) calculateContainerCpuConstraints(containerCount
 
 	return estimators.ContainerResourceConstraints{
 		Min: minCPU,
+		CurrentRequest: request,
 	}
 }
 
-func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCount int) estimators.ContainerResourceConstraints {
+func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCount int, request model.ResourceAmount) estimators.ContainerResourceConstraints {
 	if containerCount <= 0 {
 		return estimators.ContainerResourceConstraints{}
 	}
@@ -257,6 +261,7 @@ func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCo
 
 	return estimators.ContainerResourceConstraints{
 		Min: minMemory,
+		CurrentRequest: request,
 	}
 }
 
@@ -303,7 +308,7 @@ func MapToListOfRecommendedContainerResources(resources RecommendedPodResources,
 			Target:         model.ResourcesAsResourceList(resources[name].Target, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
 			LowerBound:     model.ResourcesAsResourceList(resources[name].LowerBound, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
 			UpperBound:     model.ResourcesAsResourceList(resources[name].UpperBound, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
-			UncappedTarget: model.ResourcesAsResourceList(resources[name].Target, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
+			UncappedTarget: model.ResourcesAsResourceList(resources[name].UncappedTarget, format.HumanizeMemory, format.RoundCPUMillicores, format.RoundMemoryBytes),
 		})
 	}
 	return &vpa_types.RecommendedPodResources{
