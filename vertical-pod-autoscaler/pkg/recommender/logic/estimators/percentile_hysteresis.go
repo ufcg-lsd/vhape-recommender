@@ -24,6 +24,7 @@ type PercentileHysteresisEstimator struct {
 	headroom      float64
 	slidingWindow time.Duration
 	percentileBuf []model.ResourceAmount
+	minWindowCoverageRatio float64
 }
 
 func NewPercentileHysteresisEstimator(
@@ -40,6 +41,7 @@ func NewPercentileHysteresisEstimator(
 		headroom:      headroom,
 		slidingWindow: slidingWindow,
 		percentileBuf: make([]model.ResourceAmount, 0),
+		minWindowCoverageRatio: 0.02,
 	}
 }
 
@@ -145,6 +147,27 @@ func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containe
 
 	e.purgeSamples(containerName)
 
+	if !e.hasEnoughWindowCoverage(containerName) {
+		klog.V(4).InfoS("PercentileHysteresis: not enough window coverage",
+			"resource", e.resourceName,
+			"containerName", containerName,
+			"requiredCoverageRatio", e.minWindowCoverageRatio,
+			"slidingWindow", e.slidingWindow,
+		)
+
+		fallback := constraints.CurrentRequest
+		if fallback <= 0 {
+			fallback = constraints.Min
+		}
+
+		return recommendation.SingleResourceRecommendation{
+			Target:         fallback,
+			LowerBound:     fallback,
+			UpperBound:     fallback,
+			UncappedTarget: fallback,
+		}
+	}
+
 	base := e.calculatePercentile(containerName)
 
 	uncappedTarget := scaleResourceAmount(base, 1+e.headroom)
@@ -170,6 +193,21 @@ func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containe
 		UpperBound:     upperBound,
 		UncappedTarget: uncappedTarget,
 	}
+}
+
+func (e *PercentileHysteresisEstimator) hasEnoughWindowCoverage(containerName string) bool {
+	samples := e.samples[containerName]
+	if len(samples) < 2 {
+		return false
+	}
+
+	first := samples[0].Timestamp
+	last := samples[len(samples)-1].Timestamp
+
+	coverage := last.Sub(first)
+	requiredCoverage := time.Duration(float64(e.slidingWindow) * e.minWindowCoverageRatio)
+
+	return coverage >= requiredCoverage
 }
 
 func scaleResourceAmount(amount model.ResourceAmount, factor float64) model.ResourceAmount {

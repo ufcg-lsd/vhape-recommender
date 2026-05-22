@@ -6,8 +6,9 @@ import (
 )
 
 type ContainerResourceConstraints struct {
-	Min model.ResourceAmount
-	Max model.ResourceAmount
+	CurrentRequest model.ResourceAmount
+	Min   		   model.ResourceAmount
+	Max 		   model.ResourceAmount
 }
 
 type ResourceEstimator interface {
