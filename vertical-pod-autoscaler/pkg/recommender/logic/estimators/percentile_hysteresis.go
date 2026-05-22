@@ -55,6 +55,14 @@ func (e *PercentileHysteresisEstimator) purgeSamples(key string) {
 
 	if i == len(samples) {
 		delete(e.samples, key)
+
+		klog.V(4).InfoS(
+			"Hysteresis: purge",
+			"resource", e.resourceName,
+			"containerName", key,
+			"discarded", len(samples),
+			"remaining", 0,
+		)
 		return
 	}
 
