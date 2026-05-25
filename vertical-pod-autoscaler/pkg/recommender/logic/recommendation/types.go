@@ -19,6 +19,16 @@ type SingleResourceRecommendation struct {
 	Target         model.ResourceAmount
 	LowerBound     model.ResourceAmount
 	UpperBound     model.ResourceAmount
+
+	// UncappedTarget is the raw target calculated before any capping.
+	//
+	// Estimators may first calculate an unconstrained value from usage history,
+	// then clamp it according to minimum and maximum resource constraints.
+	// Scaling rules may also adjust Target to block scale-up or scale-down.
+	//
+	// Keeping UncappedTarget allows callers to inspect what the estimator would
+	// have recommended before those caps were applied, which is useful for
+	// debugging and observability.
 	UncappedTarget model.ResourceAmount
 }
 
