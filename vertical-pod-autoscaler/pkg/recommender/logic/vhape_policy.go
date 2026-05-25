@@ -68,52 +68,56 @@ func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName)
 }
 
 // Fetching and parsing
-func FetchVhapePolicy(client dynamic.Interface, namespace, name string) (*VhapePolicy, error) {
-	if name == "" {
-		return nil, fmt.Errorf("VhapePolicy: annotation vhape/policy not defined")
+func FetchVhapePolicy(client dynamic.Interface, policyNamespace string, policyName string) (*VhapePolicy, error) {
+	if policyNamespace == "" {
+		return nil, fmt.Errorf("VhapePolicy: policy namespace not defined")
 	}
 
-	unstructured, err := client.Resource(VhapePolicyGVR).Namespace("kube-system").Get(
-		context.TODO(), name, metav1.GetOptions{},
+	if policyName == "" {
+		return nil, fmt.Errorf("VhapePolicy: policy name not defined")
+	}
+
+	unstructuredPolicy, err := client.Resource(VhapePolicyGVR).Namespace(policyNamespace).Get(
+		context.TODO(), policyName, metav1.GetOptions{},
 	)
 
 	if err != nil {
-		return nil, fmt.Errorf("VhapePolicy %q not found in namespace kube-system: %w", name, err)
+		return nil, fmt.Errorf("VhapePolicy %q not found in namespace %q: %w", policyName, policyNamespace, err)
 	}
 
-	spec, ok := unstructured.Object["spec"].(map[string]interface{})
+	spec, ok := unstructuredPolicy.Object["spec"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("VhapePolicy %q: invalid spec field", name)
+		return nil, fmt.Errorf("VhapePolicy %q: invalid spec field", policyName)
 	}
 
 	resources, ok := spec["resources"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("VhapePolicy %q: missing spec.resources", name)
+		return nil, fmt.Errorf("VhapePolicy %q: missing spec.resources", policyName)
 	}
 
 	cpu, ok := resources["cpu"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("VhapePolicy %q: missing spec.resources.cpu", name)
+		return nil, fmt.Errorf("VhapePolicy %q: missing spec.resources.cpu", policyName)
 	}
 
 	memory, ok := resources["memory"].(map[string]interface{})
 	if !ok {
-		return nil, fmt.Errorf("VhapePolicy %q: missing spec.resources.memory", name)
+		return nil, fmt.Errorf("VhapePolicy %q: missing spec.resources.memory", policyName)
 	}
 
 	cpuSpec, cpuHeuristicName, err := parseResourceSpec(cpu)
 	if err != nil {
-		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.cpu: %w", name, err)
+		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.cpu: %w", policyName, err)
 	}
 
 	memorySpec, memHeuristicName, err := parseResourceSpec(memory)
 	if err != nil {
-		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.memory: %w", name, err)
+		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.memory: %w", policyName, err)
 	}
 
 	policy := &VhapePolicy{
-		Name:      name,
-		Namespace: namespace,
+		Name:      unstructuredPolicy.GetName(),
+		Namespace: unstructuredPolicy.GetNamespace(),
 		Spec: VhapePolicySpec{
 			Resources: VhapeResourcesSpec{
 				CPU:    cpuSpec,
@@ -155,16 +159,16 @@ func parseResourceSpec(raw map[string]interface{}) (VhapeResourceSpec, string, e
 	}
 
 	switch name {
-		case PercentileHysteresis:
-			spec, err := parsePercentileHysteresisSpec(config)
-			if err != nil {
-				return VhapeResourceSpec{}, "", err
-			}
+	case PercentileHysteresis:
+		spec, err := parsePercentileHysteresisSpec(config)
+		if err != nil {
+			return VhapeResourceSpec{}, "", err
+		}
 
-			return VhapeResourceSpec{Heuristic: spec}, PercentileHysteresis, nil
+		return VhapeResourceSpec{Heuristic: spec}, PercentileHysteresis, nil
 
-		default:
-			return VhapeResourceSpec{}, "", fmt.Errorf("unsupported heuristic %q", name)
+	default:
+		return VhapeResourceSpec{}, "", fmt.Errorf("unsupported heuristic %q", name)
 	}
 }
 

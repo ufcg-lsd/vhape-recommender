@@ -42,7 +42,8 @@ func (m *mockPodResourceRecommender) GetRecommendedPodResources(
 	containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
 	namespace string,
 	vpaName string,
-	annotations map[string]string,
+	policyNamespace string,
+	policyName string,
 	matchingPods []model.PodID,
 ) logic.RecommendedPodResources {
 	return logic.RecommendedPodResources{}

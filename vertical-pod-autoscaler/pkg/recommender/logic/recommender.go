@@ -19,28 +19,29 @@ import (
 type PodResourceRecommender interface {
 	GetRecommendedPodResources(
 		containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
-		namespace string,
+		vpaNamespace string,
 		vpaName string,
-		annotations map[string]string,
+		policyNamespace string,
+		policyName string,
 		matchingPods []model.PodID,
 	) RecommendedPodResources
 }
 
 type podResourceRecommender struct {
-	config        RecommendationLimits
-	dynamicClient dynamic.Interface
-	metricsClient input_metrics.MetricsClient
-	mu            sync.Mutex
-	estimators    map[string]*ResourceEstimators
+	config               RecommendationLimits
+	dynamicClient        dynamic.Interface
+	metricsClient        input_metrics.MetricsClient
+	mu                   sync.Mutex
+	estimators           map[string]*ResourceEstimators
 }
 
 // CreatePodResourceRecommender returns the primary recommender.
 func CreatePodResourceRecommender(config RecommendationLimits, dynamicClient dynamic.Interface, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
 	return &podResourceRecommender{
-		config:        config,
-		dynamicClient: dynamicClient,
-		metricsClient: metricsClient,
-		estimators:    make(map[string]*ResourceEstimators),
+		config:                config,
+		dynamicClient:         dynamicClient,
+		metricsClient:         metricsClient,
+		estimators:            make(map[string]*ResourceEstimators),
 	}
 }
 
@@ -71,9 +72,10 @@ type containerUsage struct {
 
 func (r *podResourceRecommender) GetRecommendedPodResources(
 	containerStates model.ContainerNameToAggregateStateMap,
-	namespace string,
+	vpaNamespace string,
 	vpaName string,
-	annotations map[string]string,
+	policyNamespace string,
+	policyName string,
 	matchingPods []model.PodID,
 ) RecommendedPodResources {
 	recommendations := make(RecommendedPodResources)
@@ -82,13 +84,13 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 		return recommendations
 	}
 
-	policy, ok := r.fetchPolicy(namespace, annotations["vhape/policy"])
+	policy, ok := r.fetchPolicy(policyNamespace, policyName)
 	if !ok {
 		return recommendations
 	}
 
-	usage := r.collectCurrentUsage(namespace, matchingPods)
-	resourceEstimators := r.getOrCreateEstimators(policy, namespace, vpaName)
+	usage := r.collectCurrentUsage(matchingPods)
+	resourceEstimators := r.getOrCreateEstimators(vpaNamespace, vpaName, policy)
 	for containerName := range containerStates {
 		resourceEstimators.CPU.FeedSamples(containerName, usage.CPU[containerName])
 		resourceEstimators.Memory.FeedSamples(containerName, usage.Memory[containerName])
@@ -107,17 +109,17 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 	return recommendations
 }
 
-func (r *podResourceRecommender) fetchPolicy(namespace string, policyName string) (*VhapePolicy, bool) {
-	policy, err := FetchVhapePolicy(r.dynamicClient, namespace, policyName)
+func (r *podResourceRecommender) fetchPolicy(policyNamespace string, policyName string) (*VhapePolicy, bool) {
+	policy, err := FetchVhapePolicy(r.dynamicClient, policyNamespace, policyName)
 	if err != nil {
-		klog.Warningf("Skipping VPA in namespace %q: %v", namespace, err)
+		klog.Warningf("Couldn't fetch policy %q in namespace %q. Skipping VPA. Error: %v", policyName, policyNamespace, err)
 		return nil, false
 	}
 
 	return policy, true
 }
 
-func (r *podResourceRecommender) collectCurrentUsage(namespace string, matchingPods []model.PodID) containerUsage {
+func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID) containerUsage {
 	usage := containerUsage{
 		CPU:    make(map[string][]model.ResourceAmount),
 		Memory: make(map[string][]model.ResourceAmount),
@@ -130,15 +132,11 @@ func (r *podResourceRecommender) collectCurrentUsage(namespace string, matchingP
 
 	snapshots, err := r.metricsClient.GetContainersMetrics(context.TODO())
 	if err != nil {
-		klog.Warningf("Failed to collect metrics in namespace %q: %v", namespace, err)
+		klog.Warningf("Failed to collect container metrics: %v", err)
 		return usage
 	}
 
 	for _, snap := range snapshots {
-		if snap.ID.PodID.Namespace != namespace {
-			continue
-		}
-		
 		if _, ok := podSet[snap.ID.PodID]; !ok {
 			continue
 		}
@@ -159,8 +157,8 @@ func (r *podResourceRecommender) collectCurrentUsage(namespace string, matchingP
 	return usage
 }
 
-func (r *podResourceRecommender) getOrCreateEstimators(policy *VhapePolicy, namespace string, vpaName string) *ResourceEstimators {
-	key := namespace + "/" + vpaName + "|" + policy.Namespace + "/" + policy.Name
+func (r *podResourceRecommender) getOrCreateEstimators(vpaNamespace string, vpaName string, policy *VhapePolicy) *ResourceEstimators {
+	key := vpaNamespace + "/" + vpaName + "|" + policy.Namespace + "/" + policy.Name
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
