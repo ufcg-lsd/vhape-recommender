@@ -11,11 +11,24 @@ import (
 	"k8s.io/klog/v2"
 )
 
+// TimedSample represents a resource usage sample associated with the time at
+// which it was collected.
+//
+// The timestamp is used to keep only samples that fall within the estimator's
+// sliding window.
 type TimedSample struct {
 	Value     model.ResourceAmount
 	Timestamp time.Time
 }
 
+// PercentileHysteresisEstimator estimates resource recommendations using a
+// percentile of recent usage samples plus a configurable headroom.
+//
+// Samples are stored per container and are periodically purged according to a
+// sliding window expiration. A recommendation is produced only when the available 
+// samples cover a minimum portion of that window. Until enough coverage is available,
+// the estimator falls back to the current request, or to the minimum allowed
+// value when the current request is not set.
 type PercentileHysteresisEstimator struct {
 	mu            sync.Mutex
 	resourceName  model.ResourceName
@@ -45,6 +58,11 @@ func NewPercentileHysteresisEstimator(
 	}
 }
 
+// purgeSamples removes samples for the given container that are older than the
+// estimator's sliding window.
+//
+// If all samples are expired, the container entry is removed from the samples
+// map.
 func (e *PercentileHysteresisEstimator) purgeSamples(key string) {
 	samples := e.samples[key]
 	before := len(samples)
@@ -85,6 +103,10 @@ func (e *PercentileHysteresisEstimator) purgeSamples(key string) {
 	)
 }
 
+// calculatePercentile returns the configured percentile for the samples stored
+// for the given container.
+//
+// The method assumes samples have already been purged.
 func (e *PercentileHysteresisEstimator) calculatePercentile(key string) model.ResourceAmount {
 	samples := e.samples[key]
 
@@ -110,6 +132,8 @@ func (e *PercentileHysteresisEstimator) calculatePercentile(key string) model.Re
 	return result
 }
 
+// FeedSamples stores new usage samples for the given container.
+// After insertion, expired samples are purged according to the configured sliding window.
 func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, samples []model.ResourceAmount) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -141,6 +165,17 @@ func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, sample
 	e.purgeSamples(containerName)
 }
 
+
+// GetSingleResourceRecommendation returns a recommendation for the configured
+// resource and the given container.
+//
+// The recommendation is calculated by taking the configured percentile of the
+// container's recent usage samples, adding headroom, and applying the provided
+// constraints.
+//
+// If the available samples do not cover enough of the sliding window, the
+// recommendation falls back to constraints.CurrentRequest. If CurrentRequest is
+// not set, constraints.Min is used instead.
 func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containerName string, constraints ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -195,6 +230,8 @@ func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containe
 	}
 }
 
+// hasEnoughWindowCoverage reports whether the stored samples for a container
+// cover enough of the sliding window to produce a recommendation.
 func (e *PercentileHysteresisEstimator) hasEnoughWindowCoverage(containerName string) bool {
 	samples := e.samples[containerName]
 	if len(samples) < 2 {
@@ -210,10 +247,15 @@ func (e *PercentileHysteresisEstimator) hasEnoughWindowCoverage(containerName st
 	return coverage >= requiredCoverage
 }
 
+// scaleResourceAmount multiplies a resource amount by the given factor and
+// rounds the result up, keeping resources in int64 type.
 func scaleResourceAmount(amount model.ResourceAmount, factor float64) model.ResourceAmount {
 	return model.ResourceAmount(math.Ceil(float64(amount) * factor))
 }
 
+// applyConstraints clamps a resource amount to the provided minimum and maximum
+// bounds.
+// A maximum value less than or equal to zero is treated as unbounded.
 func applyConstraints(amount model.ResourceAmount, constraints ContainerResourceConstraints) model.ResourceAmount {
 	if amount < constraints.Min {
 		return constraints.Min
