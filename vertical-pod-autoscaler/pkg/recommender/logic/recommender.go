@@ -1,10 +1,10 @@
 package logic
 
 import (
+	"context"
 	"sort"
 	"sync"
-	"context"
-	
+
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
@@ -15,7 +15,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// PodResourceRecommender computes resource recommendation for a Vpa object.
+// PodResourceRecommender computes resource recommendations for a VPA object.
 type PodResourceRecommender interface {
 	GetRecommendedPodResources(
 		containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
@@ -27,25 +27,11 @@ type PodResourceRecommender interface {
 	) RecommendedPodResources
 }
 
-type podResourceRecommender struct {
-	config               RecommendationLimits
-	dynamicClient        dynamic.Interface
-	metricsClient        input_metrics.MetricsClient
-	mu                   sync.Mutex
-	estimators           map[string]*ResourceEstimators
-}
-
-// CreatePodResourceRecommender returns the primary recommender.
-func CreatePodResourceRecommender(config RecommendationLimits, dynamicClient dynamic.Interface, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
-	return &podResourceRecommender{
-		config:                config,
-		dynamicClient:         dynamicClient,
-		metricsClient:         metricsClient,
-		estimators:            make(map[string]*ResourceEstimators),
-	}
-}
-
-type RecommendationLimits struct {
+// PodRecommendationLimits contains global pod minimum recommendation limits.
+//
+// The values are defined at pod level and are divided by the number of
+// containers when calculating per-container constraints. Follows the original VPA logic.
+type PodRecommendationLimits struct {
 	PodMinCPUMillicores float64
 	PodMinMemoryMb      float64
 }
@@ -57,19 +43,54 @@ type RecommendationFormat struct {
 	RoundMemoryBytes   int
 }
 
-// RecommendedPodResources is a Map from container name to recommended resources.
+// RecommendedPodResources maps container names to their resource recommendations.
 type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 
+
+// ResourceEstimators contains the estimators used for each supported resource.
+//
+// Each estimator is resource-specific. This allows CPU and memory to use
+// different heuristic implementations or different heuristic configurations.
 type ResourceEstimators struct {
 	CPU    estimators.ResourceEstimator
 	Memory estimators.ResourceEstimator
 }
 
+// podResourceRecommender is the default PodResourceRecommender implementation.
+//
+// It fetches VhapePolicy objects, collects current usage metrics, feeds
+// resource estimators, and converts estimator outputs into VPA-compatible
+// recommendations.
+type podResourceRecommender struct {
+	config        PodRecommendationLimits
+	dynamicClient dynamic.Interface
+	metricsClient input_metrics.MetricsClient
+	mu            sync.Mutex
+
+
+	// estimators caches resource estimators by VPA namespace/name.
+	// Estimators keep usage history in memory, so they must be reused across
+	// recommendation cycles for the same VPA.
+	estimators    map[string]*ResourceEstimators
+}
+
+// containerUsage stores current resource usage samples grouped by container name.
 type containerUsage struct {
 	CPU    map[string][]model.ResourceAmount
 	Memory map[string][]model.ResourceAmount
 }
 
+// CreatePodResourceRecommender returns the primary recommender.
+func CreatePodResourceRecommender(config PodRecommendationLimits, dynamicClient dynamic.Interface, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
+	return &podResourceRecommender{
+		config:        config,
+		dynamicClient: dynamicClient,
+		metricsClient: metricsClient,
+		estimators:    make(map[string]*ResourceEstimators),
+	}
+}
+
+// GetRecommendedPodResources returns recommendations for all containers managed by a VPA.
 func (r *podResourceRecommender) GetRecommendedPodResources(
 	containerStates model.ContainerNameToAggregateStateMap,
 	vpaNamespace string,
@@ -109,6 +130,7 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 	return recommendations
 }
 
+// fetchPolicy loads the VhapePolicy referenced by the VPA.
 func (r *podResourceRecommender) fetchPolicy(policyNamespace string, policyName string) (*VhapePolicy, bool) {
 	policy, err := FetchVhapePolicy(r.dynamicClient, policyNamespace, policyName)
 	if err != nil {
@@ -119,6 +141,8 @@ func (r *podResourceRecommender) fetchPolicy(policyNamespace string, policyName 
 	return policy, true
 }
 
+// collectCurrentUsage collects the latest usage metrics for containers running in the
+// pods matched by the VPA.
 func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID) containerUsage {
 	usage := containerUsage{
 		CPU:    make(map[string][]model.ResourceAmount),
@@ -157,8 +181,9 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 	return usage
 }
 
+// getOrCreateEstimators returns the estimator set associated with the VPA and VhapePolicy pair.
 func (r *podResourceRecommender) getOrCreateEstimators(vpaNamespace string, vpaName string, policy *VhapePolicy) *ResourceEstimators {
-	key := vpaNamespace + "/" + vpaName + "|" + policy.Namespace + "/" + policy.Name
+	key := vpaNamespace + "/" + vpaName
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -178,6 +203,7 @@ func (r *podResourceRecommender) getOrCreateEstimators(vpaNamespace string, vpaN
 	return created
 }
 
+// recommendContainerResources calculates a full resource recommendation for one container.
 func (r *podResourceRecommender) recommendContainerResources(
 	containerName string,
 	state *model.AggregateContainerState,
@@ -187,12 +213,12 @@ func (r *podResourceRecommender) recommendContainerResources(
 ) recommendation.ResourceRecommendation {
 	controlledResources := state.GetControlledResources()
 	observedRequest := state.GetLastObservedRequest()
-	
+
 	cpuRec := est.CPU.GetSingleResourceRecommendation(
 		containerName,
 		r.calculateContainerCpuConstraints(containerCount, observedRequest[model.ResourceCPU]),
 	)
-	
+
 	cpuRec = r.applyScalingRule(
 		cpuRec,
 		policy,
@@ -250,6 +276,7 @@ func (r *podResourceRecommender) recommendContainerResources(
 	return rec
 }
 
+// calculateContainerCPUConstraints returns per-container CPU recommendation constraints.
 func (r *podResourceRecommender) calculateContainerCpuConstraints(containerCount int, request model.ResourceAmount) estimators.ContainerResourceConstraints {
 	if containerCount <= 0 {
 		return estimators.ContainerResourceConstraints{}
@@ -258,11 +285,12 @@ func (r *podResourceRecommender) calculateContainerCpuConstraints(containerCount
 	minCPU := model.ResourceAmount(r.config.PodMinCPUMillicores / float64(containerCount))
 
 	return estimators.ContainerResourceConstraints{
-		Min: minCPU,
+		Min:            minCPU,
 		CurrentRequest: request,
 	}
 }
 
+// calculateContainerMemoryConstraints returns per-container memory recommendation constraints.
 func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCount int, request model.ResourceAmount) estimators.ContainerResourceConstraints {
 	if containerCount <= 0 {
 		return estimators.ContainerResourceConstraints{}
@@ -273,11 +301,12 @@ func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCo
 	)
 
 	return estimators.ContainerResourceConstraints{
-		Min: minMemory,
+		Min:            minMemory,
 		CurrentRequest: request,
 	}
 }
 
+// applyScalingRule applies the policy scaling rule to a single-resource recommendation.
 func (r *podResourceRecommender) applyScalingRule(
 	rec recommendation.SingleResourceRecommendation,
 	policy *VhapePolicy,
@@ -303,7 +332,6 @@ func FilterControlledResources(estimation model.Resources, controlledResources [
 	}
 	return result
 }
-
 
 // MapToListOfRecommendedContainerResources converts the map into a stable sorted list.
 func MapToListOfRecommendedContainerResources(resources RecommendedPodResources, format RecommendationFormat) *vpa_types.RecommendedPodResources {

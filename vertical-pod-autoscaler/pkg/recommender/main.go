@@ -68,8 +68,8 @@ var (
 	storage                = flag.String("storage", "", `Specifies storage mode. Supported values: prometheus, checkpoint (default)`)
 	memorySaver            = flag.Bool("memory-saver", false, `If true, only track pods which have an associated VPA`)
 	updateWorkerCount      = flag.Int("update-worker-count", 10, "Number of concurrent workers to update VPA recommendations and checkpoints. When increasing this setting, make sure the client-side rate limits ('kube-api-qps' and 'kube-api-burst') are either increased or turned off as well. Determines the minimum number of VPA checkpoints written per recommender loop.")
-	podMinCPUMillicores = flag.Float64("pod-recommendation-min-cpu-millicores", 25, "Minimum CPU recommendation for a pod.",)
-	podMinMemoryMb = flag.Float64("pod-recommendation-min-memory-mb", 250, "Minimum memory recommendation for a pod.",)
+	podMinCPUMillicores    = flag.Float64("pod-recommendation-min-cpu-millicores", 25, "Minimum CPU recommendation for a pod.")
+	podMinMemoryMb         = flag.Float64("pod-recommendation-min-memory-mb", 250, "Minimum memory recommendation for a pod.")
 )
 
 // Prometheus history provider flags
@@ -120,9 +120,9 @@ var (
 
 // Recommendation format flags
 var (
-	humanizeMemory       = flag.Bool("humanize-memory", false, `Convert memory values in recommendations to the highest appropriate SI unit with up to 2 decimal places for better readability.`)
-	roundCPUMillicores   = flag.Int("round-cpu-millicores", 1, `CPU recommendation rounding factor in millicores.`)
-	roundMemoryBytes     = flag.Int("round-memory-bytes", 1, `Memory recommendation rounding factor in bytes.`)
+	humanizeMemory          = flag.Bool("humanize-memory", false, `Convert memory values in recommendations to the highest appropriate SI unit with up to 2 decimal places for better readability.`)
+	roundCPUMillicores      = flag.Int("round-cpu-millicores", 1, `CPU recommendation rounding factor in millicores.`)
+	roundMemoryBytes        = flag.Int("round-memory-bytes", 1, `Memory recommendation rounding factor in bytes.`)
 	checkpointsWriteTimeout = flag.Duration("checkpoints-timeout", time.Minute, `Timeout for writing checkpoints since the start of the recommender's main loop`)
 )
 
@@ -304,7 +304,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		PodLister:           podLister,
 		OOMObserver:         oomObserver,
 		KubeClient:          kubeClient,
-		MetricsClient: metricsClient,
+		MetricsClient:       metricsClient,
 		VpaCheckpointClient: vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
 		VpaLister:           vpa_api_util.NewVpasLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
 		VpaCheckpointLister: vpa_api_util.NewVpaCheckpointLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
@@ -319,13 +319,13 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 	controllerFetcher.Start(ctx, scaleCacheLoopPeriod)
 
 	recommender := routines.RecommenderFactory{
-		ClusterState:                 clusterState,
-		ClusterStateFeeder:           clusterStateFeeder,
-		ControllerFetcher:            controllerFetcher,
-		CheckpointWriter:             checkpoint.NewCheckpointWriter(clusterState, vpa_clientset.NewForConfigOrDie(config).AutoscalingV1()),
-		VpaClient:                    vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
+		ClusterState:       clusterState,
+		ClusterStateFeeder: clusterStateFeeder,
+		ControllerFetcher:  controllerFetcher,
+		CheckpointWriter:   checkpoint.NewCheckpointWriter(clusterState, vpa_clientset.NewForConfigOrDie(config).AutoscalingV1()),
+		VpaClient:          vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
 		PodResourceRecommender: logic.CreatePodResourceRecommender(
-			logic.RecommendationLimits{
+			logic.PodRecommendationLimits{
 				PodMinCPUMillicores: *podMinCPUMillicores,
 				PodMinMemoryMb:      *podMinMemoryMb,
 			},
