@@ -192,10 +192,25 @@ func (r *podResourceRecommender) recommendContainerResources(
 		containerName,
 		r.calculateContainerCpuConstraints(containerCount, observedRequest[model.ResourceCPU]),
 	)
+	
+	cpuRec = r.applyScalingRule(
+		cpuRec,
+		policy,
+		containerName,
+		model.ResourceCPU,
+		observedRequest[model.ResourceCPU],
+	)
 
 	memRec := est.Memory.GetSingleResourceRecommendation(
 		containerName,
 		r.calculateContainerMemoryConstraints(containerCount, observedRequest[model.ResourceMemory]),
+	)
+	memRec = r.applyScalingRule(
+		memRec,
+		policy,
+		containerName,
+		model.ResourceMemory,
+		observedRequest[model.ResourceMemory],
 	)
 
 	rec := recommendation.ResourceRecommendation{
@@ -220,16 +235,16 @@ func (r *podResourceRecommender) recommendContainerResources(
 		}, controlledResources),
 	}
 
-	rec = r.applyScalingRule(rec, policy, containerName, state)
-
 	klog.V(4).InfoS("Estimated container resources",
 		"containerName", containerName,
 		"targetCPUMillicores", rec.Target[model.ResourceCPU],
 		"lowerCPUMillicores", rec.LowerBound[model.ResourceCPU],
 		"upperCPUMillicores", rec.UpperBound[model.ResourceCPU],
+		"uncappedTargetCPUMillicores", rec.UncappedTarget[model.ResourceCPU],
 		"targetMemMB", float64(rec.Target[model.ResourceMemory])/1024/1024,
 		"lowerMemMB", float64(rec.LowerBound[model.ResourceMemory])/1024/1024,
 		"upperMemMB", float64(rec.UpperBound[model.ResourceMemory])/1024/1024,
+		"uncappedTargetMemMB", float64(rec.UncappedTarget[model.ResourceMemory])/1024/1024,
 	)
 
 	return rec
@@ -264,20 +279,18 @@ func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCo
 }
 
 func (r *podResourceRecommender) applyScalingRule(
-	rec recommendation.ResourceRecommendation,
+	rec recommendation.SingleResourceRecommendation,
 	policy *VhapePolicy,
 	containerName string,
-	state *model.AggregateContainerState,
-) recommendation.ResourceRecommendation {
+	resourceName model.ResourceName,
+	currentRequest model.ResourceAmount,
+) recommendation.SingleResourceRecommendation {
 	rule := scalingrules.SelectScalingRule(policy.Spec.ScalingRule)
 	if rule == nil {
 		return rec
 	}
 
-	return rule.Apply(rec, scalingrules.ScalingRuleContext{
-		ContainerName:  containerName,
-		CurrentRequest: state.GetLastObservedRequest(),
-	})
+	return rule.Apply(rec, containerName, resourceName, currentRequest)
 }
 
 // FilterControlledResources returns estimations from 'estimation' only for resources present in 'controlledResources'.

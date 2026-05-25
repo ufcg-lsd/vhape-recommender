@@ -6,27 +6,33 @@ import (
 )
 
 const (
-	ScalingRuleScaleDownOnly = "scale-down-only"
-	ScalingRuleScaleUpOnly   = "scale-up-only"
+	BlockScaleUpRule   = "block-scale-up"
+	BlockScaleDownRule = "block-scale-down"
 )
 
-type ScalingRuleContext struct {
-	ContainerName string
-	CurrentRequest model.Resources
-}
 
+// ScalingRule adjusts a single-resource recommendation according to a specific
+// scaling policy.
+//
+// Implementations may clamp, preserve, or adjust the recommendation
+// based on the current request and the selected scaling behavior.
 type ScalingRule interface {
-	Apply(recommendation recommendation.ResourceRecommendation, ctx ScalingRuleContext) recommendation.ResourceRecommendation
+	Apply(
+		resourceRecommendation recommendation.SingleResourceRecommendation,
+		containerName string,
+		resourceName model.ResourceName,
+		currentRequest model.ResourceAmount,
+	) recommendation.SingleResourceRecommendation
 }
 
-// selectScalingRule returns the active scaling rule based on the VhapePolicy.
+// SelectScalingRule returns the scaling rule associated with the given scaling rule name.
 func SelectScalingRule(name string) ScalingRule {
 	switch name {
-		case ScalingRuleScaleDownOnly:
-			return &ScaleDownOnlyRule{}
-		case ScalingRuleScaleUpOnly:
-			return &ScaleUpOnlyRule{}
-		default:
-			return nil
+	case BlockScaleUpRule:
+		return &BlockScaleUp{}
+	case BlockScaleDownRule:
+		return &BlockScaleDown{}
+	default:
+		return nil
 	}
 }
