@@ -13,35 +13,42 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// VhapePolicyGVR is the GroupVersionResource for the VhapePolicy CRD.
+// VhapePolicyGVR identifies the VhapePolicy custom resource in the Kubernetes API. 
 var VhapePolicyGVR = schema.GroupVersionResource{
 	Group:    "autoscaling.vhape.io",
 	Version:  "v1alpha1",
 	Resource: "vhapepolicies",
 }
 
-// Vhape policy structs
+// VhapePolicy is the parsed representation of a VhapePolicy custom resource.
 type VhapePolicy struct {
 	Name      string
 	Namespace string
 	Spec      VhapePolicySpec
 }
 
+// VhapePolicySpec describes the recommendation behavior configured by a VhapePolicy.
 type VhapePolicySpec struct {
 	Resources   VhapeResourcesSpec
 	ScalingRule string
 }
 
+// VhapeResourcesSpec contains the heuristic configuration for each supported resource.
 type VhapeResourcesSpec struct {
 	CPU    VhapeResourceSpec
 	Memory VhapeResourceSpec
 }
 
+// VhapeResourceSpec contains the heuristic used to recommend a single resource.
 type VhapeResourceSpec struct {
 	Heuristic ResourceHeuristicSpec
 }
 
-// Heuristics
+// ResourceHeuristicSpec represents a resource recommendation heuristic
+// configured in a VhapePolicy.
+//
+// Each heuristic is responsible for creating the estimator used for one
+// resource, such as CPU or memory.
 type ResourceHeuristicSpec interface {
 	NewEstimator(resourceName model.ResourceName) estimators.ResourceEstimator
 }
@@ -51,13 +58,15 @@ const (
 	PercentileHysteresis = "percentile-hysteresis"
 )
 
-// Percentile hysteresis heuristic
+
+// PercentileHysteresisSpec contains the configuration for the percentile hysteresis heuristic.
 type PercentileHysteresisSpec struct {
 	Percentile    float64
 	Headroom      float64
 	SlidingWindow time.Duration
 }
 
+// NewEstimator creates a percentile hysteresis estimator for the given resource.
 func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName) estimators.ResourceEstimator {
 	return estimators.NewPercentileHysteresisEstimator(
 		resourceName,
@@ -67,7 +76,13 @@ func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName)
 	)
 }
 
-// Fetching and parsing
+
+// FetchVhapePolicy loads and parses a VhapePolicy from the Kubernetes API.
+//
+// The policy is fetched from policyNamespace using policyName.
+//
+// The returned policy contains typed recommender configuration extracted from
+// the unstructured Kubernetes object.
 func FetchVhapePolicy(client dynamic.Interface, policyNamespace string, policyName string) (*VhapePolicy, error) {
 	if policyNamespace == "" {
 		return nil, fmt.Errorf("VhapePolicy: policy namespace not defined")
