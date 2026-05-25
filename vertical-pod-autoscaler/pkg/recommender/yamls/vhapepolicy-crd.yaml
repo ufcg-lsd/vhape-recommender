@@ -83,7 +83,3 @@ spec:
                     - ""
                     - scale-up-only
                     - scale-down-only
-      additionalPrinterColumns:
-        - jsonPath: .spec.scalingRule
-          name: ScalingRule
-          type: string
