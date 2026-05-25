@@ -17,7 +17,7 @@ spec:
         app: vhape-recommender
     spec:
       # ServiceAccount with the permissions required by the VPA recommender
-      serviceAccountName: vpa-recommender
+      serviceAccountName: vhape-recommender
       containers:
         - name: vhape-recommender
           # Recommender image with the VHAPE framework

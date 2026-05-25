@@ -19,7 +19,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   # Binds the role above to the recommender ServiceAccount
-  name: vpa-recommender-vhapepolicy-reader
+  name: vhape-recommender-vhapepolicy-reader
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -27,5 +27,5 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     # ServiceAccount used by the recommender pod
-    name: vpa-recommender
+    name: vhape-recommender
     namespace: kube-system
