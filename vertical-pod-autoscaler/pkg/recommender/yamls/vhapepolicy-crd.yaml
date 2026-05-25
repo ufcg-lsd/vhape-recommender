@@ -81,5 +81,5 @@ spec:
                   type: string
                   enum:
                     - ""
-                    - scale-up-only
-                    - scale-down-only
+                    - block-scale-up
+                    - block-scale-down
