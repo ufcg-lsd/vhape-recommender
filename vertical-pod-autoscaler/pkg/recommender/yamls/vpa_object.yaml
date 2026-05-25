@@ -1,15 +1,15 @@
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
-  name: vpa-vanilla
+  name: vhape-vpa-object
   namespace: default
   annotations:
     # Reference to the VhapePolicy used to calculate recommendations
-    vhape/policy: "kube-system/default"
+    vhape/policy: "kube-system/vhape-policy-p93-default"
 spec:
   recommenders:
     # Delegates recommendations to the custom recommender instead of the default VPA recommender
-    - name: custom-recommender
+    - name: vhape-recommender
   targetRef:
     apiVersion: "apps/v1"
     kind: Deployment

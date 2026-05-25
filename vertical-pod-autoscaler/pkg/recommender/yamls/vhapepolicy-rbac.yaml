@@ -1,31 +1,31 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  # role que concede acesso de leitura aos recursos VhapePolicy
+  # Role that grants read access to VhapePolicy resources
   name: vhapepolicy-reader
 rules:
-- apiGroups:
-  # grupo da API onde o CRD VhapePolicy está registrado
-  - autoscaling.vhape.io
-  resources:
-  - vhapepolicies
-  verbs:
-  # permissões mínimas para o recommender buscar e monitorar as policies
-  - get
-  - list
-  - watch
+  - apiGroups:
+      # API group where the VhapePolicy CRD is registered
+      - autoscaling.vhape.io
+    resources:
+      - vhapepolicies
+    verbs:
+      # Minimum permissions required for the recommender to fetch and watch policies
+      - get
+      - list
+      - watch
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  # vincula o role acima à ServiceAccount do recommender
+  # Binds the role above to the recommender ServiceAccount
   name: vpa-recommender-vhapepolicy-reader
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: vhapepolicy-reader
 subjects:
-- kind: ServiceAccount
-  # ServiceAccount usada pelo pod do recommender
-  name: vpa-recommender
-  namespace: kube-system
+  - kind: ServiceAccount
+    # ServiceAccount used by the recommender pod
+    name: vpa-recommender
+    namespace: kube-system

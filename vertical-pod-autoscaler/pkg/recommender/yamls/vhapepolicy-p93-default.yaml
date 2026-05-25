@@ -1,7 +1,7 @@
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapePolicy
 metadata:
-  name: default
+  name: vhape-policy-p93-default
   namespace: kube-system
 spec:
   resources:

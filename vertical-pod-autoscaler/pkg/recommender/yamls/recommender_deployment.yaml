@@ -1,29 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  # nome do Deployment do recommender customizado
-  name: custom-recommender
-  # roda no namespace de sistema do Kubernetes
+  # Name of the custom recommender Deployment
+  name: vhape-recommender
+  # Namespace where the recommender runs
   namespace: kube-system
 spec:
-  # apenas uma instância — o recommender é stateful (mantém histórico de métricas)
+  # Single replica because the recommender is stateful and keeps metrics history
   replicas: 1
   selector:
     matchLabels:
-      app: custom-recommender
+      app: vhape-recommender
   template:
     metadata:
       labels:
-        app: custom-recommender
+        app: vhape-recommender
     spec:
-      # ServiceAccount com as permissões necessárias para o VPA
+      # ServiceAccount with the permissions required by the VPA recommender
       serviceAccountName: vpa-recommender
       containers:
-        - name: custom-recommender
-          # imagem do recommender com o framework VHAPE
-          image: brunogb123/custom-recommender-vhapev1:latest
+        - name: vhape-recommender
+          # Recommender image with the VHAPE framework
+          image: brunogb123/vhape-recommender-vhapev1:latest
           command:
             - /recommender
           args:
-            # registra este recommender com o nome usado nos objetos VPA
-            - --recommender-name=custom-recommender
+            # Registers this recommender using the name referenced by VPA objects
+            - --recommender-name=vhape-recommender
