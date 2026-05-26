@@ -60,7 +60,7 @@ spec:
     memory:
       percentile-hysteresis:
         percentile: 0.93
-        headroom: 0.10
+        headroom: 0.05
         slidingWindow: 24h
   scalingRule: ""
 ```
