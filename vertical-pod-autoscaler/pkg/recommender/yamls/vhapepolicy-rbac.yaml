@@ -1,3 +1,9 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vhape-recommender
+  namespace: kube-system
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -29,3 +35,4 @@ subjects:
     # ServiceAccount used by the recommender pod
     name: vhape-recommender
     namespace: kube-system
+  
