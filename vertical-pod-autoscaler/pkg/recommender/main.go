@@ -241,7 +241,7 @@ func defaultLeaderElectionConfiguration() componentbaseconfig.LeaderElectionConf
 		RetryPeriod:   metav1.Duration{Duration: defaultRetryPeriod},
 		ResourceLock:  resourcelock.LeasesResourceLock,
 		// This was changed from "vpa-recommender" to avoid conflicts with managed VPA deployments.
-		ResourceName:      "vpa-recommender-lease",
+		ResourceName:      "vhape-recommender-lease",
 		ResourceNamespace: metav1.NamespaceSystem,
 	}
 }
