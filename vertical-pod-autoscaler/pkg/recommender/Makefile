@@ -7,7 +7,7 @@ TEST_ENVVAR=LD_FLAGS=-s GO111MODULE=on
 ENVVAR=CGO_ENABLED=0 $(TEST_ENVVAR)
 GOOS?=linux
 COMPONENT=recommender
-FULL_COMPONENT=vpa-${COMPONENT}
+FULL_COMPONENT=vhape-${COMPONENT}
 # localhost registries need --insecure for some docker commands.
 INSECURE=$(subst localhost,--insecure,$(findstring localhost,$(REGISTRY)))
 
