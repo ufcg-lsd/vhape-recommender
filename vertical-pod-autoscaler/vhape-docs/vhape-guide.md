@@ -1,6 +1,6 @@
 # VHAPE Recommender general guide
 
-VHAPE is a custom Kubernetes Vertical Pod Autoscaler Recommender built on top of the upstream VPA Recommender codebase. It keeps the original VPA integration points, such as VPA objects, the VPA Admission Controller, and the VPA Updater, while replacing the core recommendation logic with a policy-driven architecture.
+VHAPE is a custom Kubernetes Vertical Pod Autoscaler Recommender built on top of the v1.6.0 VPA Recommender codebase. It keeps the original VPA integration points, such as VPA objects, the VPA Admission Controller, and the VPA Updater, while replacing the core recommendation logic with a policy-driven architecture.
 
 The central idea is that each VPA object can reference a `VhapePolicy`. The policy defines which heuristic should be used for CPU, which heuristic should be used for memory, and whether a scaling rule should constrain the final recommendation.
 
