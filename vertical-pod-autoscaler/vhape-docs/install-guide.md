@@ -121,14 +121,13 @@ kubectl logs -n kube-system deploy/vhape-recommender
 
 ## Common usage flow
 
-The following steps are common to manual installation and the future Helm installation.
+The following steps are common to manual installation and the Helm installation.
 
 After VHAPE is installed, you still need to:
 
 1. create or select a `VhapePolicy`;
-2. create or select a workload;
-3. create a `VerticalPodAutoscaler` object that selects the VHAPE Recommender, references the policy, and targets your workload;
-4. check recommendations.
+2. create a `VerticalPodAutoscaler` object that selects the VHAPE Recommender, references the policy, and targets a workload;
+3. check recommendations.
 
 ### 1. Create or select a `VhapePolicy`
 
