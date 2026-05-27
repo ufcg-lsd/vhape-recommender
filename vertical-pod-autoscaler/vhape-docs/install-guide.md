@@ -45,7 +45,7 @@ The provided manifests at `vertical-pod-autoscaler/pkg/recommender/yamls` are al
 The manual installation flow is:
 
 1. install the `VhapePolicy` CRD;
-2. apply RBAC and create the recommender `ServiceAccount`;
+2. apply RBAC for the VHAPE Recommender;
 3. deploy the VHAPE Recommender.
 
 ### 1. Install the `VhapePolicy` CRD
@@ -53,7 +53,7 @@ The manual installation flow is:
 Apply the CRD manifest:
 
 ```bash
-kubectl apply -f yamls/vhapepolicy-crd.yaml
+kubectl apply -f vhapepolicy-crd.yaml
 ```
 
 Verify that the CRD was created:
@@ -70,41 +70,41 @@ kubectl get vhapepolicies -A
 
 At this point, the list may be empty. That is expected.
 
-### 2. Apply RBAC for `VhapePolicy` access
+### 2. Apply RBAC for the VHAPE Recommender
 
-The recommender reads `VhapePolicy` objects using the Kubernetes API. It needs permission to `get`, `list`, and `watch` those objects.
-
-Apply the RBAC manifest:
-
-```bash
-kubectl apply -f yamls/vhapepolicy-rbac.yaml
-```
-
-The provided RBAC manifest also creates the `ServiceAccount` used by the recommender Deployment:
+The VHAPE Recommender runs with its own Kubernetes `ServiceAccount`:
 
 ```text
 system:serviceaccount:kube-system:vhape-recommender
 ```
 
-This corresponds to the following Deployment configuration:
+The RBAC manifest creates this `ServiceAccount` and grants the permissions required by the recommender.
 
-```yaml
-metadata:
-  namespace: kube-system
-spec:
-  template:
-    spec:
-      serviceAccountName: vhape-recommender
+These permissions include:
+
+- reading pods, nodes, limit ranges, and workload targets;
+- reading container metrics from the Kubernetes Metrics API;
+- reading and patching VPA objects;
+- reading, creating, updating, and deleting VPA checkpoints;
+- reading `VhapePolicy` objects;
+- using the leader-election lease `vhape-recommender-lease`.
+
+Apply the RBAC manifest:
+
+```bash
+kubectl apply -f vhape-rbac.yaml
 ```
 
-If you change the recommender Deployment namespace or `serviceAccountName`, update the `ServiceAccount` and the `subjects` section in `yamls/vhapepolicy-rbac.yaml` before applying it.
+The provided manifests expect the VHAPE Recommender to run in `kube-system` using the `vhape-recommender` ServiceAccount.
+
+If you intentionally deploy the recommender in a different namespace, update every `namespace: kube-system` reference in `vhape-rbac.yaml` so the `ServiceAccount`, `Role`, and `RoleBinding` are created in the same namespace as the recommender.
 
 ### 3. Deploy the VHAPE Recommender
 
 Apply the recommender Deployment:
 
 ```bash
-kubectl apply -f yamls/recommender_deployment.yaml
+kubectl apply -f recommender_deployment.yaml
 ```
 
 Check that the Pod is running:
@@ -127,7 +127,7 @@ After VHAPE is installed, you still need to:
 
 1. create or select a `VhapePolicy`;
 2. create or select a workload;
-3. create a `VerticalPodAutoscaler` object that selects the VHAPE Recommender and references the policy;
+3. create a `VerticalPodAutoscaler` object that selects the VHAPE Recommender, references the policy, and targets your workload;
 4. check recommendations.
 
 ### 1. Create or select a `VhapePolicy`
@@ -140,17 +140,17 @@ It configures:
 - which heuristic should be used for memory;
 - whether an optional scaling rule should constrain the recommendation.
 
-The repository provides a default policy at `yamls/vhapepolicy-p93-default.yaml`. It uses the `percentile-hysteresis` heuristic for both CPU and memory, with no additional scaling rule enabled.
+The repository provides a default policy at `vertical-pod-autoscaler/pkg/recommender/yamls/vhapepolicy-p93-default.yaml`. It uses the `percentile-hysteresis` heuristic for both CPU and memory, with no additional scaling rule enabled.
 
 Apply the default policy:
 
 ```bash
-kubectl apply -f yamls/vhapepolicy-p93-default.yaml
+kubectl apply -f vhapepolicy-p93-default.yaml
 ```
 
 ### 2. Create a VPA object
 
-The example VPA object located at `yamls/vpa_object.yaml` targets a Deployment named `my-app` in the `default` namespace.
+The example VPA object located at `vertical-pod-autoscaler/pkg/recommender/yamls/vpa_object.yaml` targets a Deployment named `my-app` in the `default` namespace.
 
 Before applying it, update the `targetRef` to point to your workload:
 
@@ -179,7 +179,7 @@ The `recommenders` field selects the VHAPE Recommender instance. The value of `s
 After checking the workload target, recommender name, and policy annotation, apply the VPA object:
 
 ```bash
-kubectl apply -f yamls/vpa_object.yaml
+kubectl apply -f vpa_object.yaml
 ```
 
 ### 3. Check recommendations
@@ -211,7 +211,7 @@ This can happen when the estimator does not have enough sample coverage yet.
 
 The default `percentile-hysteresis` heuristic requires samples to cover a minimum fraction of the configured sliding window before using percentile-based recommendations. Until then, it falls back to the current request or to the configured minimum.
 
-It can also happen when a scaling rule is configured under the selected vhape-policy:
+It can also happen when a scaling rule is configured in the selected `VhapePolicy`:
 
 ```yaml
 scalingRule: block-scale-up
