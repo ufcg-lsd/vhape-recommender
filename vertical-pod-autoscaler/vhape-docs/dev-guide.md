@@ -1,8 +1,56 @@
 # Development guide
 
-This guide explains how to extend VHAPE with new recommendation heuristics or new scaling rules.
+This guide explains common development tasks in VHAPE: building the recommender image, adding new recommendation heuristics, and adding new scaling rules.
 
 A heuristic is responsible for producing resource recommendations from usage data. A scaling rule is applied later, after the heuristic runs, to optionally constrain how the recommendation moves relative to the current request.
+
+## Building the recommender image
+
+Use this section when you need to build and publish a VHAPE Recommender image from local code changes.
+
+The recommender image is built from `vertical-pod-autoscaler/pkg/recommender`, which contains the recommender `Makefile`.
+
+From the repository root, enter the recommender directory:
+
+```bash
+cd vertical-pod-autoscaler/pkg/recommender
+```
+
+Build the image:
+
+```bash
+make docker-build-amd64 REGISTRY=<registry> TAG=<tag> ALL_ARCHITECTURES=amd64
+```
+
+Push the image to the registry:
+
+```bash
+make do-push-amd64 REGISTRY=<registry> TAG=<tag>
+```
+
+The current Makefile builds and pushes an image following this pattern:
+
+```text
+<registry>/vhape-recommender-amd64:<tag>
+```
+
+After pushing the image, update `yamls/recommender_deployment.yaml` to use it:
+
+```yaml
+image: <registry>/vhape-recommender-amd64:<tag>
+```
+
+Then redeploy the recommender:
+
+```bash
+kubectl apply -f yamls/recommender_deployment.yaml
+```
+
+Or restart the Deployment if only the image tag changed and the manifest is already applied:
+
+```bash
+kubectl rollout restart deployment/vhape-recommender -n kube-system
+```
 
 ## Adding a new heuristic
 
@@ -201,7 +249,7 @@ scalingRule:
     - my-rule
 ```
 
-### Step 5. Use it in a policy
+### Step 5. Use it in a VHAPE policy
 
 ```yaml
 spec:
