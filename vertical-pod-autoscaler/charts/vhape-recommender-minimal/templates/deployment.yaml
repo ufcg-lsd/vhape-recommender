@@ -16,7 +16,7 @@ spec:
       serviceAccountName: vhape-recommender
       containers:
         - name: vhape-recommender
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command:
             - /recommender
