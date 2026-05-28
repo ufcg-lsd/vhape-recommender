@@ -1,5 +1,5 @@
 apiVersion: v2
-name: vhape-recommender
+name: vhape-recommender-chart
 description: Fork of VPA recommender with customizable heuristics
 
 # A chart can be either an 'application' or a 'library' chart.
