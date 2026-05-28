@@ -1,6 +1,6 @@
 image:
-  repository: brunogb123/vhape-recommender-vhapev1
-  tag: latest
+  repository: brunogb123/vhape-recommender
+  tag: ""ẁ
   pullPolicy: IfNotPresent
 
 policies:

@@ -21,7 +21,7 @@ spec:
       containers:
         - name: vhape-recommender
           # Recommender image with the VHAPE framework
-          image: brunogb123/vhape-recommender-vhapev1:latest
+          image: brunogb123/vhape-recommender:latest
           command:
             - /recommender
           args:
