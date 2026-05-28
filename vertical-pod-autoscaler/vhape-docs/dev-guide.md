@@ -16,40 +16,10 @@ From the repository root, enter the recommender directory:
 cd vertical-pod-autoscaler/pkg/recommender
 ```
 
-Build the image:
+Build and publish the image:
 
 ```bash
-make docker-build-amd64 REGISTRY=<registry> TAG=<tag> ALL_ARCHITECTURES=amd64
-```
-
-Push the image to the registry:
-
-```bash
-make do-push-amd64 REGISTRY=<registry> TAG=<tag>
-```
-
-The current Makefile builds and pushes an image following this pattern:
-
-```text
-<registry>/vhape-recommender-amd64:<tag>
-```
-
-After pushing the image, update `yamls/recommender_deployment.yaml` to use it:
-
-```yaml
-image: <registry>/vhape-recommender-amd64:<tag>
-```
-
-Then redeploy the recommender:
-
-```bash
-kubectl apply -f yamls/recommender_deployment.yaml
-```
-
-Or restart the Deployment if only the image tag changed and the manifest is already applied:
-
-```bash
-kubectl rollout restart deployment/vhape-recommender -n kube-system
+make release REGISTRY=<registry> TAG=<tag> ALL_ARCHITECTURES=amd64
 ```
 
 ## Adding a new heuristic
