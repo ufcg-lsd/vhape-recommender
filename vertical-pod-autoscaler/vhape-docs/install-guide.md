@@ -5,40 +5,83 @@ This guide explains how to install VHAPE and use it with a `VerticalPodAutoscale
 VHAPE can be installed in two ways:
 
 1. **Helm installation**  
-   Planned, but not configured yet.
+   Installs the `VhapePolicy` CRD, RBAC, the VHAPE Recommender Deployment, and the configured `VhapePolicy` objects.
 
 2. **Manual installation with the published image**  
-   Available today. This uses the VHAPE Recommender image already published to Docker Hub and the YAML manifests provided in this repository.
+   Uses the VHAPE Recommender image published to Docker Hub and the YAML manifests provided in this repository.
 
-Regardless of the installation method, using VHAPE for a workload follows the same basic steps:
+Regardless of the VHAPE installation method, the basic flow is:
 
-1. install VHAPE on a Kubernetes cluster;
-2. create or select a `VhapePolicy`;
-3. create a `VerticalPodAutoscaler` object that selects the VHAPE Recommender, references the policy, and targets your workload;
-4. check the generated recommendations.
+1. install the VPA components;
+2. install VHAPE;
+3. create or choose a `VhapePolicy`;
+4. create a `VerticalPodAutoscaler` object that selects the VHAPE Recommender, references the chosen policy, and targets your workload;
+5. check the generated recommendations.
 
 ## Prerequisites
 
 You need:
 
-- a Kubernetes cluster compatible with VPA version `v1.6.0`;
-- VPA `v1.6.0` CRDs and core components installed on the cluster;
-- `kubectl` configured for the cluster;
-- Metrics Server or another metrics source available to the VPA recommender.
+- a Kubernetes cluster running version 1.28.0 or later;
+- kubectl configured to access the cluster;
+- Helm installed locally;
+- Metrics Server installed and accessible to the VPA recommender.
 
-VHAPE is a custom recommender. It does not replace the VPA API itself. The cluster still needs the VPA CRDs and the VPA machinery that watches VPA objects and applies recommendations.
+## Install upstream VPA components
 
-## Helm installation
+Before installing VHAPE, install the v1.6.0 Kubernetes Vertical Pod Autoscaler chart with the default recommender disabled.
 
-Helm installation is planned but not configured yet.
+```bash
+helm repo add autoscalers https://kubernetes.github.io/autoscaler
+helm repo update
+helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler \
+  --namespace kube-system \
+  --create-namespace \
+  --set recommender.enabled=false \
+  --wait
+```
+
+Verify that the VPA components are running:
+
+```bash
+kubectl get pods -n kube-system | grep vpa
+```
+
+## VHAPE Helm installation
+
+The Helm installation installs:
+
+- the `VhapePolicy` CRD;
+- RBAC for the VHAPE Recommender;
+- the VHAPE Recommender Deployment;
+- Some `VhapePolicy` objects configured with default values.
+
+Install VHAPE from the repository root directory:
+
+```bash
+helm upgrade --install vhape-recommender \
+  vertical-pod-autoscaler/pkg/charts/vhape-recommender \
+  --namespace kube-system \
+  --wait
+```
+
+Check that the recommender Pod is running:
+
+```bash
+kubectl get pods -n kube-system -l app=vhape-recommender
+```
+
+Check logs:
+
+```bash
+kubectl logs -n kube-system deploy/vhape-recommender
+```
+
+After this, you may jump to [Common usage flow](#common-usage-flow).
 
 ## Manual installation with the published image
 
-The manual installation uses the prebuilt VHAPE Recommender image:
-
-```yaml
-image: brunogb123/vhape-recommender-vhapev1:latest
-```
+The manual installation uses a prebuilt VHAPE Recommender image available at docker-hub `brunogb123/vhape-recommender-vhapev1:latest`
 
 The provided manifests at `vertical-pod-autoscaler/pkg/recommender/yamls` are already configured to use this image.
 
@@ -139,9 +182,19 @@ It configures:
 - which heuristic should be used for memory;
 - whether an optional scaling rule should constrain the recommendation.
 
+If you installed VHAPE with Helm, some `VhapePolicy` objects may already have been created from the chart values.
+
+You can list the available policies with:
+
+```bash
+kubectl get vhapepolicies -A
+```
+
+If you installed VHAPE manually, or if you want to define an additional policy, create a new VhapePolicy manifest and apply it to the cluster.
+
 The repository provides a default policy at `vertical-pod-autoscaler/pkg/recommender/yamls/vhapepolicy-p93-default.yaml`. It uses the `percentile-hysteresis` heuristic for both CPU and memory, with no additional scaling rule enabled.
 
-Apply the default policy:
+Edit the file as needed, then apply it with:
 
 ```bash
 kubectl apply -f vhapepolicy-p93-default.yaml
