@@ -1,6 +1,6 @@
 image:
   repository: brunogb123/vhape-recommender
-  tag: ""ẁ
+  tag: latest
   pullPolicy: IfNotPresent
 
 policies:
