@@ -1,6 +1,6 @@
 # Development guide
 
-This guide explains common development tasks in VHAPE: building the recommender image, adding new recommendation heuristics, and adding new scaling rules.
+This guide explains common development tasks in VHAPE: building and publishing the recommender image, adding new recommendation heuristics, adding new scaling rules and publishing the Helm chart.
 
 A heuristic is responsible for producing resource recommendations from usage data. A scaling rule is applied later, after the heuristic runs, to optionally constrain how the recommendation moves relative to the current request.
 
@@ -254,4 +254,82 @@ scalingRule:
 ```yaml
 spec:
   scalingRule: my-rule
+```
+
+## Publishing a new Helm chart
+
+Use this section when you need to package and publish a new VHAPE Helm chart version.
+
+The chart version and the application version are configured in `Chart.yaml`:
+
+```yaml
+version: 0.1.0
+appVersion: "1.0.0"
+```
+
+* `version` is the Helm chart version.
+* `appVersion` is the VHAPE recommender application version.
+* If `values.yaml` leaves `image.tag` empty, the chart uses `appVersion` as the image tag.
+
+
+### Step 1. Update the chart metadata
+
+Before publishing a new chart, update `Chart.yaml`.
+
+If only the chart changed, increment `version`:
+
+```yaml
+version: 0.1.1
+appVersion: "1.0.0"
+```
+
+If the recommender image also changed, increment both `version` and `appVersion`:
+
+```yaml
+version: 0.2.0
+appVersion: "1.1.0"
+```
+
+Make sure the corresponding recommender image was already pushed to Docker Hub.
+
+### Step 2. Package the chart
+
+Package the chart:
+
+```bash
+helm package ./vhape-recommender
+```
+
+this creates:
+
+```text
+vhape-recommender-chart-<chart-version>.tgz
+```
+
+### Step 3. Log in to Docker Hub
+
+Log in to Docker Hub using Helm:
+
+```bash
+helm registry login registry-1.docker.io -u <dockerhub-username>
+```
+
+### Step 4. Push the chart to Docker Hub
+
+Push the packaged chart:
+
+```bash
+helm push vhape-recommender-chart-<chart-version>.tgz oci://registry-1.docker.io/<dockerhub-username>
+```
+
+### Step 5. Install or upgrade from the published chart
+
+Install or upgrade VHAPE from Docker Hub:
+
+```bash
+helm upgrade --install vhape-recommender \
+  oci://registry-1.docker.io/<dockerhub-username>/vhape-recommender-chart \
+  --version <chart-version> \
+  --namespace kube-system \
+  --wait
 ```
