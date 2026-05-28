@@ -1,49 +1,22 @@
-# Kubernetes Autoscaler
+# VHAPE
 
-[![Release Charts](https://github.com/kubernetes/autoscaler/actions/workflows/chart-release.yaml/badge.svg)](https://github.com/kubernetes/autoscaler/actions/workflows/chart-release.yaml) [![CA Tests](https://github.com/kubernetes/autoscaler/actions/workflows/ca-test.yaml/badge.svg)](https://github.com/kubernetes/autoscaler/actions/workflows/ca-test.yaml) [![VPA Tests](https://github.com/kubernetes/autoscaler/actions/workflows/vpa-test.yaml/badge.svg)](https://github.com/kubernetes/autoscaler/actions/workflows/vpa-test.yaml) [![GoDoc Widget]][GoDoc]
+This repository is a fork of the Kubernetes Autoscaler project focused on **VHAPE**, a custom Vertical Pod Autoscaler Recommender built on top of the upstream VPA Recommender codebase.
 
-This repository contains autoscaling-related components for Kubernetes.
+## Documentation
 
-## What's inside
+Start here:
 
-[Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) - a component that automatically adjusts the size of a Kubernetes
-Cluster so that all pods have a place to run and there are no unneeded nodes. Supports several public cloud providers. Version 1.0 (GA) was released with kubernetes 1.8.
+- [VHAPE general guide](vertical-pod-autoscaler/pkg/recommender/vhape-docs/vhape-guide.md)  
+  Overview of VHAPE, expected usage flow, `VhapePolicy`, the default heuristic, scaling rules, and operational notes.
 
-[Cluster Autoscaler Helm Chart](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler/charts) - Supported Helm chart for Cluster Autoscaler.
+- [Installation guide](vertical-pod-autoscaler/pkg/recommender/vhape-docs/install-guide.md)  
+  How to install VHAPE with the published image, configure RBAC, deploy the recommender, create a policy, create a VPA object, and check recommendations.
 
-[Vertical Pod Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler) - a set of components that automatically adjust the
-amount of CPU and memory requested by pods running in the Kubernetes Cluster. Current state - beta.
+- [Development guide](vertical-pod-autoscaler/pkg/recommender/vhape-docs/dev-guide.md)  
+  How to build the recommender image, add new recommendation heuristics, and add new scaling rules.
 
-[Vertical Pod Autoscaler Helm Chart](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler/charts) - Supported Helm chart for Vertical Pod Autoscaler.
+## Upstream project
 
-[Addon Resizer](https://github.com/kubernetes/autoscaler/tree/master/addon-resizer) - a simplified version of vertical pod autoscaler that modifies
-resource requests of a deployment based on the number of nodes in the Kubernetes Cluster. Current state - beta.
+This codebase is based on the Kubernetes Autoscaler repository:
 
-## Contact Info
-
-Interested in autoscaling? Want to talk? Have questions, concerns or great ideas?
-
-Please join us on #sig-autoscaling at https://kubernetes.slack.com/, or join one
-of our weekly meetings.  See [the Kubernetes Community Repo](https://github.com/kubernetes/community/blob/master/sig-autoscaling/README.md) for more information.
-
-## Getting the Code
-
-Fork the repository in the cloud:
-1. Visit https://github.com/kubernetes/autoscaler
-1. Click Fork button (top right) to establish a cloud-based fork.
-
-The code must be checked out as a subdirectory of `k8s.io`, and not `github.com`.
-
-```shell
-mkdir -p $GOPATH/src/k8s.io
-cd $GOPATH/src/k8s.io
-# Replace "$YOUR_GITHUB_USERNAME" below with your github username
-git clone https://github.com/$YOUR_GITHUB_USERNAME/autoscaler.git
-cd autoscaler
-```
-
-Please refer to Kubernetes [Github workflow guide] for more details.
-
-[GoDoc]: https://godoc.org/k8s.io/autoscaler
-[GoDoc Widget]: https://godoc.org/k8s.io/autoscaler?status.svg
-[Github workflow guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/github-workflow.md
+- [Kubernetes Autoscaler](https://github.com/kubernetes/autoscaler)
