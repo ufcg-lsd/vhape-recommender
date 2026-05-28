@@ -17,15 +17,15 @@ policies:
         slidingWindow: 24h
     scalingRule: ""
 
-  - name: vhape-policy-p95-aggressive
+  - name: vhape-policy-p95
     cpu:
       percentile-hysteresis:
         percentile: 0.95
-        headroom: 0.15
-        slidingWindow: 12h
+        headroom: 0.10
+        slidingWindow: 24h
     memory:
       percentile-hysteresis:
         percentile: 0.95
-        headroom: 0.10
-        slidingWindow: 12h
+        headroom: 0.05
+        slidingWindow: 24h
     scalingRule: ""
