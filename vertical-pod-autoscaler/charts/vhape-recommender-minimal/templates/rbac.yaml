@@ -1,0 +1,199 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vhape-recommender
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vhape-recommender
+rules:
+  # Metrics API used by the recommender.
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+
+  # Core resources watched by the VPA recommender.
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+      - nodes
+      - limitranges
+    verbs:
+      - get
+      - list
+      - watch
+
+  # Events emitted by the recommender.
+  - apiGroups:
+      - ""
+      - events.k8s.io
+    resources:
+      - events
+    verbs:
+      - create
+      - get
+      - list
+      - watch
+      - patch
+      - update
+
+  # VPA objects watched by the recommender.
+  - apiGroups:
+      - autoscaling.k8s.io
+    resources:
+      - verticalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+      - patch
+
+  # Legacy VPA API group kept for compatibility with upstream VPA RBAC.
+  - apiGroups:
+      - poc.autoscaling.k8s.io
+    resources:
+      - verticalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+
+  # VPA status updates.
+  - apiGroups:
+      - autoscaling.k8s.io
+    resources:
+      - verticalpodautoscalers/status
+    verbs:
+      - get
+      - patch
+
+  # VPA checkpoints.
+  - apiGroups:
+      - autoscaling.k8s.io
+      - poc.autoscaling.k8s.io
+    resources:
+      - verticalpodautoscalercheckpoints
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - patch
+      - delete
+
+  # Namespace lookup used by checkpoint logic.
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+
+  # Target workload discovery.
+  - apiGroups:
+      - "*"
+    resources:
+      - "*/scale"
+    verbs:
+      - get
+      - watch
+
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - replicasets
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+      - cronjobs
+    verbs:
+      - get
+      - list
+      - watch
+
+  # VHAPE policy CRD.
+  - apiGroups:
+      - autoscaling.vhape.io
+    resources:
+      - vhapepolicies
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vhape-recommender
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vhape-recommender
+subjects:
+  - kind: ServiceAccount
+    name: vhape-recommender
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vhape-recommender-leader-locking
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - create
+
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    resourceNames:
+      - vhape-recommender-lease
+    verbs:
+      - get
+      - watch
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vhape-recommender-leader-locking
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vhape-recommender-leader-locking
+subjects:
+  - kind: ServiceAccount
+    name: vhape-recommender
+    namespace: {{ .Release.Namespace }}

@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vhape-recommender
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vhape-recommender
+  template:
+    metadata:
+      labels:
+        app: vhape-recommender
+    spec:
+      serviceAccountName: vhape-recommender
+      containers:
+        - name: vhape-recommender
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /recommender
+          args:
+            - --recommender-name=vhape-recommender

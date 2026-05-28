@@ -1,0 +1,31 @@
+image:
+  repository: brunogb123/vhape-recommender-vhapev1
+  tag: latest
+  pullPolicy: IfNotPresent
+
+policies:
+  - name: vhape-policy-p93-default
+    cpu:
+      percentile-hysteresis:
+        percentile: 0.93
+        headroom: 0.10
+        slidingWindow: 24h
+    memory:
+      percentile-hysteresis:
+        percentile: 0.93
+        headroom: 0.05
+        slidingWindow: 24h
+    scalingRule: ""
+
+  - name: vhape-policy-p95-aggressive
+    cpu:
+      percentile-hysteresis:
+        percentile: 0.95
+        headroom: 0.15
+        slidingWindow: 12h
+    memory:
+      percentile-hysteresis:
+        percentile: 0.95
+        headroom: 0.10
+        slidingWindow: 12h
+    scalingRule: ""
