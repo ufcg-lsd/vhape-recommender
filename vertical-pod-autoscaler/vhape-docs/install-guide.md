@@ -44,7 +44,7 @@ helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscal
 Verify that the VPA components are running:
 
 ```bash
-kubectl get pods -n kube-system | grep vpa
+kubectl get pods -n kube-system
 ```
 
 ## VHAPE Helm installation
@@ -60,7 +60,7 @@ Install VHAPE from the repository root directory:
 
 ```bash
 helm upgrade --install vhape-recommender \
-  vertical-pod-autoscaler/pkg/charts/vhape-recommender \
+  ./vertical-pod-autoscaler/charts/vhape-recommender \
   --namespace kube-system \
   --wait
 ```
