@@ -60,7 +60,7 @@ Install VHAPE from the repository root directory:
 
 ```bash
 helm upgrade --install vhape-recommender \
-  ./vertical-pod-autoscaler/charts/vhape-recommender \
+  oci://registry-1.docker.io/brunogb123/vhape-recommender-chart \
   --namespace kube-system \
   --wait
 ```
@@ -81,7 +81,7 @@ After this, you may jump to [Common usage flow](#common-usage-flow).
 
 ## Manual installation with the published image
 
-The manual installation uses a prebuilt VHAPE Recommender image available at docker-hub `brunogb123/vhape-recommender-vhapev1:latest`
+The manual installation uses a prebuilt VHAPE Recommender image available at docker-hub `brunogb123/vhape-recommender:1.0.0`
 
 The provided manifests at `vertical-pod-autoscaler/pkg/recommender/yamls` are already configured to use this image.
 
