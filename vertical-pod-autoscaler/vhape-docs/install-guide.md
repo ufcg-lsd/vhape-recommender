@@ -228,7 +228,15 @@ The `vhape/policy` annotation selects the `VhapePolicy`.
 
 The `recommenders` field selects the VHAPE Recommender instance. The value of `spec.recommenders[].name` must match the `--recommender-name` configured in the recommender Deployment.
 
-After checking the workload target, recommender name, and policy annotation, apply the VPA object:
+If you would like VHAPE to generate recommendations without applying them automatically, set the VPA update mode to Off:
+
+```yaml
+spec:
+  updatePolicy:
+    updateMode: "Off"
+```
+
+After checking the workload target, recommender name, policy annotation, and update mode, apply the VPA object:
 
 ```bash
 kubectl apply -f vpa_object.yaml
