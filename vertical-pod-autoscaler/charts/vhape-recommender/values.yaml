@@ -1,5 +1,5 @@
 image:
-  repository: brunogb123/vhape-recommender
+  repository: vtexlsd/vhape-recommender
   tag: ""
   pullPolicy: IfNotPresent
 
