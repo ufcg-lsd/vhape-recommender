@@ -10,10 +10,10 @@ Start here:
   Overview of VHAPE, expected usage flow, `VhapePolicy`, the default heuristic, scaling rules, and operational notes.
 
 - [Installation guide](vertical-pod-autoscaler/pkg/recommender/vhape-docs/install-guide.md)  
-  How to install VHAPE with the published image, configure RBAC, deploy the recommender, create a policy, create a VPA object, and check recommendations.
+  How to install VHAPE, create a policy, create a VPA object, and check recommendations.
 
 - [Development guide](vertical-pod-autoscaler/pkg/recommender/vhape-docs/dev-guide.md)  
-  How to build the recommender image, add new recommendation heuristics, and add new scaling rules.
+  How to add new recommendation heuristics, new scaling rules, build the recommender image and push a helm chart.
 
 ## Upstream project
 
