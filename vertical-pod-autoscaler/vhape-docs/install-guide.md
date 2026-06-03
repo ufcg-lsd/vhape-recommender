@@ -41,9 +41,24 @@ helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscal
   --wait
 ```
 
-Verify that the VPA components are running:
+If you strictly do not want the cluster to run components capable of applying recommendations, you can also disable the updater and admission controller:
 
 ```bash
+helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler \
+  --namespace kube-system \
+  --create-namespace \
+  --set recommender.enabled=false \
+  --set updater.enabled=false \
+  --set admissionController.enabled=false \
+  --wait
+```
+
+With this setup, VHAPE can still generate recommendations, but the cluster will not run the upstream VPA components responsible for applying them. For most cases where you only want to inspect recommendations, prefer the standard installation above and set `updateMode: "Off"` on the VPA object, as described in [Create a VPA object](#2-create-a-vpa-object).
+
+Verify the installation:
+
+```bash
+kubectl get crd verticalpodautoscalers.autoscaling.k8s.io
 kubectl get pods -n kube-system
 ```
 
@@ -56,7 +71,7 @@ The Helm installation installs:
 - the VHAPE Recommender Deployment;
 - Some `VhapePolicy` objects configured with default values.
 
-Install VHAPE from the repository root directory:
+Install VHAPE from the published OCI chart:
 
 ```bash
 helm upgrade --install vhape-recommender \
@@ -81,7 +96,7 @@ After this, you may jump to [Common usage flow](#common-usage-flow).
 
 ## Manual installation with the published image
 
-The manual installation uses a prebuilt VHAPE Recommender image available at docker-hub `vtexlsd/vhape-recommender:1.0.0`
+The manual installation uses a prebuilt VHAPE Recommender image available at Docker Hub `vtexlsd/vhape-recommender:1.0.0`
 
 The provided manifests at `vertical-pod-autoscaler/pkg/recommender/yamls` are already configured to use this image.
 
@@ -228,7 +243,7 @@ The `vhape/policy` annotation selects the `VhapePolicy`.
 
 The `recommenders` field selects the VHAPE Recommender instance. The value of `spec.recommenders[].name` must match the `--recommender-name` configured in the recommender Deployment.
 
-If you would like VHAPE to generate recommendations without applying them automatically, set the VPA update mode to Off:
+If you would like VHAPE to generate recommendations without applying them automatically, set the VPA update mode to `Off`:
 
 ```yaml
 spec:
