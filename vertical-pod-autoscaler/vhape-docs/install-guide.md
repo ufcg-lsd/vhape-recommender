@@ -53,7 +53,7 @@ helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscal
   --wait
 ```
 
-With this setup, VHAPE can still generate recommendations, but the cluster will not run the upstream VPA components responsible for applying them. For most cases where you only want to inspect recommendations, prefer the standard installation above and set `updateMode: "Off"` on the VPA object, as described in [Create a VPA object](#2-create-a-vpa-object).
+With this setup, VHAPE can still generate recommendations, while the cluster avoids running the upstream VPA components that can apply them automatically. However, for most inspection-only use cases, prefer the standard and more flexible installation: keep the updater and admission controller enabled, and set updateMode: "Off" on the VPA object, as described in [Create a VPA object](#2-create-a-vpa-object).
 
 Verify the installation:
 
