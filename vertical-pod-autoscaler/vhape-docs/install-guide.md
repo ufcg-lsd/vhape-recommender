@@ -44,6 +44,8 @@ helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscal
 If you strictly do not want the cluster to run components capable of applying recommendations, you can also disable the updater and admission controller:
 
 ```bash
+helm repo add autoscalers https://kubernetes.github.io/autoscaler
+helm repo update
 helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler \
   --namespace kube-system \
   --create-namespace \
