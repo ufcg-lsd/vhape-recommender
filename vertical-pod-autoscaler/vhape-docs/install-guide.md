@@ -267,7 +267,7 @@ kubectl apply -f vpa_object.yaml
 Describe the VPA:
 
 ```bash
-kubectl describe vpa vhape-vpa-object -n default
+kubectl describe vpa <vhape-vpa-object> -n default
 ```
 
 Recommendations should eventually appear under:
