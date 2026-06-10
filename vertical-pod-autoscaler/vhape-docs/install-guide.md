@@ -221,16 +221,19 @@ kubectl apply -f vhapepolicy-p93-default.yaml
 
 The example VPA object located at `vertical-pod-autoscaler/pkg/recommender/yamls/vpa_object.yaml` targets a Deployment named `my-app` in the `default` namespace.
 
-Before applying it, update the `targetRef` to point to your workload:
+Before applying it, update the VPA object so that it points to your workload. The VPA object must be created in the same namespace as the target Deployment. For example, if your Deployment is in the `default` namespace, the VPA object must also be in the `default` namespace.
 
 ```yaml
-targetRef:
-  apiVersion: apps/v1
-  kind: Deployment
-  name: my-app
+metadata:
+  namespace: default
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-app
 ```
 
-The VPA object must also select the VHAPE Recommender and reference a `VhapePolicy`:
+Then configure the VPA object to use the VHAPE Recommender and reference the desired `VhapePolicy`:
 
 ```yaml
 metadata:
@@ -243,9 +246,9 @@ spec:
 
 The `vhape/policy` annotation selects the `VhapePolicy`.
 
-The `recommenders` field selects the VHAPE Recommender instance. The value of `spec.recommenders[].name` must match the `--recommender-name` configured in the recommender Deployment.
+The `spec.recommenders[].name` field selects the VHAPE Recommender instance. Its value must match the `--recommender-name` configured in the recommender Deployment.
 
-If you would like VHAPE to generate recommendations without applying them automatically, set the VPA update mode to `Off`:
+To generate recommendations without applying them automatically, set the VPA update mode to `Off`:
 
 ```yaml
 spec:
@@ -253,7 +256,7 @@ spec:
     updateMode: "Off"
 ```
 
-After checking the workload target, recommender name, policy annotation, and update mode, apply the VPA object:
+After checking the VPA namespace, workload target, recommender name, policy annotation, and update mode, apply the VPA object:
 
 ```bash
 kubectl apply -f vpa_object.yaml
