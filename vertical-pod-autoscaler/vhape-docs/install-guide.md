@@ -314,3 +314,65 @@ Restart the recommender Deployment:
 ```bash
 kubectl rollout restart deployment/vhape-recommender -n kube-system
 ```
+
+## Uninstall
+
+### 1. Delete existing VPA objects
+
+List all VPA objects in the cluster:
+
+```bash
+kubectl get vpa -A
+```
+
+Delete the VPA objects that were using VHAPE:
+
+```bash
+kubectl delete vpa <vpa-name> -n <namespace>
+```
+
+To delete **all** VPA objects in the cluster (including these not managed by VHAPE!):
+
+```bash
+kubectl delete verticalpodautoscalers.autoscaling.k8s.io --all -A
+```
+
+### 2. Delete existing VhapePolicy objects
+
+List all VHAPE policies:
+
+```bash
+kubectl get vhapepolicies -A
+```
+
+Delete all VHAPE policies:
+
+```bash
+kubectl delete vhapepolicies.autoscaling.vhape.io --all -A
+```
+
+### 3. Uninstall VHAPE
+
+If VHAPE was installed with Helm:
+
+```bash
+helm uninstall vhape-recommender -n kube-system
+```
+
+If VHAPE was installed manually, delete the recommender resources by name:
+
+```bash
+kubectl delete deployment vhape-recommender -n kube-system
+kubectl delete serviceaccount vhape-recommender -n kube-system
+kubectl delete lease vhape-recommender-lease -n kube-system --ignore-not-found
+kubectl delete role vhape-recommender-leader-locking -n kube-system
+kubectl delete rolebinding vhape-recommender-leader-locking -n kube-system
+kubectl delete clusterrole vhape-recommender
+kubectl delete clusterrolebinding vhape-recommender
+```
+
+### 4. Delete the VHAPE CRD
+
+```bash
+kubectl delete crd vhapepolicies.autoscaling.vhape.io
+```
