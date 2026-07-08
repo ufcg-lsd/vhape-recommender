@@ -1,0 +1,11 @@
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapeIgnoredWorkload
+metadata:
+  name: deployment-api-legada-producao
+spec:
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    namespace: producao
+    name: api-legada
+  reason: "VPA gerenciado manualmente"
