@@ -2,8 +2,6 @@ package informers
 
 import (
 	"fmt"
-	"time"
-
 	vhapeinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
 	autoscalinginformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
 	vhapev1alpha1informers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.vhape.io/v1alpha1"
@@ -25,19 +23,19 @@ type Informers struct {
 }
 
 // New creates informers for native Kubernetes resources, VPA resources and VHAPE resources.
-func New(clients *vhapewatcherkube.Clients, resyncPeriod time.Duration) (*Informers, error) {
+func New(clients *vhapewatcherkube.Clients) (*Informers, error) {
 	if clients == nil {
 		return nil, fmt.Errorf("clients is nil")
 	}
 	if clients.Kube == nil {
 		return nil, fmt.Errorf("kubernetes client is nil")
 	}
-	if clients.VPA == nil {
-		return nil, fmt.Errorf("vpa client is nil")
+	if clients.Vhape == nil {
+		return nil, fmt.Errorf("vhape client is nil")
 	}
 
-	kubeFactory := kubeinformers.NewSharedInformerFactory(clients.Kube, resyncPeriod)
-	vhapeFactory := vhapeinformers.NewSharedInformerFactory(clients.VPA, resyncPeriod)
+	kubeFactory := kubeinformers.NewSharedInformerFactory(clients.Kube, 0)
+	vhapeFactory := vhapeinformers.NewSharedInformerFactory(clients.Vhape, 0)
 
 	deploymentInformer := kubeFactory.Apps().V1().Deployments()
 

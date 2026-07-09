@@ -14,8 +14,8 @@ type Clients struct {
 	// Kube is the native Kubernetes client.
 	Kube kubeclient.Interface
 
-	// VPA is the generated clientset from this repository.
-	VPA vpaclientset.Interface
+	// Vhape is the generated clientset from this repository.
+	Vhape vpaclientset.Interface
 }
 
 // NewClients creates all clients needed by VHAPE Watcher.
@@ -29,13 +29,13 @@ func NewClients(config *rest.Config) (*Clients, error) {
 		return nil, fmt.Errorf("create kubernetes client: %w", err)
 	}
 
-	vpaClient, err := vpaclientset.NewForConfig(config)
+	vhapeClient, err := vpaclientset.NewForConfig(config)
 	if err != nil {
-		return nil, fmt.Errorf("create vpa client: %w", err)
+		return nil, fmt.Errorf("create vhape client: %w", err)
 	}
 
 	return &Clients{
 		Kube: kubeClient,
-		VPA:  vpaClient,
+		Vhape:  vhapeClient,
 	}, nil
 }
