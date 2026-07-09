@@ -33,7 +33,7 @@ type Decision struct {
 // not call the Kubernetes API Server directly.
 type Scope struct {
 	watchedNamespaceLister vhapelisters.VhapeWatchedNamespaceLister
-	ignoredWorkloadLister vhapelisters.VhapeIgnoredWorkloadLister
+	ignoredWorkloadLister  vhapelisters.VhapeIgnoredWorkloadLister
 }
 
 // New creates a Scope resolver.
@@ -50,7 +50,7 @@ func New(
 
 	return &Scope{
 		watchedNamespaceLister: watchedNamespaceLister,
-		ignoredWorkloadLister: ignoredWorkloadLister,
+		ignoredWorkloadLister:  ignoredWorkloadLister,
 	}, nil
 }
 

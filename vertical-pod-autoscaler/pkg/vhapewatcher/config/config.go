@@ -6,28 +6,28 @@ import (
 )
 
 const (
-	DefaultDryRun = false
-	DefaultVhapeRecommenderName = "vhape-recommender"
+	DefaultDryRun                = false
+	DefaultVhapeRecommenderName  = "vhape-recommender"
 	DefaultVhapePolicyAnnotation = "vhape/policy"
-	DefaultVhapePolicyNamespace = "kube-system"
-	DefaultVhapePolicyName = "vhape-policy-p93-default"
+	DefaultVhapePolicyNamespace  = "kube-system"
+	DefaultVhapePolicyName       = "vhape-policy-p93-default"
 )
 
 type Config struct {
-	DryRun bool
-	VhapeRecommenderName  string
-	VhapePolicyAnnotation string
+	DryRun                      bool
+	VhapeRecommenderName        string
+	VhapePolicyAnnotation       string
 	DefaultVhapePolicyNamespace string
 	DefaultVhapePolicyName      string
 }
 
 func ParseFlags() (Config, error) {
 	cfg := Config{
-		DryRun: DefaultDryRun,
-		VhapeRecommenderName:  DefaultVhapeRecommenderName,
-		VhapePolicyAnnotation: DefaultVhapePolicyAnnotation,
+		DryRun:                      DefaultDryRun,
+		VhapeRecommenderName:        DefaultVhapeRecommenderName,
+		VhapePolicyAnnotation:       DefaultVhapePolicyAnnotation,
 		DefaultVhapePolicyNamespace: DefaultVhapePolicyNamespace,
-		DefaultVhapePolicyName: DefaultVhapePolicyName,
+		DefaultVhapePolicyName:      DefaultVhapePolicyName,
 	}
 
 	flag.BoolVar(
