@@ -4,12 +4,13 @@ import (
 	"fmt"
 	vhapeinformerfactory "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
 	kubeinformerfactory "k8s.io/client-go/informers"
-	
-	appsinformers "k8s.io/client-go/informers/apps/v1"
+
 	autoscalinginformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
 	vhapev1alpha1informers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.vhape.io/v1alpha1"
-	
+	appsinformers "k8s.io/client-go/informers/apps/v1"
+
 	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
+	vhapevpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 
 	"k8s.io/client-go/tools/cache"
 )
@@ -49,6 +50,10 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		Autoscaling().
 		V1().
 		VerticalPodAutoscalers()
+
+	if err := vhapevpaservice.AddVPAIndexes(vpaInformer); err != nil {
+		return nil, fmt.Errorf("add VPA indexes: %w", err)
+	}
 
 	watchedNamespaceInformer := vhapeFactory.
 		VhapeAutoscaling().
