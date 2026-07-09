@@ -14,8 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// +k8s:deepcopy-gen=package,register
+// +k8s:deepcopy-gen=package
 // +groupName=autoscaling.vhape.io
+// +groupGoName=VhapeAutoscaling
 
 // Package v1alpha1 contains API definitions for VHAPE custom resources.
 package v1alpha1
