@@ -45,33 +45,7 @@ func NewVPAService(
 	}, nil
 }
 
-func (s *VPAService) EnsureVPAForDeployment(ctx context.Context, dep *appsv1.Deployment) error {
-	if dep == nil {
-		return fmt.Errorf("deployment is nil")
-	}
-
-	vpas, err := s.ListForDeployment(dep)
-	if err != nil {
-		return err
-	}
-
-	if len(vpas) > 1 {
-		return nil
-	}
-
-	return s.createGeneratedVPA(ctx, dep)
-}
-
-func (s *VPAService) EnsureNoGeneratedVPAForDeployment(ctx context.Context, dep *appsv1.Deployment, reason string) error {
-	if dep == nil {
-		return fmt.Errorf("deployment is nil")
-	}
-
-	vpas, err := s.ListForDeployment(dep)
-	if err != nil {
-		return err
-	}
-
+func (s *VPAService) EnsureNoGeneratedVPA(ctx context.Context, vpas []*vpav1.VerticalPodAutoscaler, reason string) error {
 	for _, vpa := range vpas {
 		if IsManagedByWatcher(vpa) {
 			if err := s.deleteVPA(ctx, vpa, reason); err != nil {
