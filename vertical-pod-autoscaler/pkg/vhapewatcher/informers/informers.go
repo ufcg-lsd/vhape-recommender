@@ -2,19 +2,22 @@ package informers
 
 import (
 	"fmt"
-	vhapeinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
+	vhapeinformerfactory "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
+	kubeinformerfactory "k8s.io/client-go/informers"
+	
+	appsinformers "k8s.io/client-go/informers/apps/v1"
 	autoscalinginformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
 	vhapev1alpha1informers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.vhape.io/v1alpha1"
-	vhapewatcherkube "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/kube"
-	kubeinformers "k8s.io/client-go/informers"
-	appsinformers "k8s.io/client-go/informers/apps/v1"
+	
+	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
+
 	"k8s.io/client-go/tools/cache"
 )
 
 // Informers groups all shared informers used by VHAPE Watcher.
 type Informers struct {
-	kubeFactory  kubeinformers.SharedInformerFactory
-	vhapeFactory vhapeinformers.SharedInformerFactory
+	kubeFactory  kubeinformerfactory.SharedInformerFactory
+	vhapeFactory vhapeinformerfactory.SharedInformerFactory
 
 	Deployment            appsinformers.DeploymentInformer
 	VPA                   autoscalinginformers.VerticalPodAutoscalerInformer
@@ -23,7 +26,7 @@ type Informers struct {
 }
 
 // New creates informers for native Kubernetes resources, VPA resources and VHAPE resources.
-func New(clients *vhapewatcherkube.Clients) (*Informers, error) {
+func New(clients *vhapeclient.Clients) (*Informers, error) {
 	if clients == nil {
 		return nil, fmt.Errorf("clients is nil")
 	}
@@ -34,10 +37,13 @@ func New(clients *vhapewatcherkube.Clients) (*Informers, error) {
 		return nil, fmt.Errorf("vhape client is nil")
 	}
 
-	kubeFactory := kubeinformers.NewSharedInformerFactory(clients.Kube, 0)
-	vhapeFactory := vhapeinformers.NewSharedInformerFactory(clients.Vhape, 0)
+	kubeFactory := kubeinformerfactory.NewSharedInformerFactory(clients.Kube, 0)
+	vhapeFactory := vhapeinformerfactory.NewSharedInformerFactory(clients.Vhape, 0)
 
-	deploymentInformer := kubeFactory.Apps().V1().Deployments()
+	deploymentInformer := kubeFactory.
+		Apps().
+		V1().
+		Deployments()
 
 	vpaInformer := vhapeFactory.
 		Autoscaling().
