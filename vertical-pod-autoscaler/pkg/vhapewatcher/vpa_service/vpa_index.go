@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	appsv1 "k8s.io/api/apps/v1"
-
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpaInformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
 	"k8s.io/client-go/tools/cache"
