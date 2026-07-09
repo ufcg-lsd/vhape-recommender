@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	generatedVPANamePrefix = "vhape-generated-"
+
 	ManagedByLabel = "app.kubernetes.io/managed-by"
 	ManagedByValue = "vhape-watcher"
 
@@ -40,7 +42,7 @@ func VPANameForDeployment(dep *appsv1.Deployment) (string, error) {
 		return "", fmt.Errorf("deployment name is empty")
 	}
 
-	return dep.Name, nil
+	return generatedVPANamePrefix + dep.Name, nil
 }
 
 // BuildVPAForDeployment builds the VPA object VHAPE Watcher would create for a Deployment.
