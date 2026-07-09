@@ -45,7 +45,7 @@ func NewVPAService(
 	}, nil
 }
 
-func (s *VPAService) EnsureGeneratedVPAForDeployment(ctx context.Context, dep *appsv1.Deployment) error {
+func (s *VPAService) EnsureVPAForDeployment(ctx context.Context, dep *appsv1.Deployment) error {
 	if dep == nil {
 		return fmt.Errorf("deployment is nil")
 	}
@@ -55,10 +55,8 @@ func (s *VPAService) EnsureGeneratedVPAForDeployment(ctx context.Context, dep *a
 		return err
 	}
 
-	for _, vpa := range vpas {
-		if !IsManagedByWatcher(vpa) {
-			return nil
-		}
+	if len(vpas) > 1 {
+		return nil
 	}
 
 	return s.createGeneratedVPA(ctx, dep)
