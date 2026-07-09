@@ -14,6 +14,8 @@ const (
 	deploymentKind       = "Deployment"
 )
 
+// A new Deployment may require a generated VPA if its namespace is watched and
+// the workload is not ignored.
 func (w *Watchers) onDeploymentAdd(obj interface{}) {
 	dep, ok := deploymentFromObject(obj)
 	if !ok {
@@ -23,22 +25,21 @@ func (w *Watchers) onDeploymentAdd(obj interface{}) {
 	w.sink.EnqueueDeployment(dep.Namespace, dep.Name)
 }
 
+// Deployment updates are ignored for now because the watcher only uses the
+// Deployment identity. The relevant fields are namespace and name, which do not
+// change during an update.
 func (w *Watchers) onDeploymentUpdate(_, _ interface{}) {
 	// Nothing to do.
-	//
-	// VHAPE Watcher does not currently use mutable Deployment fields such as
-	// labels, annotations, replicas, pod template or status to decide whether a
-	// Deployment should be managed.
 }
 
+// Deployment deletes are ignored because generated VPAs are expected to have an
+// ownerReference pointing to the Deployment. Kubernetes garbage collection is
+// responsible for deleting those VPAs.
 func (w *Watchers) onDeploymentDelete(_ interface{}) {
 	// Nothing to do.
-	//
-	// VPAs created by VHAPE Watcher should have an ownerReference pointing to the
-	// Deployment. When the Deployment is deleted, Kubernetes garbage collection
-	// is responsible for deleting the managed VPA.
 }
 
+// A new VPA may create a conflict with a generated VPA or with a watched Deployment.
 func (w *Watchers) onVPAAdd(obj interface{}) {
 	vpa, ok := vpaFromObject(obj)
 	if !ok {
@@ -48,15 +49,23 @@ func (w *Watchers) onVPAAdd(obj interface{}) {
 	w.enqueueDeploymentFromVPA(vpa)
 }
 
-func (w *Watchers) onVPAUpdate(_, _ interface{}) {
-	// Nothing to do.
-	//
-	// VHAPE Watcher does not depend on VPA updates to decide desired state.
-	// VPA Add events are enough to detect newly created VPAs that may conflict
-	// with watched workloads, and VPA Delete events are enough to detect managed
-	// VPAs that may need to be recreated.
+// A VPA update may change its targetRef. Enqueue both the old and the new target
+// identities so the reconciler can evaluate the current desired state for each
+// affected Deployment.
+func (w *Watchers) onVPAUpdate(oldObj, newObj interface{}) {
+	oldVPA, ok := vpaFromObject(oldObj)
+	if ok {
+		w.enqueueDeploymentFromVPA(oldVPA)
+	}
+
+	newVPA, ok := vpaFromObject(newObj)
+	if ok {
+		w.enqueueDeploymentFromVPA(newVPA)
+	}
 }
 
+// If a VPA is deleted and the target Deployment is still in scope, the
+// reconciler may recreate the generated VPA.
 func (w *Watchers) onVPADelete(obj interface{}) {
 	vpa, ok := vpaFromObject(obj)
 	if !ok {
@@ -66,6 +75,8 @@ func (w *Watchers) onVPADelete(obj interface{}) {
 	w.enqueueDeploymentFromVPA(vpa)
 }
 
+// When a namespace becomes watched, every Deployment in that namespace may need
+// a generated VPA.
 func (w *Watchers) onWatchedNamespaceAdd(obj interface{}) {
 	watched, ok := watchedNamespaceFromObject(obj)
 	if !ok {
@@ -75,12 +86,14 @@ func (w *Watchers) onWatchedNamespaceAdd(obj interface{}) {
 	w.sink.EnqueueDeploymentsInNamespace(watched.Name)
 }
 
+// Watched namespace updates are ignored because the watcher depends only on
+// metadata.name, which is immutable.
 func (w *Watchers) onWatchedNamespaceUpdate(_, _ interface{}) {
 	// Nothing to do.
-	//
-	// VhapeWatchedNamespace currently has no spec.
 }
 
+// When a namespace stops being watched, all Deployments in that namespace are
+// reconciled so managed VPAs can be cleaned up.
 func (w *Watchers) onWatchedNamespaceDelete(obj interface{}) {
 	watched, ok := watchedNamespaceFromObject(obj)
 	if !ok {
@@ -90,6 +103,8 @@ func (w *Watchers) onWatchedNamespaceDelete(obj interface{}) {
 	w.sink.EnqueueDeploymentsInNamespace(watched.Name)
 }
 
+// When a workload becomes ignored, the associated Deployment must be reconciled
+// so any generated VPA can be cleaned up according to the watcher policy.
 func (w *Watchers) onIgnoredWorkloadAdd(obj interface{}) {
 	ignored, ok := ignoredWorkloadFromObject(obj)
 	if !ok {
@@ -99,13 +114,23 @@ func (w *Watchers) onIgnoredWorkloadAdd(obj interface{}) {
 	w.enqueueDeploymentFromIgnoredWorkload(ignored)
 }
 
-func (w *Watchers) onIgnoredWorkloadUpdate(_, _ interface{}) {
-	// Nothing to do.
-	//
-	// VHAPE Watcher treats VhapeIgnoredWorkload as a declarative marker whose
-	// relevant lifecycle is Add/Delete.
+// An ignored workload update may change its targetRef. Enqueue both the old and
+// the new target identities so the reconciler can evaluate the current desired
+// state for each affected Deployment.
+func (w *Watchers) onIgnoredWorkloadUpdate(oldObj, newObj interface{}) {
+	oldIgnored, ok := ignoredWorkloadFromObject(oldObj)
+	if ok {
+		w.enqueueDeploymentFromIgnoredWorkload(oldIgnored)
+	}
+
+	newIgnored, ok := ignoredWorkloadFromObject(newObj)
+	if ok {
+		w.enqueueDeploymentFromIgnoredWorkload(newIgnored)
+	}
 }
 
+// When a workload stops being ignored, the target Deployment may need a generated
+// VPA if it is still in a watched namespace.
 func (w *Watchers) onIgnoredWorkloadDelete(obj interface{}) {
 	ignored, ok := ignoredWorkloadFromObject(obj)
 	if !ok {
