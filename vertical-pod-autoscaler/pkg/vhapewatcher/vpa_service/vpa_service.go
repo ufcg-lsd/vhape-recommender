@@ -45,7 +45,7 @@ func NewVPAService(
 	}, nil
 }
 
-func (s *VPAService) EnsureNoGeneratedVPA(ctx context.Context, vpas []*vpav1.VerticalPodAutoscaler, reason string) error {
+func (s *VPAService) EnsureNoGeneratedVPAForDeployment(ctx context.Context, vpas []*vpav1.VerticalPodAutoscaler, reason string) error {
 	for _, vpa := range vpas {
 		if IsManagedByWatcher(vpa) {
 			if err := s.deleteVPA(ctx, vpa, reason); err != nil {
@@ -84,7 +84,7 @@ func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.Vertica
 	return vpas, nil
 }
 
-func (s *VPAService) createGeneratedVPA(ctx context.Context, dep *appsv1.Deployment) error {
+func (s *VPAService) CreateGeneratedVPAForDeployment(ctx context.Context, dep *appsv1.Deployment) error {
 	vpa, err := s.GenerateVPAForDeployment(dep)
 	if err != nil {
 		return err
