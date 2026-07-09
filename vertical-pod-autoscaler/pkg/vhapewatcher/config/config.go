@@ -6,7 +6,6 @@ import (
 )
 
 const (
-	DefaultDryRun                = false
 	DefaultVhapeRecommenderName  = "vhape-recommender"
 	DefaultVhapePolicyAnnotation = "vhape/policy"
 	DefaultVhapePolicyNamespace  = "kube-system"
@@ -14,7 +13,6 @@ const (
 )
 
 type Config struct {
-	DryRun                      bool
 	VhapeRecommenderName        string
 	VhapePolicyAnnotation       string
 	DefaultVhapePolicyNamespace string
@@ -23,19 +21,11 @@ type Config struct {
 
 func ParseFlags() (Config, error) {
 	cfg := Config{
-		DryRun:                      DefaultDryRun,
 		VhapeRecommenderName:        DefaultVhapeRecommenderName,
 		VhapePolicyAnnotation:       DefaultVhapePolicyAnnotation,
 		DefaultVhapePolicyNamespace: DefaultVhapePolicyNamespace,
 		DefaultVhapePolicyName:      DefaultVhapePolicyName,
 	}
-
-	flag.BoolVar(
-		&cfg.DryRun,
-		"dry-run",
-		DefaultDryRun,
-		"If true, VHAPE Watcher logs actions without creating or updating Kubernetes objects.",
-	)
 
 	flag.StringVar(
 		&cfg.DefaultVhapePolicyNamespace,
