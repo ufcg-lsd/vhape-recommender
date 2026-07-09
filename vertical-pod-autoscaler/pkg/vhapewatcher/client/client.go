@@ -35,7 +35,7 @@ func NewClients(config *rest.Config) (*Clients, error) {
 	}
 
 	return &Clients{
-		Kube: kubeClient,
-		Vhape:  vhapeClient,
+		Kube:  kubeClient,
+		Vhape: vhapeClient,
 	}, nil
 }
