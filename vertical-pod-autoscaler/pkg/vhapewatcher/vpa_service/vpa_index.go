@@ -23,33 +23,6 @@ func AddVPAIndexes(informer vpaInformers.VerticalPodAutoscalerInformer) error {
 	})
 }
 
-func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.VerticalPodAutoscaler, error) {
-	if dep == nil {
-		return nil, fmt.Errorf("deployment is nil")
-	}
-
-	items, err := s.informer.
-		Informer().
-		GetIndexer().
-		ByIndex(VPAByDeploymentIndexName, namespacedKey(dep.Namespace, dep.Name))
-
-	if err != nil {
-		return nil, fmt.Errorf("list VPAs indexed by Deployment %q/%q: %w", dep.Namespace, dep.Name, err)
-	}
-
-	vpas := make([]*vpav1.VerticalPodAutoscaler, 0, len(items))
-	for _, item := range items {
-		vpa, ok := item.(*vpav1.VerticalPodAutoscaler)
-		if !ok {
-			continue
-		}
-
-		vpas = append(vpas, vpa)
-	}
-
-	return vpas, nil
-}
-
 func vpaByDeploymentIndex(obj interface{}) ([]string, error) {
 	vpa, ok := obj.(*vpav1.VerticalPodAutoscaler)
 	if !ok {
