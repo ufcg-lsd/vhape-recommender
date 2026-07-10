@@ -6,6 +6,7 @@ import (
 )
 
 const (
+	DefaultWorkerCount           = 1
 	DefaultVhapeRecommenderName  = "vhape-recommender"
 	DefaultVhapePolicyAnnotation = "vhape/policy"
 	DefaultVhapePolicyNamespace  = "kube-system"
@@ -13,6 +14,7 @@ const (
 )
 
 type Config struct {
+	WorkerCount                 int
 	VhapeRecommenderName        string
 	VhapePolicyAnnotation       string
 	DefaultVhapePolicyNamespace string
@@ -21,11 +23,19 @@ type Config struct {
 
 func ParseFlags() (Config, error) {
 	cfg := Config{
+		WorkerCount:                 DefaultWorkerCount,
 		VhapeRecommenderName:        DefaultVhapeRecommenderName,
 		VhapePolicyAnnotation:       DefaultVhapePolicyAnnotation,
 		DefaultVhapePolicyNamespace: DefaultVhapePolicyNamespace,
 		DefaultVhapePolicyName:      DefaultVhapePolicyName,
 	}
+
+	flag.IntVar(
+		&cfg.WorkerCount,
+		"workers",
+		DefaultWorkerCount,
+		"Number of worker goroutines used by VHAPE Watcher.",
+	)
 
 	flag.StringVar(
 		&cfg.DefaultVhapePolicyNamespace,
@@ -51,6 +61,9 @@ func ParseFlags() (Config, error) {
 }
 
 func (c Config) Validate() error {
+	if c.WorkerCount <= 0 {
+		return fmt.Errorf("worker count must be greater than zero")
+	}
 	if c.VhapeRecommenderName == "" {
 		return fmt.Errorf("vhape recommender name is empty")
 	}
