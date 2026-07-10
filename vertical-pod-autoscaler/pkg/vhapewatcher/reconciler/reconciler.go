@@ -63,14 +63,18 @@ func New(
 
 func (r *Reconciler) EnqueueDeployment(namespace, name string) {
 	if namespace == "" || name == "" {
+		klog.V(4).InfoS("Ignoring enqueue request with empty Deployment identity", "namespace", namespace, "name", name)
 		return
 	}
 
-	r.queue.Add(namespacedKey(namespace, name))
+	key := namespacedKey(namespace, name)
+	klog.V(5).InfoS("Enqueuing Deployment", "deployment", key)
+	r.queue.Add(key)
 }
 
 func (r *Reconciler) EnqueueDeploymentsInNamespace(namespace string) {
 	if namespace == "" {
+		klog.V(4).InfoS("Ignoring namespace enqueue request with empty namespace")
 		return
 	}
 
@@ -82,6 +86,7 @@ func (r *Reconciler) EnqueueDeploymentsInNamespace(namespace string) {
 		return
 	}
 
+	klog.InfoS("Enqueuing Deployments in namespace", "namespace", namespace, "count", len(deployments))
 	for _, dep := range deployments {
 		if dep == nil {
 			continue
@@ -93,10 +98,11 @@ func (r *Reconciler) EnqueueDeploymentsInNamespace(namespace string) {
 
 func (r *Reconciler) Run(ctx context.Context, workers int) {
 	if workers < 1 {
+		klog.Warningf("Invalid worker count %d; using 1 worker", workers)
 		workers = 1
 	}
 
-	klog.Infof("Starting VHAPE Watcher reconciler with %d worker(s)", workers)
+	klog.InfoS("Starting VHAPE Watcher reconciler", "workers", workers)
 
 	for i := 0; i < workers; i++ {
 		go wait.UntilWithContext(ctx, r.runWorker, time.Second)
@@ -104,7 +110,7 @@ func (r *Reconciler) Run(ctx context.Context, workers int) {
 
 	<-ctx.Done()
 
-	klog.Info("Stopping VHAPE Watcher reconciler")
+	klog.InfoS("Stopping VHAPE Watcher reconciler")
 
 	r.queue.ShutDown()
 }
@@ -134,9 +140,10 @@ func (r *Reconciler) processNextWorkItem(ctx context.Context) bool {
 		return true
 	}
 
+	klog.V(4).InfoS("Processing Deployment reconciliation", "deployment", key, "requeues", r.queue.NumRequeues(key))
 	err = r.ReconcileDeployment(ctx, namespace, name)
 	if err != nil {
-		klog.Errorf("Error reconciling Deployment %q: %v", key, err)
+		klog.ErrorS(err, "Error reconciling Deployment", "deployment", key, "requeues", r.queue.NumRequeues(key))
 
 		if r.queue.NumRequeues(key) >= maxRetries {
 			utilruntime.HandleError(fmt.Errorf("dropping Deployment %q after %d retries: %w", key, maxRetries, err))
@@ -148,6 +155,7 @@ func (r *Reconciler) processNextWorkItem(ctx context.Context) bool {
 		return true
 	}
 
+	klog.V(4).InfoS("Finished Deployment reconciliation", "deployment", key)
 	r.queue.Forget(key)
 	return true
 }
@@ -164,6 +172,7 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		Deployments(namespace).
 		Get(name)
 	if apierrors.IsNotFound(err) {
+		klog.V(3).InfoS("Deployment no longer exists; skipping reconciliation", "deployment", klog.KRef(namespace, name))
 		return nil
 	}
 	if err != nil {
@@ -198,15 +207,29 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		notManagedCount++
 	}
 
+	klog.V(4).InfoS(
+		"Evaluated Deployment scope and associated VPAs",
+		"deployment", klog.KObj(dep),
+		"shouldManage", decision.ShouldManage,
+		"reason", decision.Reason,
+		"associatedVPAs", total,
+		"generatedVPAs", managedCount,
+		"notManagedVPAs", notManagedCount,
+	)
+
 	if total > 1 {
 		klog.Warningf(
-			"Deployment %q/%q has multiple associated VPAs.",
+			"Deployment %q/%q has multiple associated VPAs: total=%d generated=%d notManaged=%d",
 			dep.Namespace,
 			dep.Name,
+			total,
+			managedCount,
+			notManagedCount,
 		)
 	}
 
 	if !decision.ShouldManage {
+		klog.V(3).InfoS("Deployment is outside VHAPE Watcher scope; ensuring generated VPA is absent", "deployment", klog.KObj(dep), "reason", decision.Reason)
 		return r.vpaService.EnsureNoGeneratedVPAForDeployment(ctx, vpas, decision.Reason)
 	}
 
@@ -221,9 +244,11 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 	}
 
 	if managedCount > 0 {
+		klog.V(3).InfoS("Generated VPA already exists; leaving it unchanged", "deployment", klog.KObj(dep), "generatedVPAs", managedCount)
 		return nil
 	}
 
+	klog.InfoS("Deployment is watched and has no associated VPA; creating generated VPA", "deployment", klog.KObj(dep))
 	return r.vpaService.CreateGeneratedVPAForDeployment(ctx, dep)
 }
 

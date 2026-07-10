@@ -7,6 +7,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/klog/v2"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpaclientset "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
@@ -46,12 +47,18 @@ func NewVPAService(
 }
 
 func (s *VPAService) EnsureNoGeneratedVPAForDeployment(ctx context.Context, vpas []*vpav1.VerticalPodAutoscaler, reason string) error {
+	deleted := 0
 	for _, vpa := range vpas {
 		if IsManagedByWatcher(vpa) {
 			if err := s.deleteVPA(ctx, vpa, reason); err != nil {
 				return err
 			}
+			deleted++
 		}
+	}
+
+	if deleted == 0 {
+		klog.V(4).InfoS("No generated VPA to delete", "reason", reason)
 	}
 
 	return nil
@@ -75,12 +82,14 @@ func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.Vertica
 	for _, item := range items {
 		vpa, ok := item.(*vpav1.VerticalPodAutoscaler)
 		if !ok {
+			klog.V(4).InfoS("Ignoring non-VPA object returned by VPA index", "deployment", klog.KObj(dep))
 			continue
 		}
 
 		vpas = append(vpas, vpa)
 	}
 
+	klog.V(5).InfoS("Listed VPAs for Deployment", "deployment", klog.KObj(dep), "count", len(vpas))
 	return vpas, nil
 }
 
@@ -102,6 +111,7 @@ func (s *VPAService) CreateGeneratedVPAForDeployment(ctx context.Context, dep *a
 		return fmt.Errorf("create VPA %q/%q: %w", vpa.Namespace, vpa.Name, err)
 	}
 
+	klog.InfoS("Created generated VPA for Deployment", "deployment", klog.KObj(dep), "vpa", klog.KObj(vpa))
 	return nil
 }
 
@@ -116,6 +126,7 @@ func (s *VPAService) deleteVPA(ctx context.Context, vpa *vpav1.VerticalPodAutosc
 		Delete(ctx, vpa.Name, metav1.DeleteOptions{})
 
 	if apierrors.IsNotFound(err) {
+		klog.V(4).InfoS("Generated VPA was already deleted", "vpa", klog.KObj(vpa), "reason", reason)
 		return nil
 	}
 
@@ -123,6 +134,7 @@ func (s *VPAService) deleteVPA(ctx context.Context, vpa *vpav1.VerticalPodAutosc
 		return fmt.Errorf("delete VPA %q/%q: %w", vpa.Namespace, vpa.Name, err)
 	}
 
+	klog.InfoS("Deleted generated VPA", "vpa", klog.KObj(vpa), "reason", reason)
 	return nil
 }
 
