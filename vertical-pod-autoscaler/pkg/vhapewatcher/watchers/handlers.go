@@ -45,7 +45,7 @@ func (w *Watchers) onDeploymentDelete(_ interface{}) {
 
 // A new VPA may create a conflict with a generated VPA or with a watched Deployment.
 func (w *Watchers) onVPAAdd(obj interface{}) {
-	klog.V(5).InfoS("VPA add event.")
+	klog.V(5).InfoS("VPA add event")
 
 	vpa, ok := vpaFromObject(obj)
 	if !ok {
@@ -60,7 +60,7 @@ func (w *Watchers) onVPAAdd(obj interface{}) {
 // identities so the reconciler can evaluate the current desired state for each
 // affected Deployment.
 func (w *Watchers) onVPAUpdate(oldObj, newObj interface{}) {
-	klog.V(5).InfoS("VPA update event.")
+	klog.V(5).InfoS("VPA update event")
 
 	oldVPA, ok := vpaFromObject(oldObj)
 	if ok {
@@ -80,7 +80,7 @@ func (w *Watchers) onVPAUpdate(oldObj, newObj interface{}) {
 // If a VPA is deleted and the target Deployment is still in scope, the
 // reconciler may recreate the generated VPA.
 func (w *Watchers) onVPADelete(obj interface{}) {
-	klog.V(5).InfoS("VPA deletion event.")
+	klog.V(5).InfoS("VPA deletion event")
 
 	vpa, ok := vpaFromObject(obj)
 	if !ok {
@@ -126,7 +126,7 @@ func (w *Watchers) onWatchedNamespaceDelete(obj interface{}) {
 // When a workload becomes ignored, the associated Deployment must be reconciled
 // so any generated VPA can be cleaned up according to the watcher policy.
 func (w *Watchers) onIgnoredWorkloadAdd(obj interface{}) {
-	klog.V(5).InfoS("VhapeIgnoredWorkload add event.")
+	klog.V(5).InfoS("VhapeIgnoredWorkload add event")
 
 	ignored, ok := ignoredWorkloadFromObject(obj)
 	if !ok {
@@ -141,7 +141,7 @@ func (w *Watchers) onIgnoredWorkloadAdd(obj interface{}) {
 // the new target identities so the reconciler can evaluate the current desired
 // state for each affected Deployment.
 func (w *Watchers) onIgnoredWorkloadUpdate(oldObj, newObj interface{}) {
-	klog.V(5).InfoS("VhapeIgnoredWorkload update event.")
+	klog.V(5).InfoS("VhapeIgnoredWorkload update event")
 
 	oldIgnored, ok := ignoredWorkloadFromObject(oldObj)
 	if ok {
@@ -161,7 +161,7 @@ func (w *Watchers) onIgnoredWorkloadUpdate(oldObj, newObj interface{}) {
 // When a workload stops being ignored, the target Deployment may need a generated
 // VPA if it is still in a watched namespace.
 func (w *Watchers) onIgnoredWorkloadDelete(obj interface{}) {
-	klog.V(5).InfoS("VhapeIgnoredWorkload deletion event.")
+	klog.V(5).InfoS("VhapeIgnoredWorkload deletion event")
 
 	ignored, ok := ignoredWorkloadFromObject(obj)
 	if !ok {
