@@ -24,3 +24,5 @@ spec:
             - --workers={{ .Values.config.workers }}
             - --default-vhape-policy-namespace={{ .Values.config.defaultVhapePolicyNamespace }}
             - --default-vhape-policy-name={{ .Values.config.defaultVhapePolicyName }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
