@@ -1,0 +1,9 @@
+image:
+  repository: vtexlsd/vhape-watcher
+  tag: ""
+  pullPolicy: IfNotPresent
+
+config:
+  workers: 1
+  defaultVhapePolicyNamespace: kube-system
+  defaultVhapePolicyName: vhape-policy-p93-default

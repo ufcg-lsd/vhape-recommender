@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vhape-watcher
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vhape-watcher
+  template:
+    metadata:
+      labels:
+        app: vhape-watcher
+    spec:
+      serviceAccountName: vhape-watcher
+      containers:
+        - name: vhape-watcher
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /vhape-watcher
+          args:
+            - --workers={{ .Values.config.workers }}
+            - --default-vhape-policy-namespace={{ .Values.config.defaultVhapePolicyNamespace }}
+            - --default-vhape-policy-name={{ .Values.config.defaultVhapePolicyName }}
