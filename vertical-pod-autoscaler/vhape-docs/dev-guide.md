@@ -235,7 +235,7 @@ Use this section when you need to package and publish a new VHAPE Helm chart ver
 Before publishing a new chart, update `Chart.yaml`.
 
 ```yaml
-version: 0.1.0
+version: 0.1.1
 appVersion: "1.0.0"
 ```
 
@@ -246,7 +246,7 @@ appVersion: "1.0.0"
 If only the chart changed, increment `version`:
 
 ```yaml
-version: 0.1.1
+version: 0.1.2
 appVersion: "1.0.0"
 ```
 
