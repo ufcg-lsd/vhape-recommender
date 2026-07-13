@@ -86,7 +86,6 @@ func (r *Reconciler) EnqueueDeploymentsInNamespace(namespace string) {
 		return
 	}
 
-	klog.InfoS("Enqueuing Deployments in namespace", "namespace", namespace, "count", len(deployments))
 	for _, dep := range deployments {
 		if dep == nil {
 			continue
