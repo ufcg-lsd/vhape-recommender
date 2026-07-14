@@ -35,9 +35,10 @@ func main() {
 
 	klog.InfoS(
 		"Starting VHAPE Watcher",
+		"workerCount", cfg.WorkerCount,
 		"defaultVhapePolicyNamespace", cfg.DefaultVhapePolicyNamespace,
 		"defaultVhapePolicyName", cfg.DefaultVhapePolicyName,
-		"workerCount", cfg.WorkerCount,
+		"defaultVPAUpdateMode", cfg.VPAUpdateMode,
 	)
 
 	if err := run(ctx, commonFlags, cfg); err != nil {
@@ -84,12 +85,7 @@ func run(
 	vpaService, err := vpaservice.NewVPAService(
 		informerSet.VPA,
 		clients.Vhape,
-		vpaservice.VPAServiceConfig{
-			VhapeRecommenderName:        cfg.VhapeRecommenderName,
-			VhapePolicyAnnotation:       cfg.VhapePolicyAnnotation,
-			DefaultVhapePolicyNamespace: cfg.DefaultVhapePolicyNamespace,
-			DefaultVhapePolicyName:      cfg.DefaultVhapePolicyName,
-		},
+		cfg,
 	)
 	if err != nil {
 		return fmt.Errorf("create VPA service: %w", err)

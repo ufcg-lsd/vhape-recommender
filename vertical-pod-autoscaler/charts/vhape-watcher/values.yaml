@@ -5,5 +5,7 @@ image:
 
 config:
   workers: 1
+  vhapeRecommenderName: vhape-recommender
   defaultVhapePolicyNamespace: kube-system
   defaultVhapePolicyName: vhape-policy-p93-default
+  defaultVPAUpdateMode: InPlaceOrRecreate

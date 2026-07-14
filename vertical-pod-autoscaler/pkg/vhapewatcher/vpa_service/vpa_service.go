@@ -12,25 +12,20 @@ import (
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpaclientset "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
 	vpaInformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
+	
+	config "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/config"
 )
-
-type VPAServiceConfig struct {
-	VhapeRecommenderName        string
-	VhapePolicyAnnotation       string
-	DefaultVhapePolicyNamespace string
-	DefaultVhapePolicyName      string
-}
 
 type VPAService struct {
 	informer vpaInformers.VerticalPodAutoscalerInformer
 	client   vpaclientset.Interface
-	config   VPAServiceConfig
+	config   config.Config
 }
 
 func NewVPAService(
 	informer vpaInformers.VerticalPodAutoscalerInformer,
 	client vpaclientset.Interface,
-	config VPAServiceConfig,
+	config config.Config,
 ) (*VPAService, error) {
 	if informer == nil {
 		return nil, fmt.Errorf("vpa informer is nil")

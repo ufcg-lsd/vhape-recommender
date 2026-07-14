@@ -8,6 +8,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+
+	config "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/config"
 )
 
 const (
@@ -21,6 +23,9 @@ const (
 	vpaKind       = "VerticalPodAutoscaler"
 
 	generatedVPANamePrefix = "vhape-generated-"
+
+	vhapePolicyAnnotation = "vhape/policy"
+	vhapeRecommenderName  = "vhape-recommender"
 )
 
 // GenerateVPAForDeployment builds the desired VPA object for a Deployment.
@@ -43,7 +48,7 @@ func (s *VPAService) GenerateVPAForDeployment(dep *appsv1.Deployment) (*vpav1.Ve
 			Name:            name,
 			Namespace:       dep.Namespace,
 			Labels:          map[string]string{ManagedByLabel: ManagedByValue},
-			Annotations:     map[string]string{s.config.VhapePolicyAnnotation: DefaultPolicyRef(s.config)},
+			Annotations:     map[string]string{vhapePolicyAnnotation: DefaultPolicyRef(s.config)},
 			OwnerReferences: OwnerReferencesForDeployment(dep),
 		},
 		Spec: vpav1.VerticalPodAutoscalerSpec{
@@ -54,7 +59,7 @@ func (s *VPAService) GenerateVPAForDeployment(dep *appsv1.Deployment) (*vpav1.Ve
 			},
 			Recommenders: []*vpav1.VerticalPodAutoscalerRecommenderSelector{
 				{
-					Name: s.config.VhapeRecommenderName,
+					Name: vhapeRecommenderName,
 				},
 			},
 			UpdatePolicy: &vpav1.PodUpdatePolicy{
@@ -82,7 +87,7 @@ func NameForDeployment(dep *appsv1.Deployment) string {
 	return name
 }
 
-func DefaultPolicyRef(config VPAServiceConfig) string {
+func DefaultPolicyRef(config config.Config) string {
 	return config.DefaultVhapePolicyNamespace + "/" + config.DefaultVhapePolicyName
 }
 
