@@ -5,7 +5,11 @@ image:
 
 config:
   workers: 1
-  vhapeRecommenderName: vhape-recommender
-  defaultVhapePolicyNamespace: kube-system
-  defaultVhapePolicyName: vhape-policy-p93-default
-  defaultVPAUpdateMode: Recreate
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 512Mi
+  limits:
+    cpu: 500m
+    memory: 1Gi

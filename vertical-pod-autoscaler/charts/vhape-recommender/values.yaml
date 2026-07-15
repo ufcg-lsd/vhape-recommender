@@ -29,11 +29,3 @@ policies:
         headroom: 0.05
         slidingWindow: 24h
     scalingRule: ""
-
-resources:
-  requests:
-    cpu: 100m
-    memory: 512Mi
-  limits:
-    cpu: 500m
-    memory: 1Gi
