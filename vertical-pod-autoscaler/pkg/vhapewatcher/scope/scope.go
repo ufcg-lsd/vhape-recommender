@@ -25,6 +25,7 @@ const (
 type Decision struct {
 	ShouldManage bool
 	Reason       string
+	WatchedNamespace *vhapev1alpha1.VhapeWatchedNamespace
 }
 
 // Scope decides whether a Deployment is inside VHAPE Watcher's management scope.
@@ -65,11 +66,11 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 		return Decision{}, fmt.Errorf("deployment is nil")
 	}
 
-	watched, err := s.IsNamespaceWatched(dep.Namespace)
+	watchedNamespace, err := s.GetWatchedNamespace(dep.Namespace)
 	if err != nil {
 		return Decision{}, err
 	}
-	if !watched {
+	if watchedNamespace == nil {
 		return Decision{
 			ShouldManage: false,
 			Reason:       ReasonNamespaceNotWatched,
@@ -82,33 +83,34 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 	}
 	if ignored {
 		return Decision{
-			ShouldManage: false,
-			Reason:       ReasonWorkloadIgnored,
+			ShouldManage:      false,
+			Reason:            ReasonWorkloadIgnored,
+			WatchedNamespace: watchedNamespace,
 		}, nil
 	}
 
 	return Decision{
-		ShouldManage: true,
-		Reason:       ReasonWatched,
+		ShouldManage:      true,
+		Reason:            ReasonWatched,
+		WatchedNamespace: watchedNamespace,
 	}, nil
 }
 
-// IsNamespaceWatched returns true when a VhapeWatchedNamespace exists with
-// metadata.name equal to the namespace name.
-func (s *Scope) IsNamespaceWatched(namespace string) (bool, error) {
+// IsNamespaceWatched returns a VhapeWatchedNamespace
+func (s *Scope) GetWatchedNamespace(namespace string) (*vhapev1alpha1.VhapeWatchedNamespace, error) {
 	if namespace == "" {
-		return false, fmt.Errorf("namespace is empty")
+		return nil, fmt.Errorf("namespace is empty")
 	}
 
-	_, err := s.watchedNamespaceLister.Get(namespace)
+	watchedNamespace, err := s.watchedNamespaceLister.Get(namespace)
 	if apierrors.IsNotFound(err) {
-		return false, nil
+		return nil, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("get VhapeWatchedNamespace %q from cache: %w", namespace, err)
+		return nil, fmt.Errorf("get VhapeWatchedNamespace %q from cache: %w", namespace, err)
 	}
 
-	return true, nil
+	return watchedNamespace, nil
 }
 
 // IsDeploymentIgnored returns true when a VhapeIgnoredWorkload targets the given Deployment.
