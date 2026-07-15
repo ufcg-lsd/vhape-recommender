@@ -2,3 +2,8 @@ apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapeWatchedNamespace
 metadata:
   name: producao
+spec:
+  vhapePolicyRef:
+    namespace: kube-system
+    name: vhape-policy-p93-default
+  vpaUpdateMode: InPlaceOrRecreate

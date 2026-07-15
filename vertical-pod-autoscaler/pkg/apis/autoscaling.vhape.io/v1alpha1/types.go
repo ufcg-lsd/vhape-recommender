@@ -25,9 +25,30 @@ import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 // VhapeWatchedNamespace marks a Kubernetes namespace as eligible for VHAPE Watcher management.
 type VhapeWatchedNamespace struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec VhapeWatchedNamespaceSpec `json:"spec,omitempty"`
 }
+
+type VhapeWatchedNamespaceSpec struct {
+	VhapePolicyRef VhapePolicyRef `json:"vhapePolicyRef"`
+	VPAUpdateMode  VPAUpdateMode  `json:"vpaUpdateMode"`
+}
+
+type VhapePolicyRef struct {
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+}
+
+type VPAUpdateMode string
+
+const (
+	VPAUpdateModeOff               VPAUpdateMode = "Off"
+	VPAUpdateModeInitial           VPAUpdateMode = "Initial"
+	VPAUpdateModeRecreate          VPAUpdateMode = "Recreate"
+	VPAUpdateModeInPlaceOrRecreate VPAUpdateMode = "InPlaceOrRecreate"
+)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
