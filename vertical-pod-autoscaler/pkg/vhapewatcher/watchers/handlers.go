@@ -104,10 +104,18 @@ func (w *Watchers) onWatchedNamespaceAdd(obj interface{}) {
 	w.sink.EnqueueDeploymentsInNamespace(watched.Name)
 }
 
-// Watched namespace updates are ignored because the watcher depends only on
-// metadata.name, which is immutable.
-func (w *Watchers) onWatchedNamespaceUpdate(_, _ interface{}) {
-	klog.V(4).InfoS("Ignoring VhapeWatchedNamespace update event")
+// Watched namespace updates may change the assigned policy or the updatemode.
+func (w *Watchers) onWatchedNamespaceUpdate(_, newObj interface{}) {
+	klog.V(4).InfoS("VhapeWatchedNamespace update event")
+
+	watched, ok := watchedNamespaceFromObject(newObj)
+	if !ok {
+		klog.V(4).InfoS("Ignoring VhapeWatchedNamespace update event with unexpected object type")
+		return
+	}
+
+	klog.InfoS("Watched namespace updated; enqueuing Deployments in namespace", "namespace", watched.Name)
+	w.sink.EnqueueDeploymentsInNamespace(watched.Name)
 }
 
 // When a namespace stops being watched, all Deployments in that namespace are
