@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -242,13 +243,23 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		return r.vpaService.EnsureNoGeneratedVPAForDeployment(ctx, vpas, reasonNotManagedVPAPresent)
 	}
 
-	if managedCount > 0 {
-		klog.V(3).InfoS("Generated VPA already exists; leaving it unchanged", "deployment", klog.KObj(dep), "generatedVPAs", managedCount)
-		return nil
+	if decision.WatchedNamespace == nil {
+		return fmt.Errorf("watched namespace is nil for managed Deployment %q/%q", dep.Namespace, dep.Name)
 	}
 
-	klog.InfoS("Deployment is watched and has no associated VPA; creating generated VPA", "deployment", klog.KObj(dep))
-	return r.vpaService.CreateGeneratedVPAForDeployment(ctx, dep)
+	options := vpaservice.GenerationOptions{
+		VhapePolicyNamespace: decision.WatchedNamespace.Spec.VhapePolicyRef.Namespace,
+		VhapePolicyName:      decision.WatchedNamespace.Spec.VhapePolicyRef.Name,
+		VPAUpdateMode:        vpav1.UpdateMode(decision.WatchedNamespace.Spec.VPAUpdateMode),
+	}
+
+	klog.V(3).InfoS(
+		"Ensuring exactly one generated VPA for Deployment",
+		"deployment", klog.KObj(dep),
+		"generatedVPAs", managedCount,
+	)
+
+	return r.vpaService.EnsureOneGeneratedVPAForDeployment(ctx, dep, vpas, options)
 }
 
 func namespacedKey(namespace, name string) string {
