@@ -8,4 +8,4 @@ config:
   vhapeRecommenderName: vhape-recommender
   defaultVhapePolicyNamespace: kube-system
   defaultVhapePolicyName: vhape-policy-p93-default
-  defaultVPAUpdateMode: InPlaceOrRecreate
+  defaultVPAUpdateMode: Recreate

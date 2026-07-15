@@ -11,7 +11,7 @@ const (
 	DefaultWorkerCount           = 1
 	DefaultVhapePolicyNamespace  = "kube-system"
 	DefaultVhapePolicyName       = "vhape-policy-p93-default"
-	DefaultVPAUpdateMode         = "InPlaceOrRecreate"
+	DefaultVPAUpdateMode         = "Recreate"
 )
 
 type Config struct {
