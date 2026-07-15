@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
+	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
@@ -12,20 +13,16 @@ import (
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpaclientset "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
 	vpaInformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
-	
-	config "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/config"
 )
 
 type VPAService struct {
 	informer vpaInformers.VerticalPodAutoscalerInformer
 	client   vpaclientset.Interface
-	config   config.Config
 }
 
 func NewVPAService(
 	informer vpaInformers.VerticalPodAutoscalerInformer,
 	client vpaclientset.Interface,
-	config config.Config,
 ) (*VPAService, error) {
 	if informer == nil {
 		return nil, fmt.Errorf("vpa informer is nil")
@@ -37,7 +34,6 @@ func NewVPAService(
 	return &VPAService{
 		informer: informer,
 		client:   client,
-		config:   config,
 	}, nil
 }
 
@@ -57,6 +53,70 @@ func (s *VPAService) EnsureNoGeneratedVPAForDeployment(ctx context.Context, vpas
 	}
 
 	return nil
+}
+
+func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
+	ctx context.Context,
+	dep *appsv1.Deployment,
+	vpas []*vpav1.VerticalPodAutoscaler,
+	options GenerationOptions,
+) error {
+	if dep == nil {
+		return fmt.Errorf("deployment is nil")
+	}
+
+	desired, err := s.GenerateVPAForDeployment(dep, options)
+	if err != nil {
+		return err
+	}
+
+	// finds if there is an already updated vpa
+	var upToDate *vpav1.VerticalPodAutoscaler
+	for _, vpa := range vpas {
+		if !IsManagedByWatcher(vpa) {
+			continue
+		}
+
+		if isDesiredGeneratedVPA(vpa, desired) {
+			upToDate = vpa
+			break
+		}
+	}
+
+	// ensures only the already existing updated vpa remains
+	if upToDate != nil {
+		for _, vpa := range vpas {
+			if !IsManagedByWatcher(vpa) {
+				continue
+			}
+
+			if vpa.Namespace == upToDate.Namespace && vpa.Name == upToDate.Name {
+				continue
+			}
+
+			if err := s.deleteVPA(ctx, vpa, "extra-generated-vpa"); err != nil {
+				return err
+			}
+		}
+
+		klog.V(4).InfoS("Generated VPA exists and is already up to date", "deployment", klog.KObj(dep), "vpa", klog.KObj(upToDate))
+		return nil
+	}
+
+	// if no existing updated vpa, delete outdated generated vpas
+	for _, vpa := range vpas {
+		if !IsManagedByWatcher(vpa) {
+			continue
+		}
+
+		if err := s.deleteVPA(ctx, vpa, "outdated-generated-vpa"); err != nil {
+			return err
+		}
+	}
+
+	// create updated vpa 
+	_, err = s.createGeneratedVPA(ctx, dep, desired)
+	return err
 }
 
 func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.VerticalPodAutoscaler, error) {
@@ -88,26 +148,56 @@ func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.Vertica
 	return vpas, nil
 }
 
-func (s *VPAService) CreateGeneratedVPAForDeployment(ctx context.Context, dep *appsv1.Deployment) error {
-	vpa, err := s.GenerateVPAForDeployment(dep)
+func (s *VPAService) CreateGeneratedVPAForDeployment(
+	ctx context.Context,
+	dep *appsv1.Deployment,
+	options GenerationOptions,
+) error {
+	vpa, err := s.GenerateVPAForDeployment(dep, options)
 	if err != nil {
 		return err
 	}
 
-	_, err = s.client.
+	_, err = s.createGeneratedVPA(ctx, dep, vpa)
+	return err
+}
+
+func (s *VPAService) createGeneratedVPA(
+	ctx context.Context,
+	dep *appsv1.Deployment,
+	vpa *vpav1.VerticalPodAutoscaler,
+) (*vpav1.VerticalPodAutoscaler, error) {
+	if vpa == nil {
+		return nil, fmt.Errorf("vpa is nil")
+	}
+
+	created, err := s.client.
 		AutoscalingV1().
 		VerticalPodAutoscalers(vpa.Namespace).
 		Create(ctx, vpa, metav1.CreateOptions{})
 
 	if apierrors.IsAlreadyExists(err) {
-		return fmt.Errorf("create VPA %q/%q: already exists after preflight check: %w", vpa.Namespace, vpa.Name, err)
+		return nil, fmt.Errorf("create VPA %q/%q: already exists after cleanup check: %w", vpa.Namespace, vpa.Name, err)
 	}
 	if err != nil {
-		return fmt.Errorf("create VPA %q/%q: %w", vpa.Namespace, vpa.Name, err)
+		return nil, fmt.Errorf("create VPA %q/%q: %w", vpa.Namespace, vpa.Name, err)
 	}
 
-	klog.InfoS("Created generated VPA for Deployment", "deployment", klog.KObj(dep), "vpa", klog.KObj(vpa))
-	return nil
+	klog.InfoS("Created generated VPA for Deployment", "deployment", klog.KObj(dep), "vpa", klog.KObj(created))
+	return created, nil
+}
+
+func isDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.VerticalPodAutoscaler) bool {
+	if current == nil || desired == nil {
+		return false
+	}
+
+	return current.Namespace == desired.Namespace &&
+		current.Name == desired.Name &&
+		apiequality.Semantic.DeepEqual(current.Labels, desired.Labels) &&
+		apiequality.Semantic.DeepEqual(current.Annotations, desired.Annotations) &&
+		apiequality.Semantic.DeepEqual(current.OwnerReferences, desired.OwnerReferences) &&
+		apiequality.Semantic.DeepEqual(current.Spec, desired.Spec)
 }
 
 func (s *VPAService) deleteVPA(ctx context.Context, vpa *vpav1.VerticalPodAutoscaler, reason string) error {
