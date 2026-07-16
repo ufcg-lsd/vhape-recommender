@@ -20,7 +20,7 @@ import (
 
 const (
 	queueName                  = "vhape-watcher-deployments"
-	maxRetries                 = 5
+	maxRetries                 = 12 // around 20.5 seconds worst case
 	reasonNotManagedVPAPresent = "not-managed-vpa-present"
 )
 
