@@ -6,11 +6,11 @@ import (
 )
 
 const (
-	DefaultWorkerCount           = 1
+	DefaultWorkerCount = 1
 )
 
 type Config struct {
-	WorkerCount                 int
+	WorkerCount int
 }
 
 func ParseFlags() (Config, error) {

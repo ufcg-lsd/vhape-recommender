@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	appslisters "k8s.io/client-go/listers/apps/v1"
@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	queueName  = "vhape-watcher-deployments"
-	maxRetries = 5
+	queueName                  = "vhape-watcher-deployments"
+	maxRetries                 = 5
 	reasonNotManagedVPAPresent = "not-managed-vpa-present"
 )
 

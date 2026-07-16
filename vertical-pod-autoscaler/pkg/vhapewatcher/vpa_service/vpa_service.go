@@ -114,7 +114,7 @@ func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
 		}
 	}
 
-	// create updated vpa 
+	// create updated vpa
 	_, err = s.createGeneratedVPA(ctx, dep, desired)
 	return err
 }

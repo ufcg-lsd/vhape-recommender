@@ -23,8 +23,8 @@ const (
 
 // Decision describes whether VHAPE Watcher should manage a workload.
 type Decision struct {
-	ShouldManage bool
-	Reason       string
+	ShouldManage     bool
+	Reason           string
 	WatchedNamespace *vhapev1alpha1.VhapeWatchedNamespace
 }
 
@@ -83,15 +83,15 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 	}
 	if ignored {
 		return Decision{
-			ShouldManage:      false,
-			Reason:            ReasonWorkloadIgnored,
+			ShouldManage:     false,
+			Reason:           ReasonWorkloadIgnored,
 			WatchedNamespace: watchedNamespace,
 		}, nil
 	}
 
 	return Decision{
-		ShouldManage:      true,
-		Reason:            ReasonWatched,
+		ShouldManage:     true,
+		Reason:           ReasonWatched,
 		WatchedNamespace: watchedNamespace,
 	}, nil
 }
