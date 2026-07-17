@@ -20,7 +20,7 @@ const (
 	vpaAPIVersion = "autoscaling.k8s.io/v1"
 	vpaKind       = "VerticalPodAutoscaler"
 
-	generatedVPANamePrefix = "vhape-generated-"
+	generatedVPANamePrefix = "" // empty for now
 
 	vhapePolicyAnnotation = "vhape/policy"
 	vhapeRecommenderName  = "vhape-recommender"
