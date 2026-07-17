@@ -27,7 +27,7 @@ func TestAssociatedVPADeploymentKey(t *testing.T) {
 	assertKeys(t, keys, namespacedKey(testNamespace, testDeploymentName))
 }
 
-func TestIndexIgnoresNonVPAObject(t *testing.T) {
+func TestAssociatedVPADeploymentKeyIgnoresNonVPAObject(t *testing.T) {
 	keys, err := getAssociatedVPADeploymentKey("not-a-vpa")
 	if err != nil {
 		t.Fatalf("getAssociatedVPADeploymentKey returned error: %v", err)
