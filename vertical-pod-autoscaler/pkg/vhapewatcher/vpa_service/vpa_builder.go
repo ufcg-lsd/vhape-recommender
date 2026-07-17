@@ -38,6 +38,10 @@ func GenerateVPAForDeployment(name string, dep *appsv1.Deployment, options Gener
 		return nil, fmt.Errorf("deployment is nil")
 	}
 
+	if name == "" {
+		return nil, fmt.Errorf("name is empty")
+	}
+
 	updateMode := options.VPAUpdateMode
 	controlledValues := vpav1.ContainerControlledValuesRequestsOnly // Only requests will be updated
 

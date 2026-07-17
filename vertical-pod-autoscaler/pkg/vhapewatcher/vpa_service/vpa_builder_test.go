@@ -50,6 +50,18 @@ func TestGenerateVPAForDeploymentRejectsNilDeployment(t *testing.T) {
 	}
 }
 
+func TestGenerateVPAForDeploymentRejectsEmptyName(t *testing.T) {
+	dep := newDeployment(testNamespace, testDeploymentName)
+
+	vpa, err := GenerateVPAForDeployment("", dep, newGenerationOptions())
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if vpa != nil {
+		t.Fatalf("expected nil VPA, got %#v", vpa)
+	}
+}
+
 func TestNameForDeployment(t *testing.T) {
 	dep := newDeployment(testNamespace, testDeploymentName)
 
