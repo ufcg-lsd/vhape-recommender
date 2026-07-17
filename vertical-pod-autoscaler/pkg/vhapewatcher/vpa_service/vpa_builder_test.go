@@ -16,7 +16,6 @@ const (
 	testVpaName         = "vpa-api"
 	testNamespace       = "producao"
 	testDeploymentName  = "api"
-	testDeploymentUID   = types.UID("deployment-uid")
 	testPolicyNamespace = "vhape-system"
 	testPolicyName      = "policy-p93"
 )
@@ -25,7 +24,7 @@ func TestGenerateVPAForDeployment(t *testing.T) {
 	dep := newDeployment(testNamespace, testDeploymentName)
 	options := newGenerationOptions()
 
-	vpa, err := GenerateVPAForDeployment(NameForDeployment(dep), dep, options)
+	vpa, err := GenerateVPAForDeployment(testVpaName, dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -34,7 +33,7 @@ func TestGenerateVPAForDeployment(t *testing.T) {
 		t.Fatal("expected VPA, got nil")
 	}
 
-	assertVPAMetadata(t, vpa, dep, options)
+	assertVPAMetadata(t, vpa, dep, testVpaName, options)
 	assertVPATargetRef(t, vpa, dep)
 	assertVPARecommender(t, vpa)
 	assertVPAUpdateMode(t, vpa, options.VPAUpdateMode)
@@ -153,7 +152,7 @@ func unmanagedVPAForDeployment(name string, dep *appsv1.Deployment) *vpav1.Verti
 	}
 }
 
-func assertVPAMetadata(t *testing.T, vpa *vpav1.VerticalPodAutoscaler, dep *appsv1.Deployment, options GenerationOptions) {
+func assertVPAMetadata(t *testing.T, vpa *vpav1.VerticalPodAutoscaler, dep *appsv1.Deployment, desiredName string, options GenerationOptions) {
 	t.Helper()
 
 	if vpa.APIVersion != vpaAPIVersion {
@@ -165,8 +164,8 @@ func assertVPAMetadata(t *testing.T, vpa *vpav1.VerticalPodAutoscaler, dep *apps
 	if vpa.Namespace != dep.Namespace {
 		t.Fatalf("Namespace = %q, want %q", vpa.Namespace, dep.Namespace)
 	}
-	if vpa.Name != NameForDeployment(dep) {
-		t.Fatalf("Name = %q, want %q", vpa.Name, NameForDeployment(dep))
+	if vpa.Name != desiredName {
+		t.Fatalf("Name = %q, want %q", vpa.Name, desiredName)
 	}
 	if vpa.Labels[ManagedByLabel] != ManagedByValue {
 		t.Fatalf("managed-by label = %q, want %q", vpa.Labels[ManagedByLabel], ManagedByValue)
@@ -266,7 +265,7 @@ func assertVPAResourcePolicy(t *testing.T, vpa *vpav1.VerticalPodAutoscaler) {
 
 func assertGeneratedVPA(t *testing.T, vpa *vpav1.VerticalPodAutoscaler, dep *appsv1.Deployment, options GenerationOptions) {
 	t.Helper()
-	assertVPAMetadata(t, vpa, dep, options)
+	assertVPAMetadata(t, vpa, dep, NameForDeployment(dep), options)
 	assertVPATargetRef(t, vpa, dep)
 	assertVPARecommender(t, vpa)
 	assertVPAUpdateMode(t, vpa, options.VPAUpdateMode)
