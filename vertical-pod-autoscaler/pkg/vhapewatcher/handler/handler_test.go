@@ -1,4 +1,4 @@
-package watchers
+package handler
 
 import (
 	"reflect"
@@ -31,51 +31,51 @@ func (s *fakeDeploymentSink) EnqueueDeploymentsInNamespace(namespace string) {
 	s.namespaces = append(s.namespaces, namespace)
 }
 
-func TestNewWatchers(t *testing.T) {
-	t.Run("returns watchers with valid sink", func(t *testing.T) {
-		watchers, err := New(&fakeDeploymentSink{})
+func TestNewHandler(t *testing.T) {
+	t.Run("returns handler with valid sink", func(t *testing.T) {
+		handler, err := New(&fakeDeploymentSink{})
 		if err != nil {
 			t.Fatalf("New() returned error: %v", err)
 		}
-		if watchers == nil {
-			t.Fatal("New() returned nil watchers")
+		if handler == nil {
+			t.Fatal("New() returned nil handler")
 		}
 	})
 
 	t.Run("rejects nil sink", func(t *testing.T) {
-		watchers, err := New(nil)
+		handler, err := New(nil)
 		if err == nil {
 			t.Fatal("New() expected error, got nil")
 		}
-		if watchers != nil {
-			t.Fatalf("New() returned watchers = %#v, want nil", watchers)
+		if handler != nil {
+			t.Fatalf("New() returned handler = %#v, want nil", handler)
 		}
 	})
 }
 
 func TestDeploymentHandlers(t *testing.T) {
 	t.Run("add enqueues deployment", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onDeploymentAdd(newDeployment(testNamespace, testDeploymentName))
+		handler.onDeploymentAdd(newDeployment(testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 		assertNamespaces(t, sink, nil)
 	})
 
 	t.Run("add ignores unexpected object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onDeploymentAdd("not-a-deployment")
+		handler.onDeploymentAdd("not-a-deployment")
 
 		assertDeployments(t, sink, nil)
 		assertNamespaces(t, sink, nil)
 	})
 
 	t.Run("update is ignored", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onDeploymentUpdate(
+		handler.onDeploymentUpdate(
 			newDeployment(testNamespace, "old"),
 			newDeployment(testNamespace, "new"),
 		)
@@ -85,9 +85,9 @@ func TestDeploymentHandlers(t *testing.T) {
 	})
 
 	t.Run("delete is ignored", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onDeploymentDelete(newDeployment(testNamespace, testDeploymentName))
+		handler.onDeploymentDelete(newDeployment(testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, nil)
 		assertNamespaces(t, sink, nil)
@@ -96,54 +96,54 @@ func TestDeploymentHandlers(t *testing.T) {
 
 func TestVPAHandlers(t *testing.T) {
 	t.Run("add enqueues target deployment", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onVPAAdd(newVPA("vpa", testNamespace, testDeploymentName))
+		handler.onVPAAdd(newVPA("vpa", testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
 
 	t.Run("add ignores unexpected object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onVPAAdd("not-a-vpa")
+		handler.onVPAAdd("not-a-vpa")
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("add ignores VPA without targetRef", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
 		vpa := newVPA("vpa", testNamespace, testDeploymentName)
 		vpa.Spec.TargetRef = nil
-		watchers.onVPAAdd(vpa)
+		handler.onVPAAdd(vpa)
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("add ignores non Deployment target", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
 		vpa := newVPA("vpa", testNamespace, testDeploymentName)
 		vpa.Spec.TargetRef.Kind = "StatefulSet"
-		watchers.onVPAAdd(vpa)
+		handler.onVPAAdd(vpa)
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("add ignores target with empty name", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
 		vpa := newVPA("vpa", testNamespace, "")
-		watchers.onVPAAdd(vpa)
+		handler.onVPAAdd(vpa)
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("update enqueues old and new targets", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onVPAUpdate(
+		handler.onVPAUpdate(
 			newVPA("vpa", testNamespace, "old-api"),
 			newVPA("vpa", testNamespace, "new-api"),
 		)
@@ -152,25 +152,25 @@ func TestVPAHandlers(t *testing.T) {
 	})
 
 	t.Run("update ignores invalid old and still enqueues new", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onVPAUpdate("not-a-vpa", newVPA("vpa", testNamespace, testDeploymentName))
+		handler.onVPAUpdate("not-a-vpa", newVPA("vpa", testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
 
 	t.Run("delete enqueues target deployment", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onVPADelete(newVPA("vpa", testNamespace, testDeploymentName))
+		handler.onVPADelete(newVPA("vpa", testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
 
 	t.Run("delete handles tombstone", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onVPADelete(cache.DeletedFinalStateUnknown{
+		handler.onVPADelete(cache.DeletedFinalStateUnknown{
 			Obj: newVPA("vpa", testNamespace, testDeploymentName),
 		})
 
@@ -178,9 +178,9 @@ func TestVPAHandlers(t *testing.T) {
 	})
 
 	t.Run("delete ignores tombstone with unexpected object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onVPADelete(cache.DeletedFinalStateUnknown{Obj: "not-a-vpa"})
+		handler.onVPADelete(cache.DeletedFinalStateUnknown{Obj: "not-a-vpa"})
 
 		assertDeployments(t, sink, nil)
 	})
@@ -188,27 +188,27 @@ func TestVPAHandlers(t *testing.T) {
 
 func TestWatchedNamespaceHandlers(t *testing.T) {
 	t.Run("add enqueues all deployments in namespace", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onWatchedNamespaceAdd(newWatchedNamespace(testNamespace))
+		handler.onWatchedNamespaceAdd(newWatchedNamespace(testNamespace))
 
 		assertNamespaces(t, sink, []string{"producao"})
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("add ignores unexpected object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onWatchedNamespaceAdd("not-a-watched-namespace")
+		handler.onWatchedNamespaceAdd("not-a-watched-namespace")
 
 		assertNamespaces(t, sink, nil)
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("update enqueues all deployments in new namespace object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onWatchedNamespaceUpdate(
+		handler.onWatchedNamespaceUpdate(
 			newWatchedNamespace("old"),
 			newWatchedNamespace(testNamespace),
 		)
@@ -217,25 +217,25 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 	})
 
 	t.Run("update ignores unexpected new object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onWatchedNamespaceUpdate(newWatchedNamespace("old"), "not-a-watched-namespace")
+		handler.onWatchedNamespaceUpdate(newWatchedNamespace("old"), "not-a-watched-namespace")
 
 		assertNamespaces(t, sink, nil)
 	})
 
 	t.Run("delete enqueues all deployments in namespace", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onWatchedNamespaceDelete(newWatchedNamespace(testNamespace))
+		handler.onWatchedNamespaceDelete(newWatchedNamespace(testNamespace))
 
 		assertNamespaces(t, sink, []string{"producao"})
 	})
 
 	t.Run("delete handles tombstone", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onWatchedNamespaceDelete(cache.DeletedFinalStateUnknown{
+		handler.onWatchedNamespaceDelete(cache.DeletedFinalStateUnknown{
 			Obj: newWatchedNamespace(testNamespace),
 		})
 
@@ -243,9 +243,9 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 	})
 
 	t.Run("delete ignores tombstone with unexpected object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onWatchedNamespaceDelete(cache.DeletedFinalStateUnknown{Obj: "not-a-watched-namespace"})
+		handler.onWatchedNamespaceDelete(cache.DeletedFinalStateUnknown{Obj: "not-a-watched-namespace"})
 
 		assertNamespaces(t, sink, nil)
 	})
@@ -253,51 +253,51 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 
 func TestIgnoredWorkloadHandlers(t *testing.T) {
 	t.Run("add enqueues target deployment", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadAdd(newIgnoredWorkload("ignored", testNamespace, testDeploymentName))
+		handler.onIgnoredWorkloadAdd(newIgnoredWorkload("ignored", testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
 
 	t.Run("add ignores unexpected object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadAdd("not-an-ignored-workload")
+		handler.onIgnoredWorkloadAdd("not-an-ignored-workload")
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("add ignores missing target namespace", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadAdd(newIgnoredWorkload("ignored", "", testDeploymentName))
+		handler.onIgnoredWorkloadAdd(newIgnoredWorkload("ignored", "", testDeploymentName))
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("add ignores missing target name", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadAdd(newIgnoredWorkload("ignored", testNamespace, ""))
+		handler.onIgnoredWorkloadAdd(newIgnoredWorkload("ignored", testNamespace, ""))
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("add ignores non Deployment target", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
 		ignored := newIgnoredWorkload("ignored", testNamespace, testDeploymentName)
 		ignored.Spec.TargetRef.Kind = "StatefulSet"
-		watchers.onIgnoredWorkloadAdd(ignored)
+		handler.onIgnoredWorkloadAdd(ignored)
 
 		assertDeployments(t, sink, nil)
 	})
 
 	t.Run("update enqueues old and new targets", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadUpdate(
+		handler.onIgnoredWorkloadUpdate(
 			newIgnoredWorkload("ignored-old", testNamespace, "old-api"),
 			newIgnoredWorkload("ignored-new", testNamespace, "new-api"),
 		)
@@ -306,25 +306,25 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 	})
 
 	t.Run("update ignores invalid old and still enqueues new", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadUpdate("not-an-ignored-workload", newIgnoredWorkload("ignored", testNamespace, testDeploymentName))
+		handler.onIgnoredWorkloadUpdate("not-an-ignored-workload", newIgnoredWorkload("ignored", testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
 
 	t.Run("delete enqueues target deployment", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadDelete(newIgnoredWorkload("ignored", testNamespace, testDeploymentName))
+		handler.onIgnoredWorkloadDelete(newIgnoredWorkload("ignored", testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
 
 	t.Run("delete handles tombstone", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadDelete(cache.DeletedFinalStateUnknown{
+		handler.onIgnoredWorkloadDelete(cache.DeletedFinalStateUnknown{
 			Obj: newIgnoredWorkload("ignored", testNamespace, testDeploymentName),
 		})
 
@@ -332,9 +332,9 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 	})
 
 	t.Run("delete ignores tombstone with unexpected object", func(t *testing.T) {
-		watchers, sink := newWatchers(t)
+		handler, sink := newHandler(t)
 
-		watchers.onIgnoredWorkloadDelete(cache.DeletedFinalStateUnknown{Obj: "not-an-ignored-workload"})
+		handler.onIgnoredWorkloadDelete(cache.DeletedFinalStateUnknown{Obj: "not-an-ignored-workload"})
 
 		assertDeployments(t, sink, nil)
 	})
@@ -395,16 +395,16 @@ func TestIsDeploymentTarget(t *testing.T) {
 	}
 }
 
-func newWatchers(t *testing.T) (*Watchers, *fakeDeploymentSink) {
+func newHandler(t *testing.T) (*Handler, *fakeDeploymentSink) {
 	t.Helper()
 
 	sink := &fakeDeploymentSink{}
-	watchers, err := New(sink)
+	handler, err := New(sink)
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	return watchers, sink
+	return handler, sink
 }
 
 func newDeployment(namespace, name string) *appsv1.Deployment {

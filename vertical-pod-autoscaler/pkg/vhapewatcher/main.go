@@ -11,11 +11,11 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/common"
 	vhapewatcherclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
 	watcherconfig "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/config"
+	watcherhandler "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/handler"
 	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	reconciler "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/reconciler"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
-	watcherhandlers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/watchers"
 )
 
 func main() {
@@ -96,18 +96,18 @@ func run(
 		return fmt.Errorf("create reconciler: %w", err)
 	}
 
-	watchers, err := watcherhandlers.New(reconcilerObj)
+	handlers, err := watcherhandler.New(reconcilerObj)
 	if err != nil {
 		return fmt.Errorf("create watchers: %w", err)
 	}
 
-	if err := watchers.Register(
+	if err := handlers.RegisterHandlersOnInformers(
 		informerSet.Deployment,
 		informerSet.VPA,
 		informerSet.VhapeWatchedNamespace,
 		informerSet.VhapeIgnoredWorkload,
 	); err != nil {
-		return fmt.Errorf("register watchers: %w", err)
+		return fmt.Errorf("register handlers: %w", err)
 	}
 
 	klog.InfoS("Starting informer factories")

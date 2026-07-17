@@ -1,4 +1,4 @@
-package watchers
+package handler
 
 import (
 	"fmt"
@@ -9,29 +9,29 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-// DeploymentSink receives deployment reconciliation requests produced by watchers.
+// DeploymentSink receives deployment reconciliation requests produced by handlers.
 // The reconciler should implement this interface.
 type DeploymentSink interface {
 	EnqueueDeployment(namespace, name string)
 	EnqueueDeploymentsInNamespace(namespace string)
 }
 
-// Watchers registers event handlers on informers.
-type Watchers struct {
+// Handler registers event handlers on informers.
+type Handler struct {
 	sink DeploymentSink
 }
 
-// New creates a Watchers instance.
-func New(sink DeploymentSink) (*Watchers, error) {
+// New creates a Handler instance.
+func New(sink DeploymentSink) (*Handler, error) {
 	if sink == nil {
 		return nil, fmt.Errorf("deployment sink is nil")
 	}
 
-	return &Watchers{sink: sink}, nil
+	return &Handler{sink: sink}, nil
 }
 
-// Register connects all informer events to the deployment sink.
-func (w *Watchers) Register(
+// Register connects all informer events to the appropriate handlers.
+func (h *Handler) RegisterHandlersOnInformers(
 	deploymentInformer appsinformers.DeploymentInformer,
 	vpaInformer autoscalinginformers.VerticalPodAutoscalerInformer,
 	watchedNamespaceInformer vhapev1alpha1informers.VhapeWatchedNamespaceInformer,
@@ -51,27 +51,27 @@ func (w *Watchers) Register(
 	}
 
 	deploymentInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    w.onDeploymentAdd,
-		UpdateFunc: w.onDeploymentUpdate,
-		DeleteFunc: w.onDeploymentDelete,
+		AddFunc:    h.onDeploymentAdd,
+		UpdateFunc: h.onDeploymentUpdate,
+		DeleteFunc: h.onDeploymentDelete,
 	})
 
 	vpaInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    w.onVPAAdd,
-		UpdateFunc: w.onVPAUpdate,
-		DeleteFunc: w.onVPADelete,
+		AddFunc:    h.onVPAAdd,
+		UpdateFunc: h.onVPAUpdate,
+		DeleteFunc: h.onVPADelete,
 	})
 
 	watchedNamespaceInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    w.onWatchedNamespaceAdd,
-		UpdateFunc: w.onWatchedNamespaceUpdate,
-		DeleteFunc: w.onWatchedNamespaceDelete,
+		AddFunc:    h.onWatchedNamespaceAdd,
+		UpdateFunc: h.onWatchedNamespaceUpdate,
+		DeleteFunc: h.onWatchedNamespaceDelete,
 	})
 
 	ignoredWorkloadInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc:    w.onIgnoredWorkloadAdd,
-		UpdateFunc: w.onIgnoredWorkloadUpdate,
-		DeleteFunc: w.onIgnoredWorkloadDelete,
+		AddFunc:    h.onIgnoredWorkloadAdd,
+		UpdateFunc: h.onIgnoredWorkloadUpdate,
+		DeleteFunc: h.onIgnoredWorkloadDelete,
 	})
 
 	return nil
