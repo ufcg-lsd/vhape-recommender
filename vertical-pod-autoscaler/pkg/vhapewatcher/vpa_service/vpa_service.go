@@ -41,7 +41,7 @@ func (s *VPAService) EnsureNoGeneratedVPAForDeployment(ctx context.Context, vpas
 	deleted := 0
 	for _, vpa := range vpas {
 		if IsManagedByWatcher(vpa) {
-			if err := s.deleteVPA(ctx, vpa, reason); err != nil {
+			if err := s.DeleteVPA(ctx, vpa, reason); err != nil {
 				return err
 			}
 			deleted++
@@ -94,7 +94,7 @@ func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
 				continue
 			}
 
-			if err := s.deleteVPA(ctx, vpa, "extra-generated-vpa"); err != nil {
+			if err := s.DeleteVPA(ctx, vpa, "extra-generated-vpa"); err != nil {
 				return err
 			}
 		}
@@ -109,13 +109,13 @@ func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
 			continue
 		}
 
-		if err := s.deleteVPA(ctx, vpa, "outdated-generated-vpa"); err != nil {
+		if err := s.DeleteVPA(ctx, vpa, "outdated-generated-vpa"); err != nil {
 			return err
 		}
 	}
 
 	// create updated vpa
-	_, err = s.createGeneratedVPA(ctx, dep, desired)
+	_, err = s.ApplyVPA(ctx, desired)
 	return err
 }
 
@@ -148,25 +148,7 @@ func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.Vertica
 	return vpas, nil
 }
 
-func (s *VPAService) CreateGeneratedVPAForDeployment(
-	ctx context.Context,
-	dep *appsv1.Deployment,
-	options GenerationOptions,
-) error {
-	vpa, err := s.GenerateVPAForDeployment(dep, options)
-	if err != nil {
-		return err
-	}
-
-	_, err = s.createGeneratedVPA(ctx, dep, vpa)
-	return err
-}
-
-func (s *VPAService) createGeneratedVPA(
-	ctx context.Context,
-	dep *appsv1.Deployment,
-	vpa *vpav1.VerticalPodAutoscaler,
-) (*vpav1.VerticalPodAutoscaler, error) {
+func (s *VPAService) ApplyVPA(ctx context.Context, vpa *vpav1.VerticalPodAutoscaler) (*vpav1.VerticalPodAutoscaler, error) {
 	if vpa == nil {
 		return nil, fmt.Errorf("vpa is nil")
 	}
@@ -177,30 +159,17 @@ func (s *VPAService) createGeneratedVPA(
 		Create(ctx, vpa, metav1.CreateOptions{})
 
 	if apierrors.IsAlreadyExists(err) {
-		return nil, fmt.Errorf("create VPA %q/%q: already exists after cleanup check: %w", vpa.Namespace, vpa.Name, err)
+		return nil, fmt.Errorf("create VPA %q/%q: already exists: %w", vpa.Namespace, vpa.Name, err)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("create VPA %q/%q: %w", vpa.Namespace, vpa.Name, err)
 	}
 
-	klog.InfoS("Created generated VPA for Deployment", "deployment", klog.KObj(dep), "vpa", klog.KObj(created))
+	klog.InfoS("Created generated VPA", "vpa", klog.KObj(created))
 	return created, nil
 }
 
-func isDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.VerticalPodAutoscaler) bool {
-	if current == nil || desired == nil {
-		return false
-	}
-
-	return current.Namespace == desired.Namespace &&
-		current.Name == desired.Name &&
-		apiequality.Semantic.DeepEqual(current.Labels, desired.Labels) &&
-		apiequality.Semantic.DeepEqual(current.Annotations, desired.Annotations) &&
-		apiequality.Semantic.DeepEqual(current.OwnerReferences, desired.OwnerReferences) &&
-		apiequality.Semantic.DeepEqual(current.Spec, desired.Spec)
-}
-
-func (s *VPAService) deleteVPA(ctx context.Context, vpa *vpav1.VerticalPodAutoscaler, reason string) error {
+func (s *VPAService) DeleteVPA(ctx context.Context, vpa *vpav1.VerticalPodAutoscaler, reason string) error {
 	if vpa == nil {
 		return nil
 	}
@@ -221,6 +190,19 @@ func (s *VPAService) deleteVPA(ctx context.Context, vpa *vpav1.VerticalPodAutosc
 
 	klog.InfoS("Deleted generated VPA", "vpa", klog.KObj(vpa), "reason", reason)
 	return nil
+}
+
+func isDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.VerticalPodAutoscaler) bool {
+	if current == nil || desired == nil {
+		return false
+	}
+
+	return current.Namespace == desired.Namespace &&
+		current.Name == desired.Name &&
+		apiequality.Semantic.DeepEqual(current.Labels, desired.Labels) &&
+		apiequality.Semantic.DeepEqual(current.Annotations, desired.Annotations) &&
+		apiequality.Semantic.DeepEqual(current.OwnerReferences, desired.OwnerReferences) &&
+		apiequality.Semantic.DeepEqual(current.Spec, desired.Spec)
 }
 
 func IsManagedByWatcher(vpa *vpav1.VerticalPodAutoscaler) bool {
