@@ -41,7 +41,7 @@ func (s *VPAService) GenerateVPAForDeployment(dep *appsv1.Deployment, options Ge
 	name := NameForDeployment(dep)
 
 	updateMode := options.VPAUpdateMode
-	controlledValues := vpav1.ContainerControlledValuesRequestsOnly
+	controlledValues := vpav1.ContainerControlledValuesRequestsOnly // Only requests will be updated
 
 	return &vpav1.VerticalPodAutoscaler{
 		TypeMeta: metav1.TypeMeta{
@@ -72,7 +72,7 @@ func (s *VPAService) GenerateVPAForDeployment(dep *appsv1.Deployment, options Ge
 			ResourcePolicy: &vpav1.PodResourcePolicy{
 				ContainerPolicies: []vpav1.ContainerResourcePolicy{
 					{
-						ContainerName:    vpav1.DefaultContainerResourcePolicy,
+						ContainerName:    vpav1.DefaultContainerResourcePolicy, // * all containers from deployment
 						ControlledValues: &controlledValues,
 					},
 				},
