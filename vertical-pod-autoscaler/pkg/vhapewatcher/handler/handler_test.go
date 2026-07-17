@@ -8,6 +8,7 @@ import (
 const (
 	testNamespace      = "producao"
 	testDeploymentName = "api"
+	testVpaName        = "vpa"
 )
 
 type fakeDeploymentSink struct {

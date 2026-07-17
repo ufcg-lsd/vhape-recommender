@@ -59,7 +59,7 @@ func TestVPAHandlers(t *testing.T) {
 	t.Run("add enqueues target deployment", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
-		handler.onVPAAdd(newVPA("vpa", testNamespace, testDeploymentName))
+		handler.onVPAAdd(newVPA(testVpaName, testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
@@ -75,7 +75,7 @@ func TestVPAHandlers(t *testing.T) {
 	t.Run("add ignores VPA without targetRef", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
-		vpa := newVPA("vpa", testNamespace, testDeploymentName)
+		vpa := newVPA(testVpaName, testNamespace, testDeploymentName)
 		vpa.Spec.TargetRef = nil
 		handler.onVPAAdd(vpa)
 
@@ -85,7 +85,7 @@ func TestVPAHandlers(t *testing.T) {
 	t.Run("add ignores non Deployment target", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
-		vpa := newVPA("vpa", testNamespace, testDeploymentName)
+		vpa := newVPA(testVpaName, testNamespace, testDeploymentName)
 		vpa.Spec.TargetRef.Kind = "StatefulSet"
 		handler.onVPAAdd(vpa)
 
@@ -95,7 +95,7 @@ func TestVPAHandlers(t *testing.T) {
 	t.Run("add ignores target with empty name", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
-		vpa := newVPA("vpa", testNamespace, "")
+		vpa := newVPA(testVpaName, testNamespace, "")
 		handler.onVPAAdd(vpa)
 
 		assertDeployments(t, sink, nil)
@@ -105,8 +105,8 @@ func TestVPAHandlers(t *testing.T) {
 		handler, sink := newHandler(t)
 
 		handler.onVPAUpdate(
-			newVPA("vpa", testNamespace, "old-api"),
-			newVPA("vpa", testNamespace, "new-api"),
+			newVPA(testVpaName, testNamespace, "old-api"),
+			newVPA(testVpaName, testNamespace, "new-api"),
 		)
 
 		assertDeployments(t, sink, []string{"producao/old-api", "producao/new-api"})
@@ -115,7 +115,7 @@ func TestVPAHandlers(t *testing.T) {
 	t.Run("update ignores invalid old and still enqueues new", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
-		handler.onVPAUpdate("not-a-vpa", newVPA("vpa", testNamespace, testDeploymentName))
+		handler.onVPAUpdate("not-a-vpa", newVPA(testVpaName, testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
@@ -123,7 +123,7 @@ func TestVPAHandlers(t *testing.T) {
 	t.Run("delete enqueues target deployment", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
-		handler.onVPADelete(newVPA("vpa", testNamespace, testDeploymentName))
+		handler.onVPADelete(newVPA(testVpaName, testNamespace, testDeploymentName))
 
 		assertDeployments(t, sink, []string{"producao/api"})
 	})
@@ -132,7 +132,7 @@ func TestVPAHandlers(t *testing.T) {
 		handler, sink := newHandler(t)
 
 		handler.onVPADelete(cache.DeletedFinalStateUnknown{
-			Obj: newVPA("vpa", testNamespace, testDeploymentName),
+			Obj: newVPA(testVpaName, testNamespace, testDeploymentName),
 		})
 
 		assertDeployments(t, sink, []string{"producao/api"})
@@ -300,7 +300,6 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 		assertDeployments(t, sink, nil)
 	})
 }
-
 
 func newHandler(t *testing.T) (*Handler, *fakeDeploymentSink) {
 	t.Helper()
