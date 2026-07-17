@@ -304,6 +304,61 @@ func TestIsDesiredGeneratedVPA(t *testing.T) {
 	}
 }
 
+func TestIsDeploymentTarget(t *testing.T) {
+	tests := []struct {
+		name       string
+		apiVersion string
+		kind       string
+		targetName string
+		want       bool
+	}{
+		{
+			name:       "valid deployment target",
+			apiVersion: deploymentAPIVersion,
+			kind:       deploymentKind,
+			targetName: testDeploymentName,
+			want:       true,
+		},
+		{
+			name:       "kind is case insensitive",
+			apiVersion: deploymentAPIVersion,
+			kind:       "deployment",
+			targetName: testDeploymentName,
+			want:       true,
+		},
+		{
+			name:       "wrong apiVersion",
+			apiVersion: "extensions/v1beta1",
+			kind:       deploymentKind,
+			targetName: testDeploymentName,
+			want:       false,
+		},
+		{
+			name:       "wrong kind",
+			apiVersion: deploymentAPIVersion,
+			kind:       "StatefulSet",
+			targetName: testDeploymentName,
+			want:       false,
+		},
+		{
+			name:       "empty name",
+			apiVersion: deploymentAPIVersion,
+			kind:       deploymentKind,
+			targetName: "",
+			want:       false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsDeploymentTarget(tt.apiVersion, tt.kind, tt.targetName)
+			if got != tt.want {
+				t.Fatalf("IsDeploymentTarget(%q, %q, %q) = %v, want %v", tt.apiVersion, tt.kind, tt.targetName, got, tt.want)
+			}
+		})
+	}
+}
+
 func newTestService(t *testing.T, objects ...*vpav1.VerticalPodAutoscaler) (*VPAService, cache.SharedIndexInformer, *vpafake.Clientset) {
 	t.Helper()
 

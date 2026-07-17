@@ -3,6 +3,7 @@ package vpaservice
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -211,4 +212,10 @@ func IsManagedByWatcher(vpa *vpav1.VerticalPodAutoscaler) bool {
 	}
 
 	return vpa.Labels[ManagedByLabel] == ManagedByValue
+}
+
+func IsDeploymentTarget(apiVersion, kind, name string) bool {
+	return apiVersion == deploymentAPIVersion &&
+		strings.EqualFold(kind, deploymentKind) &&
+		name != ""
 }

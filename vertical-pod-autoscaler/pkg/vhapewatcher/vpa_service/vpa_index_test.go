@@ -98,7 +98,7 @@ func TestAssociatedVPADeploymentKeyIgnoresInvalidTargets(t *testing.T) {
 			if err != nil {
 				t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 			}
-			
+
 			vpa.Spec.TargetRef.APIVersion = tt.apiVersion
 			vpa.Spec.TargetRef.Kind = tt.kind
 			vpa.Spec.TargetRef.Name = tt.targetName
@@ -119,61 +119,6 @@ func TestNamespacedKey(t *testing.T) {
 
 	if got != want {
 		t.Fatalf("namespacedKey() = %q, want %q", got, want)
-	}
-}
-
-func TestIsDeploymentTarget(t *testing.T) {
-	tests := []struct {
-		name       string
-		apiVersion string
-		kind       string
-		targetName string
-		want       bool
-	}{
-		{
-			name:       "deployment target",
-			apiVersion: deploymentAPIVersion,
-			kind:       deploymentKind,
-			targetName: testDeploymentName,
-			want:       true,
-		},
-		{
-			name:       "deployment target lowercase kind",
-			apiVersion: deploymentAPIVersion,
-			kind:       "deployment",
-			targetName: testDeploymentName,
-			want:       true,
-		},
-		{
-			name:       "wrong apiVersion",
-			apiVersion: "extensions/v1beta1",
-			kind:       deploymentKind,
-			targetName: testDeploymentName,
-			want:       false,
-		},
-		{
-			name:       "wrong kind",
-			apiVersion: deploymentAPIVersion,
-			kind:       "StatefulSet",
-			targetName: testDeploymentName,
-			want:       false,
-		},
-		{
-			name:       "empty target name",
-			apiVersion: deploymentAPIVersion,
-			kind:       deploymentKind,
-			targetName: "",
-			want:       false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isDeploymentTarget(tt.apiVersion, tt.kind, tt.targetName)
-			if got != tt.want {
-				t.Fatalf("isDeploymentTarget() = %t, want %t", got, tt.want)
-			}
-		})
 	}
 }
 

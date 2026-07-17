@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"strings"
+	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 
 	appsv1 "k8s.io/api/apps/v1"
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -190,7 +190,7 @@ func (h *Handler) enqueueDeploymentFromVPA(vpa *vpav1.VerticalPodAutoscaler) {
 	}
 
 	ref := vpa.Spec.TargetRef
-	if !isDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
+	if !vpaservice.IsDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
 		klog.V(4).InfoS("Ignoring VPA event for non-Deployment target", "vpa", klog.KObj(vpa), "apiVersion", ref.APIVersion, "kind", ref.Kind, "name", ref.Name)
 		return
 	}
@@ -205,7 +205,7 @@ func (h *Handler) enqueueDeploymentFromIgnoredWorkload(ignored *vhapev1alpha1.Vh
 	}
 
 	ref := ignored.Spec.TargetRef
-	if !isDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
+	if !vpaservice.IsDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
 		klog.Warningf(
 			"Ignoring VhapeIgnoredWorkload %q with unsupported or incomplete targetRef: apiVersion=%q kind=%q name=%q",
 			ignored.Name,
@@ -227,12 +227,6 @@ func (h *Handler) enqueueDeploymentFromIgnoredWorkload(ignored *vhapev1alpha1.Vh
 		"ignoredReason", ignored.Spec.Reason,
 	)
 	h.sink.EnqueueDeployment(ref.Namespace, ref.Name)
-}
-
-func isDeploymentTarget(apiVersion, kind, name string) bool {
-	return apiVersion == deploymentAPIVersion &&
-		strings.EqualFold(kind, deploymentKind) &&
-		name != ""
 }
 
 func deploymentFromObject(obj interface{}) (*appsv1.Deployment, bool) {

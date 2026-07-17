@@ -2,7 +2,6 @@ package vpaservice
 
 import (
 	"fmt"
-	"strings"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpaInformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
@@ -12,7 +11,7 @@ import (
 const IndexName = "vhape.io/vpa-by-deployment"
 
 // adds a Deployment to VPAs index to the VPA informer.
-// this allows for mapping deployments to a list of VPAs that manage it. 
+// this allows for mapping deployments to a list of VPAs that manage it.
 func AddDeploymentToVPAsIndex(informer vpaInformers.VerticalPodAutoscalerInformer) error {
 	if informer == nil {
 		return fmt.Errorf("vpa informer is nil")
@@ -34,7 +33,7 @@ func getAssociatedVPADeploymentKey(obj interface{}) ([]string, error) {
 	}
 
 	ref := vpa.Spec.TargetRef
-	if !isDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
+	if !IsDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
 		return nil, nil
 	}
 
@@ -43,10 +42,4 @@ func getAssociatedVPADeploymentKey(obj interface{}) ([]string, error) {
 
 func namespacedKey(namespace, name string) string {
 	return namespace + "/" + name
-}
-
-func isDeploymentTarget(apiVersion, kind, name string) bool {
-	return apiVersion == deploymentAPIVersion &&
-		strings.EqualFold(kind, deploymentKind) &&
-		name != ""
 }
