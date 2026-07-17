@@ -41,7 +41,7 @@ func TestGenerateVPAForDeployment(t *testing.T) {
 }
 
 func TestGenerateVPAForDeploymentRejectsNilDeployment(t *testing.T) {
-	vpa, err := GenerateVPAForDeployment("", nil, newGenerationOptions())
+	vpa, err := GenerateVPAForDeployment(testVpaName, nil, newGenerationOptions())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
