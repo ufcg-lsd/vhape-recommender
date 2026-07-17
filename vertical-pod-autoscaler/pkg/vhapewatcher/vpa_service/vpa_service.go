@@ -65,7 +65,7 @@ func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
 		return fmt.Errorf("deployment is nil")
 	}
 
-	desired, err := s.GenerateVPAForDeployment(dep, options)
+	desired, err := GenerateVPAForDeployment(NameForDeployment(dep), dep, options)
 	if err != nil {
 		return err
 	}

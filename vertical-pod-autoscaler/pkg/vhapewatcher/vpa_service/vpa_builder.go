@@ -33,12 +33,10 @@ type GenerationOptions struct {
 }
 
 // GenerateVPAForDeployment builds the desired VPA object for a Deployment.
-func (s *VPAService) GenerateVPAForDeployment(dep *appsv1.Deployment, options GenerationOptions) (*vpav1.VerticalPodAutoscaler, error) {
+func GenerateVPAForDeployment(name string, dep *appsv1.Deployment, options GenerationOptions) (*vpav1.VerticalPodAutoscaler, error) {
 	if dep == nil {
 		return nil, fmt.Errorf("deployment is nil")
 	}
-
-	name := NameForDeployment(dep)
 
 	updateMode := options.VPAUpdateMode
 	controlledValues := vpav1.ContainerControlledValuesRequestsOnly // Only requests will be updated
