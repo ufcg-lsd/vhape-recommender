@@ -228,6 +228,20 @@ func TestEnsureOneGeneratedVPAForDeploymentRejectsNilDeployment(t *testing.T) {
 	}
 }
 
+func TestEnsureNoGeneratedVPAForDeploymentIgnoresAlreadyDeletedGeneratedVPA(t *testing.T) {
+	ctx := context.Background()
+	dep := newDeployment(testNamespace, testDeploymentName)
+
+	generatedVPA := managedVPAForDeployment("generated-api", dep)
+
+	service, _, _ := newTestService(t)
+
+	err := service.EnsureNoGeneratedVPAForDeployment(ctx, []*vpav1.VerticalPodAutoscaler{generatedVPA}, "test")
+	if err != nil {
+		t.Fatalf("EnsureNoGeneratedVPAForDeployment returned error: %v", err)
+	}
+}
+
 func TestIsManagedByWatcher(t *testing.T) {
 	if IsManagedByWatcher(nil) {
 		t.Fatal("nil VPA should not be managed by watcher")
@@ -267,6 +281,19 @@ func TestIsDesiredGeneratedVPA(t *testing.T) {
 	generatedVPAWithDifferentSpec.Spec.UpdatePolicy.UpdateMode = &mode
 	if isDesiredGeneratedVPA(generatedVPAWithDifferentSpec, desiredGeneratedVPA) {
 		t.Fatal("VPA with different spec should not be desired")
+	}
+
+	generatedVPAWithDifferentLabel := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithDifferentLabel.Labels[ManagedByLabel] = "other-manager"
+	if isDesiredGeneratedVPA(generatedVPAWithDifferentLabel, desiredGeneratedVPA) {
+		t.Fatal("VPA with different labels should not be desired")
+	}
+
+
+	generatedVPAWithDifferentUID := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithDifferentUID.OwnerReferences[0].UID = "old-uid"
+	if isDesiredGeneratedVPA(generatedVPAWithDifferentUID, desiredGeneratedVPA) {
+		t.Fatal("VPA with different ownerReference UID should not be desired")
 	}
 
 	if isDesiredGeneratedVPA(nil, desiredGeneratedVPA) {
