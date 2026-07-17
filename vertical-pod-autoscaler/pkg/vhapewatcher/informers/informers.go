@@ -52,8 +52,8 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1().
 		VerticalPodAutoscalers()
 
-	if err := vhapevpaservice.AddVPAToDeploymentIndexToInformer(vpaInformer); err != nil {
-		return nil, fmt.Errorf("add VPA to deployment index: %w", err)
+	if err := vhapevpaservice.AddDeploymentToVPAsIndex(vpaInformer); err != nil {
+		return nil, fmt.Errorf("add Deployment to VPAs index: %w", err)
 	}
 
 	watchedNamespaceInformer := vhapeFactory.

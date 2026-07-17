@@ -11,7 +11,9 @@ import (
 
 const IndexName = "vhape.io/vpa-by-deployment"
 
-func AddVPAToDeploymentIndexToInformer(informer vpaInformers.VerticalPodAutoscalerInformer) error {
+// adds a Deployment to VPAs index to the VPA informer.
+// this allows for mapping deployments to a list of VPAs that manage it. 
+func AddDeploymentToVPAsIndex(informer vpaInformers.VerticalPodAutoscalerInformer) error {
 	if informer == nil {
 		return fmt.Errorf("vpa informer is nil")
 	}
@@ -21,7 +23,7 @@ func AddVPAToDeploymentIndexToInformer(informer vpaInformers.VerticalPodAutoscal
 	})
 }
 
-// maps the associated vpa deployment to a vpa
+// returns the associated vpa deployment key
 func getAssociatedVPADeploymentKey(obj interface{}) ([]string, error) {
 	vpa, ok := obj.(*vpav1.VerticalPodAutoscaler)
 	if !ok {
