@@ -53,7 +53,7 @@ func (w *Watchers) onVPAAdd(obj interface{}) {
 		return
 	}
 
-	w.enqueueDeploymentFromVPA(vpa, "vpa-add")
+	w.enqueueDeploymentFromVPA(vpa)
 }
 
 // A VPA update may change its targetRef. Enqueue both the old and the new target
@@ -64,14 +64,14 @@ func (w *Watchers) onVPAUpdate(oldObj, newObj interface{}) {
 
 	oldVPA, ok := vpaFromObject(oldObj)
 	if ok {
-		w.enqueueDeploymentFromVPA(oldVPA, "vpa-update-old")
+		w.enqueueDeploymentFromVPA(oldVPA)
 	} else {
 		klog.V(4).InfoS("Ignoring old object from VPA update event with unexpected object type")
 	}
 
 	newVPA, ok := vpaFromObject(newObj)
 	if ok {
-		w.enqueueDeploymentFromVPA(newVPA, "vpa-update-new")
+		w.enqueueDeploymentFromVPA(newVPA)
 	} else {
 		klog.V(4).InfoS("Ignoring new object from VPA update event with unexpected object type")
 	}
@@ -88,7 +88,7 @@ func (w *Watchers) onVPADelete(obj interface{}) {
 		return
 	}
 
-	w.enqueueDeploymentFromVPA(vpa, "vpa-delete")
+	w.enqueueDeploymentFromVPA(vpa)
 }
 
 // When a namespace becomes watched, every Deployment in that namespace may need
@@ -180,22 +180,22 @@ func (w *Watchers) onIgnoredWorkloadDelete(obj interface{}) {
 	w.enqueueDeploymentFromIgnoredWorkload(ignored)
 }
 
-func (w *Watchers) enqueueDeploymentFromVPA(vpa *vpav1.VerticalPodAutoscaler, reason string) {
+func (w *Watchers) enqueueDeploymentFromVPA(vpa *vpav1.VerticalPodAutoscaler) {
 	if vpa == nil {
 		return
 	}
 	if vpa.Spec.TargetRef == nil {
-		klog.V(4).InfoS("Ignoring VPA event without targetRef", "vpa", klog.KObj(vpa), "reason", reason)
+		klog.V(4).InfoS("Ignoring VPA event without targetRef", "vpa", klog.KObj(vpa))
 		return
 	}
 
 	ref := vpa.Spec.TargetRef
 	if !isDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
-		klog.V(4).InfoS("Ignoring VPA event for non-Deployment target", "vpa", klog.KObj(vpa), "apiVersion", ref.APIVersion, "kind", ref.Kind, "name", ref.Name, "reason", reason)
+		klog.V(4).InfoS("Ignoring VPA event for non-Deployment target", "vpa", klog.KObj(vpa), "apiVersion", ref.APIVersion, "kind", ref.Kind, "name", ref.Name)
 		return
 	}
 
-	klog.V(4).InfoS("Enqueuing Deployment from VPA event", "deployment", klog.KRef(vpa.Namespace, ref.Name), "vpa", klog.KObj(vpa), "reason", reason)
+	klog.V(4).InfoS("Enqueuing Deployment from VPA event", "deployment", klog.KRef(vpa.Namespace, ref.Name), "vpa", klog.KObj(vpa))
 	w.sink.EnqueueDeployment(vpa.Namespace, ref.Name)
 }
 
