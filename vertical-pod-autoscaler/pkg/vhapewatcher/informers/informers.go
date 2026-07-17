@@ -2,6 +2,7 @@ package informers
 
 import (
 	"fmt"
+
 	vhapeinformerfactory "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
 	kubeinformerfactory "k8s.io/client-go/informers"
 
@@ -51,8 +52,8 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1().
 		VerticalPodAutoscalers()
 
-	if err := vhapevpaservice.AddVPAIndexes(vpaInformer); err != nil {
-		return nil, fmt.Errorf("add VPA indexes: %w", err)
+	if err := vhapevpaservice.AddVPAToDeploymentIndexToInformer(vpaInformer); err != nil {
+		return nil, fmt.Errorf("add VPA to deployment index: %w", err)
 	}
 
 	watchedNamespaceInformer := vhapeFactory.

@@ -127,7 +127,7 @@ func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.Vertica
 	items, err := s.informer.
 		Informer().
 		GetIndexer().
-		ByIndex(VPAByDeploymentIndexName, namespacedKey(dep.Namespace, dep.Name))
+		ByIndex(IndexName, namespacedKey(dep.Namespace, dep.Name))
 
 	if err != nil {
 		return nil, fmt.Errorf("list VPAs indexed by Deployment %q/%q: %w", dep.Namespace, dep.Name, err)

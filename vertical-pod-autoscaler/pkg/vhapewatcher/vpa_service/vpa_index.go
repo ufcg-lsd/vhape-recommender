@@ -9,19 +9,20 @@ import (
 	"k8s.io/client-go/tools/cache"
 )
 
-const VPAByDeploymentIndexName = "vhape.io/vpa-by-deployment"
+const IndexName = "vhape.io/vpa-by-deployment"
 
-func AddVPAIndexes(informer vpaInformers.VerticalPodAutoscalerInformer) error {
+func AddVPAToDeploymentIndexToInformer(informer vpaInformers.VerticalPodAutoscalerInformer) error {
 	if informer == nil {
 		return fmt.Errorf("vpa informer is nil")
 	}
 
 	return informer.Informer().GetIndexer().AddIndexers(cache.Indexers{
-		VPAByDeploymentIndexName: vpaByDeploymentIndex,
+		IndexName: getAssociatedVPADeploymentKey,
 	})
 }
 
-func vpaByDeploymentIndex(obj interface{}) ([]string, error) {
+// maps the associated vpa deployment to a vpa
+func getAssociatedVPADeploymentKey(obj interface{}) ([]string, error) {
 	vpa, ok := obj.(*vpav1.VerticalPodAutoscaler)
 	if !ok {
 		return nil, nil
