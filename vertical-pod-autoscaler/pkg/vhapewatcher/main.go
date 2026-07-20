@@ -101,12 +101,11 @@ func run(
 		return fmt.Errorf("create watchers: %w", err)
 	}
 
-	if err := watcherhandler.RegisterHandlerFunctionsOnInformers(
+	if err := handler.RegisterHandlerFunctionsOnInformers(
 		informerSet.Deployment,
 		informerSet.VPA,
 		informerSet.VhapeWatchedNamespace,
 		informerSet.VhapeIgnoredWorkload,
-		handler.InformerHandlerFuncs(),
 	); err != nil {
 		return fmt.Errorf("register handlers: %w", err)
 	}

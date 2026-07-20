@@ -30,6 +30,13 @@ func New(sink DeploymentSink) (*Handler, error) {
 	return &Handler{sink: sink}, nil
 }
 
+
+// this interfaces is used to allow for testing the 
+// handler functions association without the need of real informers.
+type eventHandlerReceiver interface {
+	AddEventHandler(cache.ResourceEventHandler) (cache.ResourceEventHandlerRegistration, error)
+}
+
 // defines the type that associates handler fuctions for each handled object
 type informerHandlerFuncs struct {
 	deployment       cache.ResourceEventHandlerFuncs
@@ -39,7 +46,7 @@ type informerHandlerFuncs struct {
 }
 
 // declaration of the appropriate handlers for each handled object
-func (h *Handler) InformerHandlerFuncs() informerHandlerFuncs {
+func (h *Handler) informerHandlerFuncs() informerHandlerFuncs {
 	return informerHandlerFuncs{
 		deployment: cache.ResourceEventHandlerFuncs{
 			AddFunc:    h.onDeploymentAdd,
@@ -65,11 +72,27 @@ func (h *Handler) InformerHandlerFuncs() informerHandlerFuncs {
 }
 
 // connects all informer events to the appropriate handlers.
-func RegisterHandlerFunctionsOnInformers(
+func (h *Handler) RegisterHandlerFunctionsOnInformers(
 	deploymentInformer appsinformers.DeploymentInformer,
 	vpaInformer autoscalinginformers.VerticalPodAutoscalerInformer,
 	watchedNamespaceInformer vhapev1alpha1informers.VhapeWatchedNamespaceInformer,
 	ignoredWorkloadInformer vhapev1alpha1informers.VhapeIgnoredWorkloadInformer,
+) error {
+	return registerHandlersOnReceivers(
+		deploymentInformer.Informer(),
+		vpaInformer.Informer(),
+		watchedNamespaceInformer.Informer(),
+		ignoredWorkloadInformer.Informer(),
+		h.informerHandlerFuncs(),
+	)
+}
+
+// private method extracted for testing
+func registerHandlersOnReceivers(
+	deploymentInformer eventHandlerReceiver,
+	vpaInformer eventHandlerReceiver,
+	watchedNamespaceInformer eventHandlerReceiver,
+	ignoredWorkloadInformer eventHandlerReceiver,
 	handlers informerHandlerFuncs,
 ) error {
 	if deploymentInformer == nil {
@@ -85,10 +108,10 @@ func RegisterHandlerFunctionsOnInformers(
 		return fmt.Errorf("vhape ignored workload informer is nil")
 	}
 
-	deploymentInformer.Informer().AddEventHandler(handlers.deployment)
-	vpaInformer.Informer().AddEventHandler(handlers.vpa)
-	watchedNamespaceInformer.Informer().AddEventHandler(handlers.watchedNamespace)
-	ignoredWorkloadInformer.Informer().AddEventHandler(handlers.ignoredWorkload)
+	deploymentInformer.AddEventHandler(handlers.deployment)
+	vpaInformer.AddEventHandler(handlers.vpa)
+	watchedNamespaceInformer.AddEventHandler(handlers.watchedNamespace)
+	ignoredWorkloadInformer.AddEventHandler(handlers.ignoredWorkload)
 
 	return nil
 }
