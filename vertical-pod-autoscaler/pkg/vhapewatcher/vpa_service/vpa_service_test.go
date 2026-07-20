@@ -1,4 +1,4 @@
-package vpaservice
+package vpaservice_test
 
 import (
 	"context"
@@ -6,25 +6,25 @@ import (
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
-	vhapeinformerfactory "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
+
+	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	"k8s.io/client-go/tools/cache"
 )
 
 func TestNewVPAService(t *testing.T) {
-	client := vpafake.NewSimpleClientset()
-	factory := vhapeinformerfactory.NewSharedInformerFactory(client, 0)
-	informer := factory.Autoscaling().V1().VerticalPodAutoscalers()
+	_, client, informers := testutil.NewInformers(t, nil, nil, nil, nil)
+	informer := informers.VPA
 
-	if _, err := NewVPAService(informer, client); err != nil {
+	if _, err := vpaservice.NewVPAService(informer, client); err != nil {
 		t.Fatalf("NewVPAService returned error: %v", err)
 	}
 
-	if _, err := NewVPAService(nil, client); err == nil {
+	if _, err := vpaservice.NewVPAService(nil, client); err == nil {
 		t.Fatal("expected error for nil informer")
 	}
 
-	if _, err := NewVPAService(informer, nil); err == nil {
+	if _, err := vpaservice.NewVPAService(informer, nil); err == nil {
 		t.Fatal("expected error for nil client")
 	}
 }
@@ -36,13 +36,13 @@ func TestListForDeploymentReturnsOnlyVPAsTargetingDeployment(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
 
-	// creating VPAs 
-	generatedVPAForTargetDeployment, err := GenerateVPAForDeployment("generated-api", dep, options)
+	// creating VPAs
+	generatedVPAForTargetDeployment, err := vpaservice.GenerateVPAForDeployment("generated-api", dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
 
-	generatedVPAForOtherDeployment, err := GenerateVPAForDeployment(
+	generatedVPAForOtherDeployment, err := vpaservice.GenerateVPAForDeployment(
 		"generated-other-deployment",
 		testutil.NewDeployment(testutil.TestNamespace, "other-deployment"),
 		options,
@@ -51,7 +51,7 @@ func TestListForDeploymentReturnsOnlyVPAsTargetingDeployment(t *testing.T) {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
 
-	generatedVPAForSameDeploymentNameInOtherNamespace, err := GenerateVPAForDeployment(
+	generatedVPAForSameDeploymentNameInOtherNamespace, err := vpaservice.GenerateVPAForDeployment(
 		"generated-api",
 		testutil.NewDeployment("other-namespace", testutil.TestDeploymentName),
 		options,
@@ -93,7 +93,7 @@ func TestDeletesManagedVPAsAndPreservesManualVPAsWhenManualIsPresent(t *testing.
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
 
-	generatedVPA, err := GenerateVPAForDeployment("generated-api", dep, options)
+	generatedVPA, err := vpaservice.GenerateVPAForDeployment("generated-api", dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestApplyVPACreatesVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
 
-	desiredVPA, err := GenerateVPAForDeployment(NameForDeployment(dep), dep, options)
+	desiredVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -134,10 +134,10 @@ func TestApplyVPACreatesVPA(t *testing.T) {
 		t.Fatalf("ApplyVPA returned error: %v", err)
 	}
 
-	testutil.AssertGeneratedVPA(t, appliedVPA, dep, NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
+	testutil.AssertGeneratedVPA(t, appliedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
 
-	storedVPA := testutil.GetVPA(t, client, testutil.TestNamespace, NameForDeployment(dep))
-	testutil.AssertGeneratedVPA(t, storedVPA, dep, NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
+	storedVPA := testutil.GetVPA(t, client, testutil.TestNamespace, vpaservice.NameForDeployment(dep))
+	testutil.AssertGeneratedVPA(t, storedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
 }
 
 func TestApplyVPARejectsNilVPA(t *testing.T) {
@@ -154,7 +154,7 @@ func TestApplyVPARejectsAlreadyExistingVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
 
-	desiredVPA, err := GenerateVPAForDeployment(NameForDeployment(dep), dep, options)
+	desiredVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -177,8 +177,8 @@ func TestCreatesVPAWhenNoneExistsForManagedDeployment(t *testing.T) {
 		t.Fatalf("EnsureOneGeneratedVPAForDeployment returned error: %v", err)
 	}
 
-	storedVPA := testutil.GetVPA(t, client, testutil.TestNamespace, NameForDeployment(dep))
-	testutil.AssertGeneratedVPA(t, storedVPA, dep, NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
+	storedVPA := testutil.GetVPA(t, client, testutil.TestNamespace, vpaservice.NameForDeployment(dep))
+	testutil.AssertGeneratedVPA(t, storedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
 }
 
 func TestKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(t *testing.T) {
@@ -188,11 +188,11 @@ func TestKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
 
-	currentGeneratedVPA, err := GenerateVPAForDeployment(NameForDeployment(dep), dep, options)
+	currentGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
-	extraGeneratedVPA, err := GenerateVPAForDeployment("generated-api-extra", dep, options)
+	extraGeneratedVPA, err := vpaservice.GenerateVPAForDeployment("generated-api-extra", dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -213,13 +213,13 @@ func TestReplacesOutdatedGeneratedVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	newOptions := newGenerationOptions()
-	oldOptions := GenerationOptions{
+	oldOptions := vpaservice.GenerationOptions{
 		VhapePolicyNamespace: "old-system",
 		VhapePolicyName:      "old-policy",
 		VPAUpdateMode:        vpav1.UpdateModeRecreate,
 	}
 
-	outdatedGeneratedVPA, err := GenerateVPAForDeployment(NameForDeployment(dep), dep, oldOptions)
+	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -230,8 +230,8 @@ func TestReplacesOutdatedGeneratedVPA(t *testing.T) {
 		t.Fatalf("EnsureOneGeneratedVPAForDeployment returned error: %v", err)
 	}
 
-	createdVPA := testutil.GetVPA(t, client, testutil.TestNamespace, NameForDeployment(dep))
-	testutil.AssertGeneratedVPA(t, createdVPA, dep, NameForDeployment(dep), newOptions.VhapePolicyNamespace, newOptions.VhapePolicyName, newOptions.VPAUpdateMode)
+	createdVPA := testutil.GetVPA(t, client, testutil.TestNamespace, vpaservice.NameForDeployment(dep))
+	testutil.AssertGeneratedVPA(t, createdVPA, dep, vpaservice.NameForDeployment(dep), newOptions.VhapePolicyNamespace, newOptions.VhapePolicyName, newOptions.VPAUpdateMode)
 }
 
 func TestEnsureOneGeneratedVPAForDeploymentRejectsNilDeployment(t *testing.T) {
@@ -248,7 +248,7 @@ func TestEnsureNoGeneratedVPAForDeploymentIgnoresAlreadyDeletedGeneratedVPA(t *t
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
 
-	generatedVPA, err := GenerateVPAForDeployment("generated-api", dep, options)
+	generatedVPA, err := vpaservice.GenerateVPAForDeployment("generated-api", dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -262,21 +262,21 @@ func TestEnsureNoGeneratedVPAForDeploymentIgnoresAlreadyDeletedGeneratedVPA(t *t
 }
 
 func TestIsManagedByWatcher(t *testing.T) {
-	if IsManagedByWatcher(nil) {
+	if vpaservice.IsManagedByWatcher(nil) {
 		t.Fatal("nil VPA should not be managed by watcher")
 	}
 
 	manualVPA := &vpav1.VerticalPodAutoscaler{}
-	if IsManagedByWatcher(manualVPA) {
+	if vpaservice.IsManagedByWatcher(manualVPA) {
 		t.Fatal("VPA without managed-by label should not be managed by watcher")
 	}
 
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
-	generatedVPA, err := GenerateVPAForDeployment("managed-api", dep, newGenerationOptions())
+	generatedVPA, err := vpaservice.GenerateVPAForDeployment("managed-api", dep, newGenerationOptions())
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
-	if !IsManagedByWatcher(generatedVPA) {
+	if !vpaservice.IsManagedByWatcher(generatedVPA) {
 		t.Fatal("VPA with managed-by label should be managed by watcher")
 	}
 }
@@ -284,44 +284,44 @@ func TestIsManagedByWatcher(t *testing.T) {
 func TestIsDesiredGeneratedVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
-	desiredGeneratedVPA, err := GenerateVPAForDeployment(NameForDeployment(dep), dep, options)
+	desiredGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
 
-	if !isDesiredGeneratedVPA(desiredGeneratedVPA.DeepCopy(), desiredGeneratedVPA) {
+	if !vpaservice.IsDesiredGeneratedVPA(desiredGeneratedVPA.DeepCopy(), desiredGeneratedVPA) {
 		t.Fatal("identical generated VPA should be desired")
 	}
 
 	generatedVPAWithDifferentAnnotation := desiredGeneratedVPA.DeepCopy()
-	generatedVPAWithDifferentAnnotation.Annotations[vhapePolicyAnnotation] = "other/policy"
-	if isDesiredGeneratedVPA(generatedVPAWithDifferentAnnotation, desiredGeneratedVPA) {
+	generatedVPAWithDifferentAnnotation.Annotations[vpaservice.VhapePolicyAnnotation] = "other/policy"
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentAnnotation, desiredGeneratedVPA) {
 		t.Fatal("VPA with different annotations should not be desired")
 	}
 
 	generatedVPAWithDifferentSpec := desiredGeneratedVPA.DeepCopy()
 	mode := vpav1.UpdateModeRecreate
 	generatedVPAWithDifferentSpec.Spec.UpdatePolicy.UpdateMode = &mode
-	if isDesiredGeneratedVPA(generatedVPAWithDifferentSpec, desiredGeneratedVPA) {
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentSpec, desiredGeneratedVPA) {
 		t.Fatal("VPA with different spec should not be desired")
 	}
 
 	generatedVPAWithDifferentLabel := desiredGeneratedVPA.DeepCopy()
-	generatedVPAWithDifferentLabel.Labels[ManagedByLabel] = "other-manager"
-	if isDesiredGeneratedVPA(generatedVPAWithDifferentLabel, desiredGeneratedVPA) {
+	generatedVPAWithDifferentLabel.Labels[vpaservice.ManagedByLabel] = "other-manager"
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentLabel, desiredGeneratedVPA) {
 		t.Fatal("VPA with different labels should not be desired")
 	}
 
 	generatedVPAWithDifferentUID := desiredGeneratedVPA.DeepCopy()
 	generatedVPAWithDifferentUID.OwnerReferences[0].UID = "old-uid"
-	if isDesiredGeneratedVPA(generatedVPAWithDifferentUID, desiredGeneratedVPA) {
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentUID, desiredGeneratedVPA) {
 		t.Fatal("VPA with different ownerReference UID should not be desired")
 	}
 
-	if isDesiredGeneratedVPA(nil, desiredGeneratedVPA) {
+	if vpaservice.IsDesiredGeneratedVPA(nil, desiredGeneratedVPA) {
 		t.Fatal("nil current VPA should not be desired")
 	}
-	if isDesiredGeneratedVPA(desiredGeneratedVPA, nil) {
+	if vpaservice.IsDesiredGeneratedVPA(desiredGeneratedVPA, nil) {
 		t.Fatal("nil desired VPA should not be desired")
 	}
 }
@@ -336,14 +336,14 @@ func TestIsDeploymentTarget(t *testing.T) {
 	}{
 		{
 			name:       "valid deployment target",
-			apiVersion: deploymentAPIVersion,
-			kind:       deploymentKind,
+			apiVersion: vpaservice.DeploymentAPIVersion,
+			kind:       vpaservice.DeploymentKind,
 			targetName: testutil.TestDeploymentName,
 			want:       true,
 		},
 		{
 			name:       "kind is case insensitive",
-			apiVersion: deploymentAPIVersion,
+			apiVersion: vpaservice.DeploymentAPIVersion,
 			kind:       "deployment",
 			targetName: testutil.TestDeploymentName,
 			want:       true,
@@ -351,21 +351,21 @@ func TestIsDeploymentTarget(t *testing.T) {
 		{
 			name:       "wrong apiVersion",
 			apiVersion: "extensions/v1beta1",
-			kind:       deploymentKind,
+			kind:       vpaservice.DeploymentKind,
 			targetName: testutil.TestDeploymentName,
 			want:       false,
 		},
 		{
 			name:       "wrong kind",
-			apiVersion: deploymentAPIVersion,
+			apiVersion: vpaservice.DeploymentAPIVersion,
 			kind:       "StatefulSet",
 			targetName: testutil.TestDeploymentName,
 			want:       false,
 		},
 		{
 			name:       "empty name",
-			apiVersion: deploymentAPIVersion,
-			kind:       deploymentKind,
+			apiVersion: vpaservice.DeploymentAPIVersion,
+			kind:       vpaservice.DeploymentKind,
 			targetName: "",
 			want:       false,
 		},
@@ -373,7 +373,7 @@ func TestIsDeploymentTarget(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := IsDeploymentTarget(tt.apiVersion, tt.kind, tt.targetName)
+			got := vpaservice.IsDeploymentTarget(tt.apiVersion, tt.kind, tt.targetName)
 			if got != tt.want {
 				t.Fatalf("IsDeploymentTarget(%q, %q, %q) = %v, want %v", tt.apiVersion, tt.kind, tt.targetName, got, tt.want)
 			}
@@ -381,21 +381,21 @@ func TestIsDeploymentTarget(t *testing.T) {
 	}
 }
 
-func newTestService(t *testing.T, objects ...*vpav1.VerticalPodAutoscaler) (*VPAService, cache.SharedIndexInformer, *vpafake.Clientset) {
+func newTestService(t *testing.T, vpas ...*vpav1.VerticalPodAutoscaler) (*vpaservice.VPAService, cache.SharedIndexInformer, *vpafake.Clientset) {
 	t.Helper()
 
-	client := testutil.NewVPAClientset(objects...)
-	factory := vhapeinformerfactory.NewSharedInformerFactory(client, 0)
-	informer := factory.Autoscaling().V1().VerticalPodAutoscalers()
+	_, client, informers := testutil.NewInformers(
+		t,
+		nil,
+		nil,
+		nil,
+		vpas,
+	)
 
-	if err := AddDeploymentToVPAsIndex(informer); err != nil {
-		t.Fatalf("AddDeploymentToVPAsIndex returned error: %v", err)
-	}
-
-	service, err := NewVPAService(informer, client)
+	service, err := vpaservice.NewVPAService(informers.VPA, client)
 	if err != nil {
 		t.Fatalf("NewVPAService returned error: %v", err)
 	}
 
-	return service, informer.Informer(), client
+	return service, informers.VPA.Informer(), client
 }

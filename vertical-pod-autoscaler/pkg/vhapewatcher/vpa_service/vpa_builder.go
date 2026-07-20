@@ -14,15 +14,15 @@ const (
 	ManagedByLabel = "app.kubernetes.io/managed-by"
 	ManagedByValue = "vhape-watcher"
 
-	deploymentAPIVersion = "apps/v1"
-	deploymentKind       = "Deployment"
+	DeploymentAPIVersion = "apps/v1"
+	DeploymentKind       = "Deployment"
 
 	vpaAPIVersion = "autoscaling.k8s.io/v1"
 	vpaKind       = "VerticalPodAutoscaler"
 
-	generatedVPANamePrefix = "" // empty for now
+	GeneratedVPANamePrefix = "" // empty for now
 
-	vhapePolicyAnnotation = "vhape/policy"
+	VhapePolicyAnnotation = "vhape/policy"
 	vhapeRecommenderName  = "vhape-recommender"
 )
 
@@ -54,13 +54,13 @@ func GenerateVPAForDeployment(name string, dep *appsv1.Deployment, options Gener
 			Name:            name,
 			Namespace:       dep.Namespace,
 			Labels:          map[string]string{ManagedByLabel: ManagedByValue},
-			Annotations:     map[string]string{vhapePolicyAnnotation: PolicyRef(options)},
+			Annotations:     map[string]string{VhapePolicyAnnotation: PolicyRef(options)},
 			OwnerReferences: OwnerReferencesForDeployment(dep),
 		},
 		Spec: vpav1.VerticalPodAutoscalerSpec{
 			TargetRef: &autoscalingv1.CrossVersionObjectReference{
-				APIVersion: deploymentAPIVersion,
-				Kind:       deploymentKind,
+				APIVersion: DeploymentAPIVersion,
+				Kind:       DeploymentKind,
 				Name:       dep.Name,
 			},
 			Recommenders: []*vpav1.VerticalPodAutoscalerRecommenderSelector{
@@ -85,7 +85,7 @@ func GenerateVPAForDeployment(name string, dep *appsv1.Deployment, options Gener
 
 // NameForDeployment returns the deterministic name VHAPE Watcher uses for the generated VPA associated with a Deployment.
 func NameForDeployment(dep *appsv1.Deployment) string {
-	name := generatedVPANamePrefix + dep.Name
+	name := GeneratedVPANamePrefix + dep.Name
 	if len(name) > 253 {
 		name = name[:253]
 	}
@@ -101,8 +101,8 @@ func OwnerReferencesForDeployment(dep *appsv1.Deployment) []metav1.OwnerReferenc
 	controller := true
 	return []metav1.OwnerReference{
 		{
-			APIVersion: deploymentAPIVersion,
-			Kind:       deploymentKind,
+			APIVersion: DeploymentAPIVersion,
+			Kind:       DeploymentKind,
 			Name:       dep.Name,
 			UID:        dep.UID,
 			Controller: &controller,

@@ -78,7 +78,7 @@ func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
 			continue
 		}
 
-		if isDesiredGeneratedVPA(vpa, desired) {
+		if IsDesiredGeneratedVPA(vpa, desired) {
 			upToDate = vpa
 			break
 		}
@@ -128,7 +128,7 @@ func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.Vertica
 	items, err := s.informer.
 		Informer().
 		GetIndexer().
-		ByIndex(IndexName, namespacedKey(dep.Namespace, dep.Name))
+		ByIndex(IndexName, NamespacedKey(dep.Namespace, dep.Name))
 
 	if err != nil {
 		return nil, fmt.Errorf("list VPAs indexed by Deployment %q/%q: %w", dep.Namespace, dep.Name, err)
@@ -193,7 +193,7 @@ func (s *VPAService) DeleteVPA(ctx context.Context, vpa *vpav1.VerticalPodAutosc
 	return nil
 }
 
-func isDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.VerticalPodAutoscaler) bool {
+func IsDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.VerticalPodAutoscaler) bool {
 	if current == nil || desired == nil {
 		return false
 	}
@@ -215,7 +215,7 @@ func IsManagedByWatcher(vpa *vpav1.VerticalPodAutoscaler) bool {
 }
 
 func IsDeploymentTarget(apiVersion, kind, name string) bool {
-	return apiVersion == deploymentAPIVersion &&
-		strings.EqualFold(kind, deploymentKind) &&
+	return apiVersion == DeploymentAPIVersion &&
+		strings.EqualFold(kind, DeploymentKind) &&
 		name != ""
 }

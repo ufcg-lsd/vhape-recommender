@@ -18,12 +18,12 @@ func AddDeploymentToVPAsIndex(informer vpaInformers.VerticalPodAutoscalerInforme
 	}
 
 	return informer.Informer().GetIndexer().AddIndexers(cache.Indexers{
-		IndexName: getAssociatedVPADeploymentKey,
+		IndexName: GetAssociatedVPADeploymentKey,
 	})
 }
 
 // returns the associated vpa deployment key
-func getAssociatedVPADeploymentKey(obj interface{}) ([]string, error) {
+func GetAssociatedVPADeploymentKey(obj interface{}) ([]string, error) {
 	vpa, ok := obj.(*vpav1.VerticalPodAutoscaler)
 	if !ok {
 		return nil, nil
@@ -37,9 +37,9 @@ func getAssociatedVPADeploymentKey(obj interface{}) ([]string, error) {
 		return nil, nil
 	}
 
-	return []string{namespacedKey(vpa.Namespace, ref.Name)}, nil
+	return []string{NamespacedKey(vpa.Namespace, ref.Name)}, nil
 }
 
-func namespacedKey(namespace, name string) string {
+func NamespacedKey(namespace, name string) string {
 	return namespace + "/" + name
 }
