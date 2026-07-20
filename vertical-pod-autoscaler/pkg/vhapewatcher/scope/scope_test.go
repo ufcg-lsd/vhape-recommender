@@ -4,15 +4,15 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/client-go/tools/cache"
 
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
-	vhapelisters "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 )
 
 func TestNewScopeResolverFromListers(t *testing.T) {
-	watchedNamespaceLister, ignoredWorkloadLister := testutil.NewVhapeListers(t, nil, nil)
+	_, _, informers := testutil.NewInformers(t, nil, nil, nil, nil)
+	watchedNamespaceLister := informers.VhapeWatchedNamespace.Lister()
+	ignoredWorkloadLister := informers.VhapeIgnoredWorkload.Lister()
 
 	t.Run("returns scope with valid listers", func(t *testing.T) {
 		scope, err := New(watchedNamespaceLister, ignoredWorkloadLister)
@@ -40,8 +40,8 @@ func TestNewScopeResolverFromListers(t *testing.T) {
 }
 
 func TestGetWatchedNamespace(t *testing.T) {
-	scope, watchedNamespaceIndexer, _ := newScope(t)
-	addWatchedNamespace(t, watchedNamespaceIndexer, testutil.TestNamespace)
+	watchedNamespaces := []*vhapev1alpha1.VhapeWatchedNamespace{testutil.NewWatchedNamespace(testutil.TestNamespace),}
+	scope := newScope(t, watchedNamespaces, nil)
 
 	t.Run("returns watched namespace from cache", func(t *testing.T) {
 		watched, err := scope.GetWatchedNamespace(testutil.TestNamespace)
@@ -85,7 +85,7 @@ func TestGetWatchedNamespace(t *testing.T) {
 func TestShouldManageDeployment(t *testing.T) {
 	tests := []struct {
 		name              string
-		watchedNamespaces []string
+		watchedNamespaces []*vhapev1alpha1.VhapeWatchedNamespace
 		ignoredWorkloads  []*vhapev1alpha1.VhapeIgnoredWorkload
 		deployment        *appsv1.Deployment
 		wantShouldManage  bool
@@ -93,12 +93,14 @@ func TestShouldManageDeployment(t *testing.T) {
 		wantWatched       string
 	}{
 		{
-			name:              "watched namespace manages deployment",
-			watchedNamespaces: []string{testutil.TestNamespace},
-			deployment:        testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
-			wantShouldManage:  true,
-			wantReason:        ReasonWatched,
-			wantWatched:       testutil.TestNamespace,
+			name: "watched namespace manages deployment",
+			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
+				testutil.NewWatchedNamespace(testutil.TestNamespace),
+			},
+			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
+			wantShouldManage: true,
+			wantReason:       ReasonWatched,
+			wantWatched:      testutil.TestNamespace,
 		},
 		{
 			name:             "namespace not watched skips deployment",
@@ -107,8 +109,10 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantReason:       ReasonNamespaceNotWatched,
 		},
 		{
-			name:              "ignored workload wins over watched namespace",
-			watchedNamespaces: []string{testutil.TestNamespace},
+			name: "ignored workload wins over watched namespace",
+			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
+				testutil.NewWatchedNamespace(testutil.TestNamespace),
+			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
 				testutil.NewIgnoredWorkload("ignore-api", testutil.TestNamespace, testutil.TestDeploymentName),
 			},
@@ -118,8 +122,10 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantWatched:      testutil.TestNamespace,
 		},
 		{
-			name:              "ignored workload kind is case insensitive",
-			watchedNamespaces: []string{testutil.TestNamespace},
+			name: "ignored workload kind is case insensitive",
+			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
+				testutil.NewWatchedNamespace(testutil.TestNamespace),
+			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
 				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "apps/v1", "deployment", testutil.TestNamespace, testutil.TestDeploymentName),
 			},
@@ -129,8 +135,10 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantWatched:      testutil.TestNamespace,
 		},
 		{
-			name:              "ignored workload with different apiVersion does not match",
-			watchedNamespaces: []string{testutil.TestNamespace},
+			name: "ignored workload with different apiVersion does not match",
+			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
+				testutil.NewWatchedNamespace(testutil.TestNamespace),
+			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
 				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "batch/v1", "Deployment", testutil.TestNamespace, testutil.TestDeploymentName),
 			},
@@ -140,8 +148,10 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantWatched:      testutil.TestNamespace,
 		},
 		{
-			name:              "ignored workload with different kind does not match",
-			watchedNamespaces: []string{testutil.TestNamespace},
+			name: "ignored workload with different kind does not match",
+			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
+				testutil.NewWatchedNamespace(testutil.TestNamespace),
+			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
 				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "apps/v1", "StatefulSet", testutil.TestNamespace, testutil.TestDeploymentName),
 			},
@@ -151,8 +161,10 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantWatched:      testutil.TestNamespace,
 		},
 		{
-			name:              "ignored workload with different namespace does not match",
-			watchedNamespaces: []string{testutil.TestNamespace},
+			name: "ignored workload with different namespace does not match",
+			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
+				testutil.NewWatchedNamespace(testutil.TestNamespace),
+			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
 				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "apps/v1", "Deployment", "staging", testutil.TestDeploymentName),
 			},
@@ -162,8 +174,10 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantWatched:      testutil.TestNamespace,
 		},
 		{
-			name:              "ignored workload with different name does not match",
-			watchedNamespaces: []string{testutil.TestNamespace},
+			name: "ignored workload with different name does not match",
+			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
+				testutil.NewWatchedNamespace(testutil.TestNamespace),
+			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
 				testutil.NewIgnoredWorkloadWithTarget("ignore-worker", "apps/v1", "Deployment", testutil.TestNamespace, "worker"),
 			},
@@ -176,14 +190,7 @@ func TestShouldManageDeployment(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scope, watchedNamespaceIndexer, ignoredWorkloadIndexer := newScope(t)
-
-			for _, namespace := range tt.watchedNamespaces {
-				addWatchedNamespace(t, watchedNamespaceIndexer, namespace)
-			}
-			for _, ignored := range tt.ignoredWorkloads {
-				testutil.AddToIndexer(t, ignoredWorkloadIndexer, ignored)
-			}
+			scope := newScope(t, tt.watchedNamespaces, tt.ignoredWorkloads)
 
 			decision, err := scope.ShouldManageDeployment(tt.deployment)
 			if err != nil {
@@ -223,7 +230,7 @@ func TestShouldManageDeployment(t *testing.T) {
 }
 
 func TestShouldManageDeploymentRejectsNilDeployment(t *testing.T) {
-	scope, _, _ := newScope(t)
+	scope := newScope(t, nil, nil)
 
 	_, err := scope.ShouldManageDeployment(nil)
 	if err == nil {
@@ -263,11 +270,7 @@ func TestIsDeploymentIgnored(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scope, _, ignoredWorkloadIndexer := newScope(t)
-
-			for _, ignored := range tt.ignoredWorkloads {
-				testutil.AddToIndexer(t, ignoredWorkloadIndexer, ignored)
-			}
+			scope := newScope(t, nil, tt.ignoredWorkloads)
 
 			got, err := scope.IsDeploymentIgnored(tt.deployment)
 			if err != nil {
@@ -281,7 +284,7 @@ func TestIsDeploymentIgnored(t *testing.T) {
 }
 
 func TestIsDeploymentIgnoredRejectsNilDeployment(t *testing.T) {
-	scope, _, _ := newScope(t)
+	scope := newScope(t, nil, nil)
 
 	_, err := scope.IsDeploymentIgnored(nil)
 	if err == nil {
@@ -289,28 +292,22 @@ func TestIsDeploymentIgnoredRejectsNilDeployment(t *testing.T) {
 	}
 }
 
-func newScope(t *testing.T) (*Scope, cache.Indexer, cache.Indexer) {
+func newScope(
+	t *testing.T,
+	watchedNamespaces []*vhapev1alpha1.VhapeWatchedNamespace,
+	ignoredWorkloads []*vhapev1alpha1.VhapeIgnoredWorkload,
+) *Scope {
 	t.Helper()
 
-	watchedNamespaceIndexer := testutil.NewIndexer()
-	ignoredWorkloadIndexer := testutil.NewIndexer()
+	_, _, informers := testutil.NewInformers(t, nil, watchedNamespaces, ignoredWorkloads, nil)
 
-	watchedNamespaceLister := vhapelisters.NewVhapeWatchedNamespaceLister(watchedNamespaceIndexer)
-	ignoredWorkloadLister := vhapelisters.NewVhapeIgnoredWorkloadLister(ignoredWorkloadIndexer)
-
-	scope, err := New(watchedNamespaceLister, ignoredWorkloadLister)
+	scope, err := New(
+		informers.VhapeWatchedNamespace.Lister(),
+		informers.VhapeIgnoredWorkload.Lister(),
+	)
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	return scope, watchedNamespaceIndexer, ignoredWorkloadIndexer
-}
-
-func addWatchedNamespace(t *testing.T, indexer cache.Indexer, namespace string) *vhapev1alpha1.VhapeWatchedNamespace {
-	t.Helper()
-
-	watched := testutil.NewWatchedNamespace(namespace)
-	testutil.AddToIndexer(t, indexer, watched)
-
-	return watched
+	return scope
 }

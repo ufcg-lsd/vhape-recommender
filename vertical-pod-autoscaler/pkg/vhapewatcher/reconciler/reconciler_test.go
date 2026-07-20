@@ -8,17 +8,16 @@ import (
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
-	vhapeinformerfactory "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
-	"k8s.io/client-go/tools/cache"
 )
 
 func TestNewReconciler(t *testing.T) {
-	deploymentLister := testutil.NewDeploymentLister(t)
-	scopeResolver := newScopeResolver(t, nil, nil)
-	vpaService, _, _ := newVPAService(t)
+	_, client, informers := testutil.NewInformers(t, nil, nil, nil, nil)
+	deploymentLister := informers.Deployment.Lister()
+	scopeResolver := newScopeResolver(t, informers)
+	vpaService := newVPAService(t, informers, client)
 
 	t.Run("returns reconciler with valid dependencies", func(t *testing.T) {
 		r, err := New(deploymentLister, scopeResolver, vpaService)
@@ -50,7 +49,7 @@ func TestNewReconciler(t *testing.T) {
 }
 
 func TestEnqueueDeployment(t *testing.T) {
-	r, _, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
 
 	r.EnqueueDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 
@@ -58,7 +57,7 @@ func TestEnqueueDeployment(t *testing.T) {
 }
 
 func TestEnqueueDeploymentIgnoresEmptyIdentity(t *testing.T) {
-	r, _, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
 
 	r.EnqueueDeployment("", testutil.TestDeploymentName)
 	r.EnqueueDeployment(testutil.TestNamespace, "")
@@ -71,7 +70,7 @@ func TestEnqueueDeploymentsInNamespace(t *testing.T) {
 	worker := testutil.NewDeployment(testutil.TestNamespace, "worker")
 	staging := testutil.NewDeployment("staging", "api")
 
-	r, _, _ := newTestReconcilerWithState(t, []*appsv1.Deployment{api, worker, staging}, nil, nil, nil)
+	r, _ := newTestReconcilerWithState(t, []*appsv1.Deployment{api, worker, staging}, nil, nil, nil)
 
 	r.EnqueueDeploymentsInNamespace(testutil.TestNamespace)
 
@@ -79,7 +78,7 @@ func TestEnqueueDeploymentsInNamespace(t *testing.T) {
 }
 
 func TestEnqueueDeploymentsInNamespaceIgnoresEmptyNamespace(t *testing.T) {
-	r, _, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
 
 	r.EnqueueDeploymentsInNamespace("")
 
@@ -91,7 +90,7 @@ func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	watched := testutil.NewWatchedNamespace(dep.Namespace)
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
@@ -119,7 +118,7 @@ func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 }
 
 func TestReconcileDeploymentValidation(t *testing.T) {
-	r, _, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
 
 	if err := r.ReconcileDeployment(context.Background(), "", testutil.TestDeploymentName); err == nil {
 		t.Fatal("expected error for empty namespace")
@@ -131,7 +130,7 @@ func TestReconcileDeploymentValidation(t *testing.T) {
 }
 
 func TestReconcileDeploymentIgnoresMissingDeployment(t *testing.T) {
-	r, _, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
 
 	if err := r.ReconcileDeployment(context.Background(), testutil.TestNamespace, testutil.TestDeploymentName); err != nil {
 		t.Fatalf("ReconcileDeployment() returned error: %v", err)
@@ -148,7 +147,7 @@ func TestReconcileDeploymentOutsideWatchedNamespaceDeletesGeneratedVPA(t *testin
 	}
 	manualVPA := testutil.NewVPA("manual-api", dep.Namespace, dep.Name)
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		nil,
@@ -176,7 +175,7 @@ func TestReconcileDeploymentIgnoredWorkloadDeletesGeneratedVPA(t *testing.T) {
 	}
 	manualVPA := testutil.NewVPA("manual-api", dep.Namespace, dep.Name)
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
@@ -197,7 +196,7 @@ func TestReconcileDeploymentCreatesGeneratedVPAForWatchedDeployment(t *testing.T
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	watched := testutil.NewWatchedNamespace(dep.Namespace)
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
@@ -232,7 +231,7 @@ func TestReconcileDeploymentPreservesManualVPAAndDeletesGeneratedVPA(t *testing.
 	}
 	manualVPA := testutil.NewVPA("manual-api", dep.Namespace, dep.Name)
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
@@ -262,7 +261,7 @@ func TestReconcileDeploymentKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(
 		t.Fatalf("GenerateVPAForDeployment() returned error: %v", err)
 	}
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
@@ -298,7 +297,7 @@ func TestReconcileDeploymentReplacesOutdatedGeneratedVPA(t *testing.T) {
 		t.Fatalf("GenerateVPAForDeployment() returned error: %v", err)
 	}
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
@@ -332,7 +331,7 @@ func TestReconcileDeploymentUsesWatchedNamespacePolicyAndUpdateMode(t *testing.T
 		vpav1.UpdateModeInitial,
 	)
 
-	r, _, client := newTestReconcilerWithState(
+	r, client := newTestReconcilerWithState(
 		t,
 		[]*appsv1.Deployment{dep},
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
@@ -362,31 +361,35 @@ func newTestReconcilerWithState(
 	watchedNamespaces []*vhapev1alpha1.VhapeWatchedNamespace,
 	ignoredWorkloads []*vhapev1alpha1.VhapeIgnoredWorkload,
 	vpas []*vpav1.VerticalPodAutoscaler,
-) (*Reconciler, cache.SharedIndexInformer, *vpafake.Clientset) {
+) (*Reconciler, *vpafake.Clientset) {
 	t.Helper()
 
-	deploymentLister := testutil.NewDeploymentLister(t, deployments...)
-	scopeResolver := newScopeResolver(t, watchedNamespaces, ignoredWorkloads)
-	vpaService, vpaInformer, client := newVPAService(t, vpas...)
+	_, client, informers := testutil.NewInformers(
+		t,
+		deployments,
+		watchedNamespaces,
+		ignoredWorkloads,
+		vpas,
+	)
 
-	r, err := New(deploymentLister, scopeResolver, vpaService)
+	scopeResolver := newScopeResolver(t, informers)
+	vpaService := newVPAService(t, informers, client)
+
+	r, err := New(informers.Deployment.Lister(), scopeResolver, vpaService)
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	return r, vpaInformer, client
+	return r, client
 }
 
-func newScopeResolver(
-	t *testing.T,
-	watchedNamespaces []*vhapev1alpha1.VhapeWatchedNamespace,
-	ignoredWorkloads []*vhapev1alpha1.VhapeIgnoredWorkload,
-) *watcherscope.Scope {
+func newScopeResolver(t *testing.T, informers *testutil.Informers) *watcherscope.Scope {
 	t.Helper()
 
-	watchedLister, ignoredLister := testutil.NewVhapeListers(t, watchedNamespaces, ignoredWorkloads)
-
-	scopeResolver, err := watcherscope.New(watchedLister, ignoredLister)
+	scopeResolver, err := watcherscope.New(
+		informers.VhapeWatchedNamespace.Lister(),
+		informers.VhapeIgnoredWorkload.Lister(),
+	)
 	if err != nil {
 		t.Fatalf("scope.New() returned error: %v", err)
 	}
@@ -394,27 +397,19 @@ func newScopeResolver(
 	return scopeResolver
 }
 
-func newVPAService(t *testing.T, vpas ...*vpav1.VerticalPodAutoscaler) (*vpaservice.VPAService, cache.SharedIndexInformer, *vpafake.Clientset) {
+func newVPAService(
+	t *testing.T,
+	informers *testutil.Informers,
+	client *vpafake.Clientset,
+) *vpaservice.VPAService {
 	t.Helper()
 
-	client := testutil.NewVPAClientset(vpas...)
-	factory := vhapeinformerfactory.NewSharedInformerFactory(client, 0)
-	informer := factory.Autoscaling().V1().VerticalPodAutoscalers()
-
-	if err := vpaservice.AddDeploymentToVPAsIndex(informer); err != nil {
-		t.Fatalf("AddDeploymentToVPAsIndex() returned error: %v", err)
-	}
-
-	service, err := vpaservice.NewVPAService(informer, client)
+	service, err := vpaservice.NewVPAService(informers.VPA, client)
 	if err != nil {
 		t.Fatalf("NewVPAService() returned error: %v", err)
 	}
 
-	for _, vpa := range vpas {
-		testutil.AddToIndexer(t, informer.Informer().GetIndexer(), vpa)
-	}
-
-	return service, informer.Informer(), client
+	return service
 }
 
 func generationOptions(policyNamespace, policyName string, updateMode vpav1.UpdateMode) vpaservice.GenerationOptions {
