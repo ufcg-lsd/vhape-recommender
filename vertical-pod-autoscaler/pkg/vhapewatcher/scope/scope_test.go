@@ -40,7 +40,7 @@ func TestNewScopeResolverFromListers(t *testing.T) {
 }
 
 func TestGetWatchedNamespace(t *testing.T) {
-	watchedNamespaces := []*vhapev1alpha1.VhapeWatchedNamespace{testutil.NewWatchedNamespace(testutil.TestNamespace),}
+	watchedNamespaces := []*vhapev1alpha1.VhapeWatchedNamespace{testutil.NewWatchedNamespace(testutil.TestNamespace)}
 	scope := newScope(t, watchedNamespaces, nil)
 
 	t.Run("returns watched namespace from cache", func(t *testing.T) {

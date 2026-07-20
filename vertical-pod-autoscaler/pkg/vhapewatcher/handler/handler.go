@@ -30,8 +30,7 @@ func New(sink DeploymentSink) (*Handler, error) {
 	return &Handler{sink: sink}, nil
 }
 
-
-// this interfaces is used to allow for testing the 
+// this interfaces is used to allow for testing the
 // handler functions association without the need of real informers.
 type eventHandlerReceiver interface {
 	AddEventHandler(cache.ResourceEventHandler) (cache.ResourceEventHandlerRegistration, error)

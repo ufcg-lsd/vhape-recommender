@@ -24,4 +24,3 @@ const (
 
 	TestVPAUpdateMode vpav1.UpdateMode = vpav1.UpdateModeInPlaceOrRecreate
 )
-
