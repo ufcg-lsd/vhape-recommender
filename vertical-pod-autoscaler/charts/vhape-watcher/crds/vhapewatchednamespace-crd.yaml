@@ -54,3 +54,4 @@ spec:
                     - Initial
                     - Recreate
                     - InPlaceOrRecreate
+                    - Auto

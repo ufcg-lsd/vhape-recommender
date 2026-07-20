@@ -9,7 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
-	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	appslisters "k8s.io/client-go/listers/apps/v1"
@@ -250,7 +249,7 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 	options := vpaservice.GenerationOptions{
 		VhapePolicyNamespace: decision.WatchedNamespace.Spec.VhapePolicyRef.Namespace,
 		VhapePolicyName:      decision.WatchedNamespace.Spec.VhapePolicyRef.Name,
-		VPAUpdateMode:        vpav1.UpdateMode(decision.WatchedNamespace.Spec.VPAUpdateMode),
+		VPAUpdateMode:        decision.WatchedNamespace.Spec.VPAUpdateMode,
 	}
 
 	klog.V(3).InfoS(

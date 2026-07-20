@@ -17,7 +17,11 @@ limitations under the License.
 // Package v1alpha1 contains definitions of VHAPE related objects.
 package v1alpha1
 
-import metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+)
 
 // +genclient
 // +genclient:nonNamespaced
@@ -33,22 +37,13 @@ type VhapeWatchedNamespace struct {
 
 type VhapeWatchedNamespaceSpec struct {
 	VhapePolicyRef VhapePolicyRef `json:"vhapePolicyRef"`
-	VPAUpdateMode  VPAUpdateMode  `json:"vpaUpdateMode"`
+	VPAUpdateMode vpav1.UpdateMode `json:"vpaUpdateMode"`
 }
 
 type VhapePolicyRef struct {
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
 }
-
-type VPAUpdateMode string
-
-const (
-	VPAUpdateModeOff               VPAUpdateMode = "Off"
-	VPAUpdateModeInitial           VPAUpdateMode = "Initial"
-	VPAUpdateModeRecreate          VPAUpdateMode = "Recreate"
-	VPAUpdateModeInPlaceOrRecreate VPAUpdateMode = "InPlaceOrRecreate"
-)
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
