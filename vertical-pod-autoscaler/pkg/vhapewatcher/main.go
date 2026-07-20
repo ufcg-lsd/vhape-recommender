@@ -36,6 +36,8 @@ func main() {
 	klog.InfoS(
 		"Starting VHAPE Watcher",
 		"workerCount", cfg.WorkerCount,
+		"kubeApiQps", commonFlags.KubeApiQps,
+		"kubeApiBurst", commonFlags.KubeApiBurst,
 	)
 
 	if err := run(ctx, commonFlags, cfg); err != nil {

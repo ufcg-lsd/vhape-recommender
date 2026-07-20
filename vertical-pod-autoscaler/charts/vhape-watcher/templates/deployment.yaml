@@ -22,5 +22,7 @@ spec:
             - /vhape-watcher
           args:
             - --workers={{ .Values.config.workers }}
+            - --kube-api-qps={{ .Values.config.kubeApiQps }}
+            - --kube-api-burst={{ .Values.config.kubeApiBurst }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
