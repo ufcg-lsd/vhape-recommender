@@ -78,6 +78,19 @@ func (h *Handler) RegisterHandlerFunctionsOnInformers(
 	watchedNamespaceInformer vhapev1alpha1informers.VhapeWatchedNamespaceInformer,
 	ignoredWorkloadInformer vhapev1alpha1informers.VhapeIgnoredWorkloadInformer,
 ) error {
+	if deploymentInformer == nil {
+		return fmt.Errorf("deployment informer is nil")
+	}
+	if vpaInformer == nil {
+		return fmt.Errorf("vpa informer is nil")
+	}
+	if watchedNamespaceInformer == nil {
+		return fmt.Errorf("vhape watched namespace informer is nil")
+	}
+	if ignoredWorkloadInformer == nil {
+		return fmt.Errorf("vhape ignored workload informer is nil")
+	}
+
 	return registerHandlersOnReceivers(
 		deploymentInformer.Informer(),
 		vpaInformer.Informer(),
@@ -108,10 +121,18 @@ func registerHandlersOnReceivers(
 		return fmt.Errorf("vhape ignored workload informer is nil")
 	}
 
-	deploymentInformer.AddEventHandler(handlers.deployment)
-	vpaInformer.AddEventHandler(handlers.vpa)
-	watchedNamespaceInformer.AddEventHandler(handlers.watchedNamespace)
-	ignoredWorkloadInformer.AddEventHandler(handlers.ignoredWorkload)
+	if _, err := deploymentInformer.AddEventHandler(handlers.deployment); err != nil {
+		return fmt.Errorf("register deployment handlers: %w", err)
+	}
+	if _, err := vpaInformer.AddEventHandler(handlers.vpa); err != nil {
+		return fmt.Errorf("register vpa handlers: %w", err)
+	}
+	if _, err := watchedNamespaceInformer.AddEventHandler(handlers.watchedNamespace); err != nil {
+		return fmt.Errorf("register vhape watched namespace handlers: %w", err)
+	}
+	if _, err := ignoredWorkloadInformer.AddEventHandler(handlers.ignoredWorkload); err != nil {
+		return fmt.Errorf("register vhape ignored workload handlers: %w", err)
+	}
 
 	return nil
 }
