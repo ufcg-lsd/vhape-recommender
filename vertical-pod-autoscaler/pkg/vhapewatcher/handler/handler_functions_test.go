@@ -14,6 +14,25 @@ import (
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 )
 
+const (
+	testNamespace      = "producao"
+	testDeploymentName = "api"
+	testVpaName        = "vpa"
+)
+
+type fakeDeploymentSink struct {
+	deployments []string
+	namespaces  []string
+}
+
+func (s *fakeDeploymentSink) EnqueueDeployment(namespace, name string) {
+	s.deployments = append(s.deployments, namespace+"/"+name)
+}
+
+func (s *fakeDeploymentSink) EnqueueDeploymentsInNamespace(namespace string) {
+	s.namespaces = append(s.namespaces, namespace)
+}
+
 func TestDeploymentHandlers(t *testing.T) {
 	t.Run("add enqueues deployment", func(t *testing.T) {
 		handler, sink := newHandler(t)
