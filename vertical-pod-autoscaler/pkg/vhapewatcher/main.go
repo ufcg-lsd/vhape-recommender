@@ -96,16 +96,17 @@ func run(
 		return fmt.Errorf("create reconciler: %w", err)
 	}
 
-	handlers, err := watcherhandler.New(reconcilerObj)
+	handler, err := watcherhandler.New(reconcilerObj)
 	if err != nil {
 		return fmt.Errorf("create watchers: %w", err)
 	}
 
-	if err := handlers.RegisterHandlersOnInformers(
+	if err := watcherhandler.RegisterHandlerFunctionsOnInformers(
 		informerSet.Deployment,
 		informerSet.VPA,
 		informerSet.VhapeWatchedNamespace,
 		informerSet.VhapeIgnoredWorkload,
+		handler.InformerHandlerFuncs(),
 	); err != nil {
 		return fmt.Errorf("register handlers: %w", err)
 	}
