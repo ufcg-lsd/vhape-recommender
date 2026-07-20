@@ -117,6 +117,43 @@ func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 	assertQueuedKeys(t, r, nil)
 }
 
+func TestProcessNextWorkItemForgetsInvalidQueueKey(t *testing.T) {
+	ctx := context.Background()
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	defer r.queue.ShutDown()
+
+	key := "invalid/key/with/too/many/parts"
+	r.queue.Add(key)
+
+	if shouldContinue := r.processNextWorkItem(ctx); !shouldContinue {
+		t.Fatal("processNextWorkItem() returned false")
+	}
+
+	if got := r.queue.Len(); got != 0 {
+		t.Fatalf("queue length = %d, want 0", got)
+	}
+	if got := r.queue.NumRequeues(key); got != 0 {
+		t.Fatalf("NumRequeues(%q) = %d, want 0", key, got)
+	}
+}
+
+func TestProcessNextWorkItemRequeuesOnReconcileError(t *testing.T) {
+	ctx := context.Background()
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	defer r.queue.ShutDown()
+
+	key := testutil.TestNamespace + "/"
+	r.queue.Add(key)
+
+	if shouldContinue := r.processNextWorkItem(ctx); !shouldContinue {
+		t.Fatal("processNextWorkItem() returned false")
+	}
+
+	if got := r.queue.NumRequeues(key); got != 1 {
+		t.Fatalf("NumRequeues(%q) = %d, want 1", key, got)
+	}
+}
+
 func TestReconcileDeploymentValidation(t *testing.T) {
 	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
 

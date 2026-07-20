@@ -23,6 +23,16 @@ func (r *fakeEventHandlerReceiver) AddEventHandler(handler cache.ResourceEventHa
 	return nil, nil
 }
 
+func TestNewRejectsNilSink(t *testing.T) {
+	handler, err := New(nil)
+	if err == nil {
+		t.Fatal("New() expected error, got nil")
+	}
+	if handler != nil {
+		t.Fatalf("New() handler = %#v, want nil", handler)
+	}
+}
+
 func TestRegisterHandlersOnReceivers(t *testing.T) {
 	deploymentInformer := &fakeEventHandlerReceiver{}
 	vpaInformer := &fakeEventHandlerReceiver{}
