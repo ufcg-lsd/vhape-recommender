@@ -1,8 +1,9 @@
 package vpaservice
 
 import (
-	"reflect"
 	"testing"
+
+	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 )
 
 func TestAddDeploymentToVPAsIndexRejectsNilInformer(t *testing.T) {
@@ -12,19 +13,14 @@ func TestAddDeploymentToVPAsIndexRejectsNilInformer(t *testing.T) {
 }
 
 func TestAssociatedVPADeploymentKey(t *testing.T) {
-	dep := newDeployment(testNamespace, testDeploymentName)
-
-	vpa, err := GenerateVPAForDeployment(testVpaName, dep, newGenerationOptions())
-	if err != nil {
-		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
-	}
+	vpa := testutil.NewVPA(testutil.TestVPAName, testutil.TestNamespace, testutil.TestDeploymentName)
 
 	keys, err := getAssociatedVPADeploymentKey(vpa)
 	if err != nil {
 		t.Fatalf("getAssociatedVPADeploymentKey returned error: %v", err)
 	}
 
-	assertKeys(t, keys, namespacedKey(testNamespace, testDeploymentName))
+	testutil.AssertStringSlicesEqualIgnoringOrder(t, keys, []string{namespacedKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 }
 
 func TestAssociatedVPADeploymentKeyIgnoresNonVPAObject(t *testing.T) {
@@ -33,15 +29,11 @@ func TestAssociatedVPADeploymentKeyIgnoresNonVPAObject(t *testing.T) {
 		t.Fatalf("getAssociatedVPADeploymentKey returned error: %v", err)
 	}
 
-	assertKeys(t, keys)
+	testutil.AssertStringSlicesEqual(t, keys, nil)
 }
 
 func TestAssociatedVPADeploymentKeyIgnoresNilTargetRef(t *testing.T) {
-	dep := newDeployment(testNamespace, testDeploymentName)
-	vpa, err := GenerateVPAForDeployment(testVpaName, dep, newGenerationOptions())
-	if err != nil {
-		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
-	}
+	vpa := testutil.NewVPA(testutil.TestVPAName, testutil.TestNamespace, testutil.TestDeploymentName)
 	vpa.Spec.TargetRef = nil
 
 	keys, err := getAssociatedVPADeploymentKey(vpa)
@@ -49,7 +41,7 @@ func TestAssociatedVPADeploymentKeyIgnoresNilTargetRef(t *testing.T) {
 		t.Fatalf("getAssociatedVPADeploymentKey returned error: %v", err)
 	}
 
-	assertKeys(t, keys)
+	testutil.AssertStringSlicesEqual(t, keys, nil)
 }
 
 func TestAssociatedVPADeploymentKeyIgnoresInvalidTargets(t *testing.T) {
@@ -63,25 +55,25 @@ func TestAssociatedVPADeploymentKeyIgnoresInvalidTargets(t *testing.T) {
 			name:       "wrong apiVersion",
 			apiVersion: "apps/v2",
 			kind:       deploymentKind,
-			targetName: testDeploymentName,
+			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "empty apiVersion",
 			apiVersion: "",
 			kind:       deploymentKind,
-			targetName: testDeploymentName,
+			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "wrong kind",
 			apiVersion: deploymentAPIVersion,
 			kind:       "StatefulSet",
-			targetName: testDeploymentName,
+			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "empty kind",
 			apiVersion: deploymentAPIVersion,
 			kind:       "",
-			targetName: testDeploymentName,
+			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "empty target name",
@@ -92,47 +84,30 @@ func TestAssociatedVPADeploymentKeyIgnoresInvalidTargets(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		dep := newDeployment(testNamespace, testDeploymentName)
 		t.Run(tt.name, func(t *testing.T) {
-			vpa, err := GenerateVPAForDeployment(testVpaName, dep, newGenerationOptions())
-			if err != nil {
-				t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
-			}
-
-			vpa.Spec.TargetRef.APIVersion = tt.apiVersion
-			vpa.Spec.TargetRef.Kind = tt.kind
-			vpa.Spec.TargetRef.Name = tt.targetName
+			vpa := testutil.NewVPAWithTarget(
+				testutil.TestVPAName,
+				testutil.TestNamespace,
+				tt.apiVersion,
+				tt.kind,
+				tt.targetName,
+			)
 
 			keys, err := getAssociatedVPADeploymentKey(vpa)
 			if err != nil {
 				t.Fatalf("getAssociatedVPADeploymentKey returned error: %v", err)
 			}
 
-			assertKeys(t, keys)
+			testutil.AssertStringSlicesEqual(t, keys, nil)
 		})
 	}
 }
 
 func TestNamespacedKey(t *testing.T) {
-	got := namespacedKey(testNamespace, testDeploymentName)
-	want := testNamespace + "/" + testDeploymentName
+	got := namespacedKey(testutil.TestNamespace, testutil.TestDeploymentName)
+	want := testutil.TestNamespace + "/" + testutil.TestDeploymentName
 
 	if got != want {
 		t.Fatalf("namespacedKey() = %q, want %q", got, want)
-	}
-}
-
-func assertKeys(t *testing.T, got []string, want ...string) {
-	t.Helper()
-
-	if got == nil {
-		got = []string{}
-	}
-	if want == nil {
-		want = []string{}
-	}
-
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("index keys = %#v, want %#v", got, want)
 	}
 }
