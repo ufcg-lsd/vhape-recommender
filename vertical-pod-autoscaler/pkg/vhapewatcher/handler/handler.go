@@ -30,13 +30,13 @@ func New(sink DeploymentSink) (*Handler, error) {
 	return &Handler{sink: sink}, nil
 }
 
-// this interfaces is used to allow for testing the
-// handler functions association without the need of real informers.
+// eventHandlerReceiver is the subset of cache.SharedIndexInformer used to attach handlers.
+// It keeps handler registration testable without starting real informers.
 type eventHandlerReceiver interface {
 	AddEventHandler(cache.ResourceEventHandler) (cache.ResourceEventHandlerRegistration, error)
 }
 
-// defines the type that associates handler fuctions for each handled object
+// informerHandlerFuncs groups the handlers used for each watched resource.
 type informerHandlerFuncs struct {
 	deployment       cache.ResourceEventHandlerFuncs
 	vpa              cache.ResourceEventHandlerFuncs
@@ -44,7 +44,7 @@ type informerHandlerFuncs struct {
 	ignoredWorkload  cache.ResourceEventHandlerFuncs
 }
 
-// declaration of the appropriate handlers for each handled object
+// informerHandlerFuncs returns the handlers used by this Handler.
 func (h *Handler) informerHandlerFuncs() informerHandlerFuncs {
 	return informerHandlerFuncs{
 		deployment: cache.ResourceEventHandlerFuncs{
@@ -70,7 +70,7 @@ func (h *Handler) informerHandlerFuncs() informerHandlerFuncs {
 	}
 }
 
-// connects all informer events to the appropriate handlers.
+// RegisterHandlerFunctionsOnInformers connects each informer to its resource-specific handlers.
 func (h *Handler) RegisterHandlerFunctionsOnInformers(
 	deploymentInformer appsinformers.DeploymentInformer,
 	vpaInformer autoscalinginformers.VerticalPodAutoscalerInformer,
@@ -99,7 +99,7 @@ func (h *Handler) RegisterHandlerFunctionsOnInformers(
 	)
 }
 
-// private method extracted for testing
+// registerHandlersOnReceivers attaches handlers to informer-like receivers. useful for testing.
 func registerHandlersOnReceivers(
 	deploymentInformer eventHandlerReceiver,
 	vpaInformer eventHandlerReceiver,
