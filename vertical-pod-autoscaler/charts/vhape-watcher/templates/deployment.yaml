@@ -24,5 +24,6 @@ spec:
             - --workers={{ .Values.config.workers }}
             - --kube-api-qps={{ .Values.config.kubeApiQps }}
             - --kube-api-burst={{ .Values.config.kubeApiBurst }}
+            - --recommender-name={{ .Values.config.recommenderName }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
