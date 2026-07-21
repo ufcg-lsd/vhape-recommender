@@ -197,12 +197,11 @@ func IsDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.
 		return false
 	}
 
-	_, hasVhapeLabel := current.Labels[VhapeLabel]
 
 	return current.Namespace == desired.Namespace &&
 		current.Name == desired.Name &&
 		current.Labels[ManagedByLabel] == desired.Labels[ManagedByLabel] &&
-		hasVhapeLabel &&
+		current.Labels[VhapeLabel] == desired.Labels[VhapeLabel] &&
 		current.Annotations[VhapePolicyAnnotation] == desired.Annotations[VhapePolicyAnnotation] &&
 		apiequality.Semantic.DeepEqual(
 			metav1.GetControllerOf(current),

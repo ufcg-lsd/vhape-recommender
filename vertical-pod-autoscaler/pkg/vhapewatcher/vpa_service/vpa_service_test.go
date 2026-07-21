@@ -324,6 +324,12 @@ func TestIsDesiredGeneratedVPA(t *testing.T) {
 		t.Fatal("VPA without VHAPE label should not be desired")
 	}
 
+	generatedVPAWithoutValidVhapeLabel := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithoutValidVhapeLabel.Labels[vpaservice.VhapeLabel] = "other-label"
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithoutValidVhapeLabel, desiredGeneratedVPA) {
+		t.Fatal("VPA with invalid VHAPE label should not be desired")
+	}
+
 	generatedVPAWithDifferentManager := desiredGeneratedVPA.DeepCopy()
 	generatedVPAWithDifferentManager.Labels[vpaservice.ManagedByLabel] = "other-manager"
 	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentManager, desiredGeneratedVPA) {

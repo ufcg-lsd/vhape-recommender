@@ -14,7 +14,7 @@ const (
 	ManagedByLabel = "app.kubernetes.io/managed-by"
 	ManagedByValue = "vhape-watcher"
 
-	VhapeLabel = "autoscaling.vhape.io/vhape"
+	VhapeLabel = "autoscaling.vhape.io/recommender"
 
 	GeneratedVPANamePrefix = "" // empty for now
 
@@ -97,7 +97,7 @@ func PolicyRef(options GenerationOptions) string {
 func LabelsForVPA() map[string]string {
 	return map[string]string{
 		ManagedByLabel: ManagedByValue,
-		VhapeLabel:     "",
+		VhapeLabel: VhapeRecommenderName,
 	}
 }
 

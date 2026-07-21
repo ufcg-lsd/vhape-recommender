@@ -91,8 +91,8 @@ func TestLabelsForVPA(t *testing.T) {
 		t.Fatalf("managed-by label = %q, want %q", labels[vpaservice.ManagedByLabel], vpaservice.ManagedByValue)
 	}
 
-	if _, ok := labels[vpaservice.VhapeLabel]; !ok {
-		t.Fatalf("expected label %q to be present", vpaservice.VhapeLabel)
+	if labels[vpaservice.VhapeLabel] != vpaservice.VhapeRecommenderName {
+		t.Fatalf("vhape label = %q, want %q", labels[vpaservice.VhapeLabel], vpaservice.VhapeRecommenderName)
 	}
 }
 
