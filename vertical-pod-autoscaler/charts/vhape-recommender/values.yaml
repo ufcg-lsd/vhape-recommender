@@ -29,3 +29,11 @@ policies:
         headroom: 0.05
         slidingWindow: 24h
     scalingRule: ""
+
+resources:
+  requests:
+    cpu: "4"
+    memory: 8Gi
+  limits:
+    cpu: "6"
+    memory: 12Gi
