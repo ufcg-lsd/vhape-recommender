@@ -14,16 +14,13 @@ const (
 	ManagedByLabel = "app.kubernetes.io/managed-by"
 	ManagedByValue = "vhape-watcher"
 
-	DeploymentAPIVersion = "apps/v1"
-	DeploymentKind       = "Deployment"
-
-	vpaAPIVersion = "autoscaling.k8s.io/v1"
-	vpaKind       = "VerticalPodAutoscaler"
+	VhapeLabel = "autoscaling.vhape.io/vhape"
 
 	GeneratedVPANamePrefix = "" // empty for now
 
 	VhapePolicyAnnotation = "vhape/policy"
-	vhapeRecommenderName  = "vhape-recommender"
+
+	VhapeRecommenderName = "vhape-recommender"
 )
 
 type GenerationOptions struct {
@@ -47,25 +44,25 @@ func GenerateVPAForDeployment(name string, dep *appsv1.Deployment, options Gener
 
 	return &vpav1.VerticalPodAutoscaler{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: vpaAPIVersion,
-			Kind:       vpaKind,
+			APIVersion: vpav1.SchemeGroupVersion.String(),
+			Kind:       "VerticalPodAutoscaler",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            name,
 			Namespace:       dep.Namespace,
-			Labels:          map[string]string{ManagedByLabel: ManagedByValue},
+			Labels:          LabelsForVPA(),
 			Annotations:     map[string]string{VhapePolicyAnnotation: PolicyRef(options)},
 			OwnerReferences: OwnerReferencesForDeployment(dep),
 		},
 		Spec: vpav1.VerticalPodAutoscalerSpec{
 			TargetRef: &autoscalingv1.CrossVersionObjectReference{
-				APIVersion: DeploymentAPIVersion,
-				Kind:       DeploymentKind,
+				APIVersion: appsv1.SchemeGroupVersion.String(),
+				Kind:       "Deployment",
 				Name:       dep.Name,
 			},
 			Recommenders: []*vpav1.VerticalPodAutoscalerRecommenderSelector{
 				{
-					Name: vhapeRecommenderName,
+					Name: VhapeRecommenderName,
 				},
 			},
 			UpdatePolicy: &vpav1.PodUpdatePolicy{
@@ -97,12 +94,19 @@ func PolicyRef(options GenerationOptions) string {
 	return options.VhapePolicyNamespace + "/" + options.VhapePolicyName
 }
 
+func LabelsForVPA() map[string]string {
+	return map[string]string{
+		ManagedByLabel: ManagedByValue,
+		VhapeLabel:     "",
+	}
+}
+
 func OwnerReferencesForDeployment(dep *appsv1.Deployment) []metav1.OwnerReference {
 	controller := true
 	return []metav1.OwnerReference{
 		{
-			APIVersion: DeploymentAPIVersion,
-			Kind:       DeploymentKind,
+			APIVersion: appsv1.SchemeGroupVersion.String(),
+			Kind:       "Deployment",
 			Name:       dep.Name,
 			UID:        dep.UID,
 			Controller: &controller,
