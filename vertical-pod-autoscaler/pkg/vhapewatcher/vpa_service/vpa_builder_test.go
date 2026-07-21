@@ -84,6 +84,18 @@ func TestPolicyRef(t *testing.T) {
 	}
 }
 
+func TestLabelsForVPA(t *testing.T) {
+	labels := vpaservice.LabelsForVPA()
+
+	if labels[vpaservice.ManagedByLabel] != vpaservice.ManagedByValue {
+		t.Fatalf("managed-by label = %q, want %q", labels[vpaservice.ManagedByLabel], vpaservice.ManagedByValue)
+	}
+
+	if _, ok := labels[vpaservice.VhapeLabel]; !ok {
+		t.Fatalf("expected label %q to be present", vpaservice.VhapeLabel)
+	}
+}
+
 func TestOwnerReferencesForDeployment(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 

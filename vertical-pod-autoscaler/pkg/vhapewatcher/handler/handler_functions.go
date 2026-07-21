@@ -10,11 +10,6 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const (
-	deploymentAPIVersion = "apps/v1"
-	deploymentKind       = "Deployment"
-)
-
 // A new Deployment may require a generated VPA if its namespace is watched and
 // the workload is not ignored.
 func (h *Handler) onDeploymentAdd(obj interface{}) {

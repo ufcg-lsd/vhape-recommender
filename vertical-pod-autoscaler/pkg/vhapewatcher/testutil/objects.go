@@ -13,8 +13,8 @@ import (
 func NewDeployment(namespace, name string) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: TestDeploymentAPIVersion,
-			Kind:       TestDeploymentKind,
+			APIVersion: appsv1.SchemeGroupVersion.String(),
+			Kind:       "Deployment",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
@@ -25,14 +25,20 @@ func NewDeployment(namespace, name string) *appsv1.Deployment {
 }
 
 func NewVPA(name, namespace, targetName string) *vpav1.VerticalPodAutoscaler {
-	return NewVPAWithTarget(name, namespace, TestDeploymentAPIVersion, TestDeploymentKind, targetName)
+	return NewVPAWithTarget(
+		name,
+		namespace,
+		appsv1.SchemeGroupVersion.String(),
+		"Deployment",
+		targetName,
+	)
 }
 
 func NewVPAWithTarget(name, namespace, targetAPIVersion, targetKind, targetName string) *vpav1.VerticalPodAutoscaler {
 	return &vpav1.VerticalPodAutoscaler{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: TestVPAAPIVersion,
-			Kind:       TestVPAKind,
+			APIVersion: vpav1.SchemeGroupVersion.String(),
+			Kind:       "VerticalPodAutoscaler",
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -75,8 +81,8 @@ func NewWatchedNamespaceWithPolicy(
 func NewIgnoredWorkload(name, targetNamespace, targetName string) *vhapev1alpha1.VhapeIgnoredWorkload {
 	return NewIgnoredWorkloadWithTarget(
 		name,
-		TestDeploymentAPIVersion,
-		TestDeploymentKind,
+		appsv1.SchemeGroupVersion.String(),
+		"Deployment",
 		targetNamespace,
 		targetName,
 	)

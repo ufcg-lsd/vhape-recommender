@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
 
@@ -336,36 +337,29 @@ func TestIsDeploymentTarget(t *testing.T) {
 	}{
 		{
 			name:       "valid deployment target",
-			apiVersion: vpaservice.DeploymentAPIVersion,
-			kind:       vpaservice.DeploymentKind,
-			targetName: testutil.TestDeploymentName,
-			want:       true,
-		},
-		{
-			name:       "kind is case insensitive",
-			apiVersion: vpaservice.DeploymentAPIVersion,
-			kind:       "deployment",
+			apiVersion: appsv1.SchemeGroupVersion.String(),
+			kind:       "Deployment",
 			targetName: testutil.TestDeploymentName,
 			want:       true,
 		},
 		{
 			name:       "wrong apiVersion",
 			apiVersion: "extensions/v1beta1",
-			kind:       vpaservice.DeploymentKind,
+			kind:       "Deployment",
 			targetName: testutil.TestDeploymentName,
 			want:       false,
 		},
 		{
 			name:       "wrong kind",
-			apiVersion: vpaservice.DeploymentAPIVersion,
+			apiVersion: appsv1.SchemeGroupVersion.String(),
 			kind:       "StatefulSet",
 			targetName: testutil.TestDeploymentName,
 			want:       false,
 		},
 		{
 			name:       "empty name",
-			apiVersion: vpaservice.DeploymentAPIVersion,
-			kind:       vpaservice.DeploymentKind,
+			apiVersion: appsv1.SchemeGroupVersion.String(),
+			kind:       "Deployment",
 			targetName: "",
 			want:       false,
 		},

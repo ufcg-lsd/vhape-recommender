@@ -122,19 +122,6 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantWatched:      testutil.TestNamespace,
 		},
 		{
-			name: "ignored workload kind is case insensitive",
-			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
-				testutil.NewWatchedNamespace(testutil.TestNamespace),
-			},
-			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
-				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "apps/v1", "deployment", testutil.TestNamespace, testutil.TestDeploymentName),
-			},
-			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
-			wantShouldManage: false,
-			wantReason:       ReasonWorkloadIgnored,
-			wantWatched:      testutil.TestNamespace,
-		},
-		{
 			name: "ignored workload with different apiVersion does not match",
 			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
 				testutil.NewWatchedNamespace(testutil.TestNamespace),
@@ -153,7 +140,7 @@ func TestShouldManageDeployment(t *testing.T) {
 				testutil.NewWatchedNamespace(testutil.TestNamespace),
 			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
-				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "apps/v1", "StatefulSet", testutil.TestNamespace, testutil.TestDeploymentName),
+				testutil.NewIgnoredWorkloadWithTarget("ignore-api", appsv1.SchemeGroupVersion.String(), "StatefulSet", testutil.TestNamespace, testutil.TestDeploymentName),
 			},
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
@@ -166,7 +153,7 @@ func TestShouldManageDeployment(t *testing.T) {
 				testutil.NewWatchedNamespace(testutil.TestNamespace),
 			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
-				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "apps/v1", "Deployment", "staging", testutil.TestDeploymentName),
+				testutil.NewIgnoredWorkloadWithTarget("ignore-api", appsv1.SchemeGroupVersion.String(), "Deployment", "staging", testutil.TestDeploymentName),
 			},
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
@@ -179,7 +166,7 @@ func TestShouldManageDeployment(t *testing.T) {
 				testutil.NewWatchedNamespace(testutil.TestNamespace),
 			},
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
-				testutil.NewIgnoredWorkloadWithTarget("ignore-worker", "apps/v1", "Deployment", testutil.TestNamespace, "worker"),
+				testutil.NewIgnoredWorkloadWithTarget("ignore-worker", appsv1.SchemeGroupVersion.String(), "Deployment", testutil.TestNamespace, "worker"),
 			},
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
@@ -261,7 +248,7 @@ func TestIsDeploymentIgnored(t *testing.T) {
 		{
 			name: "returns false when targetRef is incomplete",
 			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
-				testutil.NewIgnoredWorkloadWithTarget("ignore-api", "apps/v1", "Deployment", "", testutil.TestDeploymentName),
+				testutil.NewIgnoredWorkloadWithTarget("ignore-api", appsv1.SchemeGroupVersion.String(), "Deployment", "", testutil.TestDeploymentName),
 			},
 			deployment: testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			want:       false,

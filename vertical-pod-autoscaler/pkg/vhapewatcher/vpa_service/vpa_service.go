@@ -3,7 +3,6 @@ package vpaservice
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
@@ -200,7 +199,7 @@ func IsDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.
 
 	return current.Namespace == desired.Namespace &&
 		current.Name == desired.Name &&
-		apiequality.Semantic.DeepEqual(current.Labels, desired.Labels) &&
+		current.Labels[ManagedByLabel] == desired.Labels[ManagedByLabel] &&
 		apiequality.Semantic.DeepEqual(current.Annotations, desired.Annotations) &&
 		apiequality.Semantic.DeepEqual(current.OwnerReferences, desired.OwnerReferences) &&
 		apiequality.Semantic.DeepEqual(current.Spec, desired.Spec)
@@ -215,7 +214,7 @@ func IsManagedByWatcher(vpa *vpav1.VerticalPodAutoscaler) bool {
 }
 
 func IsDeploymentTarget(apiVersion, kind, name string) bool {
-	return apiVersion == DeploymentAPIVersion &&
-		strings.EqualFold(kind, DeploymentKind) &&
+	return apiVersion == appsv1.SchemeGroupVersion.String() &&
+		kind == "Deployment" &&
 		name != ""
 }

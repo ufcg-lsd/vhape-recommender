@@ -3,6 +3,7 @@ package vpaservice_test
 import (
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 )
@@ -55,31 +56,31 @@ func TestAssociatedVPADeploymentKeyIgnoresInvalidTargets(t *testing.T) {
 		{
 			name:       "wrong apiVersion",
 			apiVersion: "apps/v2",
-			kind:       vpaservice.DeploymentKind,
+			kind:       "Deployment",
 			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "empty apiVersion",
 			apiVersion: "",
-			kind:       vpaservice.DeploymentKind,
+			kind:       "Deployment",
 			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "wrong kind",
-			apiVersion: vpaservice.DeploymentAPIVersion,
+			apiVersion: appsv1.SchemeGroupVersion.String(),
 			kind:       "StatefulSet",
 			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "empty kind",
-			apiVersion: vpaservice.DeploymentAPIVersion,
+			apiVersion: appsv1.SchemeGroupVersion.String(),
 			kind:       "",
 			targetName: testutil.TestDeploymentName,
 		},
 		{
 			name:       "empty target name",
-			apiVersion: vpaservice.DeploymentAPIVersion,
-			kind:       vpaservice.DeploymentKind,
+			apiVersion: appsv1.SchemeGroupVersion.String(),
+			kind:       "Deployment",
 			targetName: "",
 		},
 	}

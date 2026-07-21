@@ -2,7 +2,6 @@ package scope
 
 import (
 	"fmt"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -16,9 +15,6 @@ const (
 	ReasonWatched             = "watched"
 	ReasonNamespaceNotWatched = "namespace-not-watched"
 	ReasonWorkloadIgnored     = "workload-ignored"
-
-	deploymentAPIVersion = "apps/v1"
-	deploymentKind       = "Deployment"
 )
 
 // Decision describes whether VHAPE Watcher should manage a workload.
@@ -138,8 +134,8 @@ func (s *Scope) IsDeploymentIgnored(dep *appsv1.Deployment) (bool, error) {
 }
 
 func targetsDeployment(ref vhapev1alpha1.TargetRef, dep *appsv1.Deployment) bool {
-	return ref.APIVersion == deploymentAPIVersion &&
-		strings.EqualFold(ref.Kind, deploymentKind) &&
+	return ref.APIVersion == appsv1.SchemeGroupVersion.String() &&
+		ref.Kind == "Deployment" &&
 		ref.Namespace == dep.Namespace &&
 		ref.Name == dep.Name
 }

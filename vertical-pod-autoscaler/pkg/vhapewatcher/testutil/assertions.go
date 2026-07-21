@@ -10,6 +10,8 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
+
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
@@ -126,11 +128,11 @@ func AssertVPAMetadata(
 	if vpa == nil {
 		t.Fatal("VPA is nil")
 	}
-	if vpa.APIVersion != TestVPAAPIVersion {
-		t.Fatalf("APIVersion = %q, want %q", vpa.APIVersion, TestVPAAPIVersion)
+	if vpa.APIVersion != vpav1.SchemeGroupVersion.String() {
+		t.Fatalf("APIVersion = %q, want %q", vpa.APIVersion, vpav1.SchemeGroupVersion.String())
 	}
-	if vpa.Kind != TestVPAKind {
-		t.Fatalf("Kind = %q, want %q", vpa.Kind, TestVPAKind)
+	if vpa.Kind != "VerticalPodAutoscaler" {
+		t.Fatalf("Kind = %q, want %q", vpa.Kind, "VerticalPodAutoscaler")
 	}
 	if vpa.Namespace != dep.Namespace {
 		t.Fatalf("Namespace = %q, want %q", vpa.Namespace, dep.Namespace)
@@ -138,24 +140,38 @@ func AssertVPAMetadata(
 	if vpa.Name != expectedName {
 		t.Fatalf("Name = %q, want %q", vpa.Name, expectedName)
 	}
-	AssertManagedByWatcher(t, vpa)
+
+	AssertManagedByWatcherLabel(t, vpa)
+	AssertVhapeLabel(t, vpa)
 
 	wantPolicyRef := policyNamespace + "/" + policyName
-	if got := vpa.Annotations[TestVhapePolicyAnnotation]; got != wantPolicyRef {
+	if got := vpa.Annotations[vpaservice.VhapePolicyAnnotation]; got != wantPolicyRef {
 		t.Fatalf("policy annotation = %q, want %q", got, wantPolicyRef)
 	}
 
 	AssertVPAOwnerReference(t, vpa, dep)
 }
 
-func AssertManagedByWatcher(t *testing.T, vpa *vpav1.VerticalPodAutoscaler) {
+func AssertManagedByWatcherLabel(t *testing.T, vpa *vpav1.VerticalPodAutoscaler) {
 	t.Helper()
 
 	if vpa == nil {
 		t.Fatal("VPA is nil")
 	}
-	if vpa.Labels[TestManagedByLabel] != TestManagedByValue {
-		t.Fatalf("managed-by label = %q, want %q", vpa.Labels[TestManagedByLabel], TestManagedByValue)
+	if vpa.Labels[vpaservice.ManagedByLabel] != vpaservice.ManagedByValue {
+		t.Fatalf("managed-by label = %q, want %q", vpa.Labels[vpaservice.ManagedByLabel], vpaservice.ManagedByValue)
+	}
+}
+
+func AssertVhapeLabel(t *testing.T, vpa *vpav1.VerticalPodAutoscaler) {
+	t.Helper()
+
+	if vpa == nil {
+		t.Fatal("VPA is nil")
+	}
+
+	if _, ok := vpa.Labels[vpaservice.VhapeLabel]; !ok {
+		t.Fatalf("expected label %q to be present", vpaservice.VhapeLabel)
 	}
 }
 
@@ -168,11 +184,11 @@ func AssertVPATargetRef(t *testing.T, vpa *vpav1.VerticalPodAutoscaler, dep *app
 	if vpa.Spec.TargetRef == nil {
 		t.Fatal("VPA targetRef is nil")
 	}
-	if vpa.Spec.TargetRef.APIVersion != TestDeploymentAPIVersion {
-		t.Fatalf("targetRef apiVersion = %q, want %q", vpa.Spec.TargetRef.APIVersion, TestDeploymentAPIVersion)
+	if vpa.Spec.TargetRef.APIVersion != appsv1.SchemeGroupVersion.String() {
+		t.Fatalf("targetRef apiVersion = %q, want %q", vpa.Spec.TargetRef.APIVersion, appsv1.SchemeGroupVersion.String())
 	}
-	if vpa.Spec.TargetRef.Kind != TestDeploymentKind {
-		t.Fatalf("targetRef kind = %q, want %q", vpa.Spec.TargetRef.Kind, TestDeploymentKind)
+	if vpa.Spec.TargetRef.Kind != "Deployment" {
+		t.Fatalf("targetRef kind = %q, want %q", vpa.Spec.TargetRef.Kind, "Deployment")
 	}
 	if vpa.Spec.TargetRef.Name != dep.Name {
 		t.Fatalf("targetRef name = %q, want %q", vpa.Spec.TargetRef.Name, dep.Name)
@@ -191,8 +207,8 @@ func AssertVPARecommender(t *testing.T, vpa *vpav1.VerticalPodAutoscaler) {
 	if vpa.Spec.Recommenders[0] == nil {
 		t.Fatal("Recommenders[0] is nil")
 	}
-	if vpa.Spec.Recommenders[0].Name != TestVhapeRecommenderName {
-		t.Fatalf("recommender name = %q, want %q", vpa.Spec.Recommenders[0].Name, TestVhapeRecommenderName)
+	if vpa.Spec.Recommenders[0].Name != vpaservice.VhapeRecommenderName {
+		t.Fatalf("recommender name = %q, want %q", vpa.Spec.Recommenders[0].Name, vpaservice.VhapeRecommenderName)
 	}
 }
 
@@ -247,11 +263,11 @@ func AssertOwnerReferenceForDeployment(t *testing.T, refs []metav1.OwnerReferenc
 	}
 
 	owner := refs[0]
-	if owner.APIVersion != TestDeploymentAPIVersion {
-		t.Fatalf("ownerReference apiVersion = %q, want %q", owner.APIVersion, TestDeploymentAPIVersion)
+	if owner.APIVersion != appsv1.SchemeGroupVersion.String() {
+		t.Fatalf("ownerReference apiVersion = %q, want %q", owner.APIVersion, appsv1.SchemeGroupVersion.String())
 	}
-	if owner.Kind != TestDeploymentKind {
-		t.Fatalf("ownerReference kind = %q, want %q", owner.Kind, TestDeploymentKind)
+	if owner.Kind != "Deployment" {
+		t.Fatalf("ownerReference kind = %q, want %q", owner.Kind, "Deployment")
 	}
 	if owner.Name != dep.Name {
 		t.Fatalf("ownerReference name = %q, want %q", owner.Name, dep.Name)
