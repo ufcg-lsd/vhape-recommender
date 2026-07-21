@@ -1,0 +1,72 @@
+# Uninstalling VHAPE components
+
+This guide explains how to uninstall VHAPE and clean its components completely.
+
+If both the VHAPE Watcher and VHAPE Recommender are installed, uninstall the watcher first so it stops managing VPA objects before the recommender is removed.
+
+## VHAPE Watcher
+
+Uninstall the Helm release:
+
+```bash
+helm uninstall vhape-watcher -n kube-system
+```
+
+To remove the watcher CRDs as well:
+
+```bash
+kubectl delete crd vhapewatchednamespaces.autoscaling.vhape.io
+kubectl delete crd vhapeignoredworkloads.autoscaling.vhape.io
+```
+
+## VHAPE Recommender
+
+Uninstall the Helm release:
+
+```bash
+helm uninstall vhape-recommender -n kube-system
+```
+
+### Remove `VhapePolicy` resources
+
+List existing policies:
+
+```bash
+kubectl get vhapepolicies -A
+```
+
+Delete all VHAPE policies:
+
+```bash
+kubectl delete vhapepolicies.autoscaling.vhape.io --all -A
+```
+
+To remove the `VhapePolicy` CRD as well:
+
+```bash
+kubectl delete crd vhapepolicies.autoscaling.vhape.io
+```
+
+## Remove leftover `VPA` objects
+
+Check for VPA objects labeled as using a VHAPE Recommender:
+
+```bash
+kubectl get vpa -A -l autoscaling.vhape.io/recommender
+```
+
+The selector checks for the existence of the `autoscaling.vhape.io/recommender` label.
+
+To the labeled VPA objects:
+
+```bash
+kubectl delete vpa -A -l autoscaling.vhape.io/recommender
+```
+
+## Upstream VPA
+
+Uninstall the upstream VPA only when it is no longer required by other workloads or components in the cluster:
+
+```bash
+helm uninstall vertical-pod-autoscaler -n kube-system
+```
