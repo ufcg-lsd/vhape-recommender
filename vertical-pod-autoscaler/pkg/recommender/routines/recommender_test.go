@@ -354,3 +354,57 @@ func (k mockAggregateStateKey) Labels() labels.Labels {
 	labels, _ := labels.ConvertSelectorToLabelsMap(k.labels)
 	return labels
 }
+
+func TestParsePolicyRef(t *testing.T) {
+	tests := []struct {
+		name            string
+		ref             string
+		wantNamespace   string
+		wantName        string
+		wantOk          bool
+	}{
+		{
+			name:          "valid ref",
+			ref:           "kube-system/my-policy",
+			wantNamespace: "kube-system",
+			wantName:      "my-policy",
+			wantOk:        true,
+		},
+		{
+			name:    "empty string",
+			ref:     "",
+			wantOk:  false,
+		},
+		{
+			name:    "missing slash",
+			ref:     "mypolicy",
+			wantOk:  false,
+		},
+		{
+			name:    "empty namespace",
+			ref:     "/my-policy",
+			wantOk:  false,
+		},
+		{
+			name:    "empty name",
+			ref:     "kube-system/",
+			wantOk:  false,
+		},
+		{
+			name:    "multiple slashes",
+			ref:     "a/b/c",
+			wantOk:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ns, name, ok := parsePolicyRef(tt.ref)
+			assert.Equal(t, tt.wantOk, ok)
+			if ok {
+				assert.Equal(t, tt.wantNamespace, ns)
+				assert.Equal(t, tt.wantName, name)
+			}
+		})
+	}
+}
