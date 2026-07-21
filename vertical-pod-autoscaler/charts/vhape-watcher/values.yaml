@@ -5,7 +5,6 @@ image:
 
 config:
   workers: 1
-  recommenderName: vhape-recommender
   kubeApiQps: 10
   kubeApiBurst: 20
 

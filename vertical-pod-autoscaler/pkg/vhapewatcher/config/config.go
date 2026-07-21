@@ -7,12 +7,10 @@ import (
 
 const (
 	DefaultWorkerCount = 1
-	DefaultRecommenderName = "vhape-recommender"
 )
 
 type Config struct {
-	WorkerCount     int
-	RecommenderName string
+	WorkerCount int
 }
 
 func ParseFlags() (Config, error) {
@@ -23,13 +21,6 @@ func ParseFlags() (Config, error) {
 		"workers",
 		DefaultWorkerCount,
 		"Number of worker goroutines used by VHAPE Watcher.",
-	)
-
-	flag.StringVar(
-		&cfg.RecommenderName,
-		"recommender-name",
-		DefaultRecommenderName,
-		"Name of the VHAPE Recommender used by generated VPA objects.",
 	)
 
 	flag.Parse()
@@ -44,10 +35,6 @@ func ParseFlags() (Config, error) {
 func (c Config) Validate() error {
 	if c.WorkerCount <= 0 {
 		return fmt.Errorf("worker count must be greater than zero")
-	}
-
-	if c.RecommenderName == "" {
-		return fmt.Errorf("recommender name must not be empty")
 	}
 
 	return nil
