@@ -2,15 +2,9 @@
 
 This guide explains how to install VHAPE and use it with a `VerticalPodAutoscaler` object.
 
-VHAPE can be installed in two ways:
+VHAPE is installed with Helm. The chart installs the `VhapePolicy` CRD, RBAC, the VHAPE Recommender Deployment, and the configured `VhapePolicy` objects.
 
-1. **Helm installation**  
-   Installs the `VhapePolicy` CRD, RBAC, the VHAPE Recommender Deployment, and the configured `VhapePolicy` objects.
-
-2. **Manual installation with the published image**  
-   Uses the VHAPE Recommender image published to Docker Hub and the YAML manifests provided in this repository.
-
-Regardless of the VHAPE installation method, the basic flow is:
+The basic flow is:
 
 1. install the VPA components;
 2. install VHAPE;
@@ -94,96 +88,9 @@ Check logs:
 kubectl logs -n kube-system deploy/vhape-recommender
 ```
 
-After this, you may jump to [Common usage flow](#common-usage-flow).
+## Usage flow
 
-## Manual installation with the published image
-
-The manual installation uses a prebuilt VHAPE Recommender image available at Docker Hub `vtexlsd/vhape-recommender:1.0.0`
-
-The provided manifests at `vertical-pod-autoscaler/pkg/recommender/yamls` are already configured to use this image.
-
-The manual installation flow is:
-
-1. install the `VhapePolicy` CRD;
-2. apply RBAC for the VHAPE Recommender;
-3. deploy the VHAPE Recommender.
-
-### 1. Install the `VhapePolicy` CRD
-
-Apply the CRD manifest:
-
-```bash
-kubectl apply -f vhapepolicy-crd.yaml
-```
-
-Verify that the CRD was created:
-
-```bash
-kubectl get crd vhapepolicies.autoscaling.vhape.io
-```
-
-You should also be able to list `VhapePolicy` objects:
-
-```bash
-kubectl get vhapepolicies -A
-```
-
-At this point, the list may be empty. That is expected.
-
-### 2. Apply RBAC for the VHAPE Recommender
-
-The VHAPE Recommender runs with its own Kubernetes `ServiceAccount`:
-
-```text
-system:serviceaccount:kube-system:vhape-recommender
-```
-
-The RBAC manifest creates this `ServiceAccount` and grants the permissions required by the recommender.
-
-These permissions include:
-
-- reading pods, nodes, limit ranges, and workload targets;
-- reading container metrics from the Kubernetes Metrics API;
-- reading and patching VPA objects;
-- reading, creating, updating, and deleting VPA checkpoints;
-- reading `VhapePolicy` objects;
-- using the leader-election lease `vhape-recommender-lease`.
-
-Apply the RBAC manifest:
-
-```bash
-kubectl apply -f vhape-rbac.yaml
-```
-
-The provided manifests expect the VHAPE Recommender to run in `kube-system` using the `vhape-recommender` ServiceAccount.
-
-If you intentionally deploy the recommender in a different namespace, update every `namespace: kube-system` reference in `vhape-rbac.yaml` so the `ServiceAccount`, `Role`, and `RoleBinding` are created in the same namespace as the recommender.
-
-### 3. Deploy the VHAPE Recommender
-
-Apply the recommender Deployment:
-
-```bash
-kubectl apply -f recommender_deployment.yaml
-```
-
-Check that the Pod is running:
-
-```bash
-kubectl get pods -n kube-system -l app=vhape-recommender
-```
-
-Check logs:
-
-```bash
-kubectl logs -n kube-system deploy/vhape-recommender
-```
-
-## Common usage flow
-
-The following steps are common to manual installation and the Helm installation.
-
-After VHAPE is installed, you still need to:
+After VHAPE is installed with Helm, you still need to:
 
 1. create or select a `VhapePolicy`;
 2. create a `VerticalPodAutoscaler` object that selects the VHAPE Recommender, references the policy, and targets a workload;
@@ -199,7 +106,7 @@ It configures:
 - which heuristic should be used for memory;
 - whether an optional scaling rule should constrain the recommendation.
 
-If you installed VHAPE with Helm, some `VhapePolicy` objects may already have been created from the chart values.
+The Helm chart may create `VhapePolicy` objects from the configured chart values.
 
 You can list the available policies with:
 
@@ -207,7 +114,7 @@ You can list the available policies with:
 kubectl get vhapepolicies -A
 ```
 
-If you installed VHAPE manually, or if you want to define an additional policy, create a new VhapePolicy manifest and apply it to the cluster.
+To define an additional policy, create a new `VhapePolicy` manifest and apply it to the cluster.
 
 The repository provides a default policy at `vertical-pod-autoscaler/pkg/recommender/yamls/vhapepolicy-p93-default.yaml`. It uses the `percentile-hysteresis` heuristic for both CPU and memory, with no additional scaling rule enabled.
 
@@ -353,22 +260,10 @@ kubectl delete vhapepolicies.autoscaling.vhape.io --all -A
 
 ### 3. Uninstall VHAPE
 
-If VHAPE was installed with Helm:
+Uninstall the VHAPE Helm release:
 
 ```bash
 helm uninstall vhape-recommender -n kube-system
-```
-
-If VHAPE was installed manually, delete the recommender resources by name:
-
-```bash
-kubectl delete deployment vhape-recommender -n kube-system
-kubectl delete serviceaccount vhape-recommender -n kube-system
-kubectl delete lease vhape-recommender-lease -n kube-system --ignore-not-found
-kubectl delete role vhape-recommender-leader-locking -n kube-system
-kubectl delete rolebinding vhape-recommender-leader-locking -n kube-system
-kubectl delete clusterrole vhape-recommender
-kubectl delete clusterrolebinding vhape-recommender
 ```
 
 ### 4. Delete the VHAPE CRD
