@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
 
@@ -285,7 +286,12 @@ func TestIsManagedByWatcher(t *testing.T) {
 func TestIsDesiredGeneratedVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	options := newGenerationOptions()
-	desiredGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
+
+	desiredGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(
+		vpaservice.NameForDeployment(dep),
+		dep,
+		options,
+	)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment returned error: %v", err)
 	}
@@ -294,10 +300,34 @@ func TestIsDesiredGeneratedVPA(t *testing.T) {
 		t.Fatal("identical generated VPA should be desired")
 	}
 
-	generatedVPAWithDifferentAnnotation := desiredGeneratedVPA.DeepCopy()
-	generatedVPAWithDifferentAnnotation.Annotations[vpaservice.VhapePolicyAnnotation] = "other/policy"
-	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentAnnotation, desiredGeneratedVPA) {
-		t.Fatal("VPA with different annotations should not be desired")
+	generatedVPAWithExtraAnnotation := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithExtraAnnotation.Annotations["example.com/custom"] = "value"
+	if !vpaservice.IsDesiredGeneratedVPA(generatedVPAWithExtraAnnotation, desiredGeneratedVPA) {
+		t.Fatal("VPA with additional annotation should be desired")
+	}
+
+	generatedVPAWithDifferentPolicy := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithDifferentPolicy.Annotations[vpaservice.VhapePolicyAnnotation] = "other/policy"
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentPolicy, desiredGeneratedVPA) {
+		t.Fatal("VPA with different VHAPE policy annotation should not be desired")
+	}
+
+	generatedVPAWithExtraLabel := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithExtraLabel.Labels["example.com/custom"] = "value"
+	if !vpaservice.IsDesiredGeneratedVPA(generatedVPAWithExtraLabel, desiredGeneratedVPA) {
+		t.Fatal("VPA with additional label should be desired")
+	}
+
+	generatedVPAWithoutVhapeLabel := desiredGeneratedVPA.DeepCopy()
+	delete(generatedVPAWithoutVhapeLabel.Labels, vpaservice.VhapeLabel)
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithoutVhapeLabel, desiredGeneratedVPA) {
+		t.Fatal("VPA without VHAPE label should not be desired")
+	}
+
+	generatedVPAWithDifferentManager := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithDifferentManager.Labels[vpaservice.ManagedByLabel] = "other-manager"
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentManager, desiredGeneratedVPA) {
+		t.Fatal("VPA with different managed-by label should not be desired")
 	}
 
 	generatedVPAWithDifferentSpec := desiredGeneratedVPA.DeepCopy()
@@ -307,26 +337,33 @@ func TestIsDesiredGeneratedVPA(t *testing.T) {
 		t.Fatal("VPA with different spec should not be desired")
 	}
 
-	generatedVPAWithDifferentLabel := desiredGeneratedVPA.DeepCopy()
-	generatedVPAWithDifferentLabel.Labels[vpaservice.ManagedByLabel] = "other-manager"
-	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentLabel, desiredGeneratedVPA) {
-		t.Fatal("VPA with different labels should not be desired")
+	generatedVPAWithDifferentController := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithDifferentController.OwnerReferences[0].UID = "old-uid"
+	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentController, desiredGeneratedVPA) {
+		t.Fatal("VPA with different controller owner reference should not be desired")
 	}
 
-	generatedVPAWithDifferentUID := desiredGeneratedVPA.DeepCopy()
-	generatedVPAWithDifferentUID.OwnerReferences[0].UID = "old-uid"
-	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentUID, desiredGeneratedVPA) {
-		t.Fatal("VPA with different ownerReference UID should not be desired")
+	generatedVPAWithExtraOwnerReference := desiredGeneratedVPA.DeepCopy()
+	generatedVPAWithExtraOwnerReference.OwnerReferences = append(
+		generatedVPAWithExtraOwnerReference.OwnerReferences,
+		metav1.OwnerReference{
+			APIVersion: "example.com/v1",
+			Kind:       "Example",
+			Name:       "extra-owner",
+		},
+	)
+	if !vpaservice.IsDesiredGeneratedVPA(generatedVPAWithExtraOwnerReference, desiredGeneratedVPA) {
+		t.Fatal("VPA with additional non-controller owner reference should be desired")
 	}
 
 	if vpaservice.IsDesiredGeneratedVPA(nil, desiredGeneratedVPA) {
 		t.Fatal("nil current VPA should not be desired")
 	}
+
 	if vpaservice.IsDesiredGeneratedVPA(desiredGeneratedVPA, nil) {
 		t.Fatal("nil desired VPA should not be desired")
 	}
 }
-
 func TestIsDeploymentTarget(t *testing.T) {
 	tests := []struct {
 		name       string
