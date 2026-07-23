@@ -1,4 +1,4 @@
-# VHAPE Recommender general guide
+# VHAPE Recommender
 
 VHAPE is a custom Kubernetes Vertical Pod Autoscaler Recommender built on top of the v1.6.0 VPA Recommender codebase. It keeps the original VPA integration points, such as VPA objects, the VPA Admission Controller, and the VPA Updater, while replacing the core recommendation logic with a policy-driven architecture.
 
@@ -8,22 +8,75 @@ The central idea is that each VPA object can reference a `VhapePolicy`. The poli
 
 VHAPE is designed to make recommender behavior easier to experiment with and extend. In particular, it aims to:
 
-* make heuristics configurable through Kubernetes custom resources;
-* allow CPU and memory to use different estimators;
-* allow estimators to configure their own sample storage strategy;
-* support policy-level scaling constraints, such as blocking scale-up or blocking scale-down;
-* preserve compatibility with the VPA API output format.
+- make heuristics configurable through Kubernetes custom resources;
+- allow CPU and memory to use different heuristics;
+- allow estimators (heuristics) to configure their own sample storage strategy;
+- support policy-level scaling constraints, such as blocking scale-up or blocking scale-down;
+- preserve compatibility with the VPA API output format.
 
-## Expected simplified usage flow
+## How it works
 
-A typical VHAPE setup has four main components:
+A typical VHAPE setup includes:
 
-1. a workload, such as a `Deployment`;
-2. a running VHAPE Recommender instance registered with a recommender name, such as `vhape-recommender`;
-3. a `VerticalPodAutoscaler` object targeting the workload, selecting the VHAPE Recommender and a VHAPE Policy;
-4. a `VhapePolicy` object defining how recommendations should be calculated.
+- a workload, such as a `Deployment`;
+- a running VHAPE Recommender instance;
+- a `VhapePolicy` defining how CPU and memory recommendations are calculated through selected heuristics;
+- a `VerticalPodAutoscaler` object targeting the workload and selecting both the VHAPE Recommender and the `VhapePolicy`.
 
-For example, a VPA object can reference the default policy like this:
+The VPA object selects the VHAPE Recommender through `spec.recommenders[].name` and selects a `VhapePolicy` through the `vhape/policy` annotation.
+
+The selected policy defines the heuristic configuration used for CPU and memory and can optionally apply a scaling rule to constrain the recommendation.
+
+For policy configuration, heuristics, scaling rules, and recommendation constraints, see [VhapePolicy](vhape-policy.md).
+
+## Setup guide
+
+### 1. Install the VHAPE recommender
+
+For installation instructions, see [VHAPE Recommender installation](recommender-installation.md).
+
+### 2. Create or choose a `VhapePolicy`
+
+The installation guide creates default `VhapePolicy` resources that can be used directly.
+
+List available policies:
+
+```bash
+kubectl get vhapepolicies -A
+```
+
+This repository also provides an example at:
+
+```text
+vertical-pod-autoscaler/pkg/recommender/yamls/vhapepolicy-p93-default.yaml
+```
+
+Apply an additional policy with:
+
+```bash
+kubectl apply -f vhapepolicy.yaml
+```
+
+For policy configuration, heuristics, scaling rules, and recommendation constraints, see [VhapePolicy](vhape-policy.md).
+
+### 2. Create a VPA object
+
+This repository provides an example at:
+
+```text
+vertical-pod-autoscaler/pkg/recommender/yamls/vpa_object.yaml
+```
+
+The created VPA object must meet the following requirements:
+
+- It must be created in the same namespace as the target workload.
+- It must include the `autoscaling.vhape.io/recommender` label set to `vhape-recommender`.
+- It must include the vhape/policy annotation, which selects a VhapePolicy. The annotation value must use the <namespace>/<name> format, for example kube-system/vhape-policy-p93-default.
+- The `spec.recommenders[].name` field must select the VHAPE Recommender `vhape-recommender`.
+
+Optionally, set `updateMode: "Off"` to generate recommendations without applying them automatically.
+
+Example:
 
 ```yaml
 apiVersion: autoscaling.k8s.io/v1
@@ -31,6 +84,8 @@ kind: VerticalPodAutoscaler
 metadata:
   name: my-app-vpa
   namespace: default
+  labels:
+    autoscaling.vhape.io/recommender: "vhape-recommender"
   annotations:
     vhape/policy: "kube-system/vhape-policy-p93-default"
 spec:
@@ -40,104 +95,36 @@ spec:
     name: my-app
   recommenders:
     - name: vhape-recommender
+  updatePolicy:
+    updateMode: "Recreate"
 ```
 
-Then the referenced `VhapePolicy` defines the recommendation behavior:
+Apply the VPA object:
+
+```bash
+kubectl apply -f vpa_object.yaml
+```
+
+### 3. Check recommendations
+
+Describe the VPA:
+
+```bash
+kubectl describe vpa <vhape-vpa-object> -n <namespace>
+```
+
+Recommendations should eventually appear under:
 
 ```yaml
-apiVersion: autoscaling.vhape.io/v1alpha1
-kind: VhapePolicy
-metadata:
-  name: vhape-policy-p93-default
-  namespace: kube-system
-spec:
-  resources:
-    cpu:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.10
-        slidingWindow: 24h
-    memory:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.05
-        slidingWindow: 24h
-  scalingRule: ""
+status:
+  recommendation:
+    containerRecommendations:
+      - containerName: app
+        target: ...
+        lowerBound: ...
+        upperBound: ...
+        uncappedTarget: ...
 ```
-
-## Installation and usage
-
-See the detailed installation guide:
-
-[Installation guide](install-guide.md)
-
-## VhapePolicy CRD
-
-### `spec.resources`
-
-`spec.resources` must define both `cpu` and `memory`.
-
-Each resource must define exactly one heuristic. Today, the only supported heuristic is `percentile-hysteresis`.
-
-### `spec.scalingRule`
-
-`spec.scalingRule` is optional. Valid values are:
-
-| Value              | Meaning                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `""`               | No scaling rule. The estimator recommendation is used as-is, subject to normal constraints and post-processors. |
-| `block-scale-up`   | Prevents the final visible recommendation from going above the current request.                                 |
-| `block-scale-down` | Prevents the final visible recommendation from going below the current request.                                 |
-
-## Percentile hysteresis heuristic
-
-`percentile-hysteresis` is the default VHAPE heuristic.
-
-It recommends resources from recent usage samples using this formula:
-
-```text
-base = percentile(recent samples)
-uncappedTarget = ceil(base * (1 + headroom))
-target = clamp(uncappedTarget, min, max)
-lowerBound = ceil(target * 0.9)
-upperBound = ceil(target * 1.1)
-```
-
-The `percentile-hysteresis` estimator stores samples per container. Samples are timestamped when they are fed to the estimator. On each feed or recommendation cycle, samples older than the configured sliding window are removed.
-
-### Configuration
-
-```yaml
-percentile-hysteresis:
-  percentile: 0.93
-  headroom: 0.10
-  slidingWindow: 24h
-```
-
-| Field           | Type                       | Meaning                                                                             |
-| --------------- | -------------------------- | ----------------------------------------------------------------------------------- |
-| `percentile`    | number between `0` and `1` | Usage percentile used as the base recommendation. `0.93` means the 93rd percentile. |
-| `headroom`      | number `>= 0`              | Extra capacity added on top of the selected percentile. `0.10` means 10%.           |
-| `slidingWindow` | duration string            | How long samples remain eligible. Examples: `30m`, `2h`, `24h`.                     |
-
-### Minimum window coverage
-
-The estimator requires samples to cover a minimum fraction of the sliding window before producing a percentile-based recommendation.
-
-The current default is:
-
-```text
-minWindowCoverageRatio = 0.02
-```
-
-For a `24h` sliding window, this means samples must span at least about 29 minutes.
-
-If there is not enough coverage, the estimator falls back to:
-
-1. `CurrentRequest`, when it is greater than zero;
-2. `Min`, when the current request is missing or zero.
-
-This avoids making aggressive recommendations from too little data.
 
 ## Operational notes
 
@@ -145,7 +132,8 @@ This avoids making aggressive recommendations from too little data.
 
 Estimators are cached by VPA namespace/name. This means their sample history persists across recommender loops for the same VPA.
 
-If a `VhapePolicy` is changed after estimators have already been created, the existing estimators may continue using the old configuration until the recommender restarts.
+If a `VhapePolicy` is changed after estimators have already been created, the existing estimators may continue using the old configuration until the recommender restarts or a new VPA object is created.
+
 
 ### Capping and post-processing
 
@@ -165,3 +153,29 @@ In the upstream VPA recommender, recommendation bounds can come from multiple pl
 The important detail is that the upstream VPA does not apply all caps in the same place. Pod-level minimum flags are part of the recommender configuration and affect the estimator output itself.
 
 VHAPE currently preserves this split to stay compatible with the original VPA behavior while keeping the recommendation logic extensible. The recommender passes resource constraints to estimators, but each heuristic remains responsible for deciding how those constraints should affect its own recommendation. This leaves room for future heuristics to interpret and apply constraints according to their own semantics.
+
+## Troubleshooting
+
+### Recommendations stay equal to current requests
+
+This can happen when the estimator does not have enough sample coverage yet.
+
+The default `percentile-hysteresis` heuristic requires samples to cover a minimum fraction of the configured sliding window before using percentile-based recommendations. Until then, it falls back to the current request or to the configured minimum.
+
+It can also happen when a scaling rule is configured in the selected `VhapePolicy`:
+
+```yaml
+scalingRule: block-scale-up
+```
+
+or:
+
+```yaml
+scalingRule: block-scale-down
+```
+
+Check the VHAPE Recommender logs to identify why a recommendation is being constrained or falling back to the current request. The logs indicate when there is insufficient sample coverage and when a scaling rule is blocking scale-up or scale-down:
+
+```bash
+kubectl logs deployment/vhape-recommender -n kube-system
+```
