@@ -132,7 +132,7 @@ status:
 
 Estimators are cached by VPA namespace/name. This means their sample history persists across recommender loops for the same VPA.
 
-If a `VhapePolicy` is changed after estimators have already been created, the existing estimators may continue using the old configuration until the recommender restarts or a new VPA object is created.
+If a `VhapePolicy` is changed after estimators have already been created, the existing estimators may continue using the old configuration until the recommender restarts.
 
 
 ### Capping and post-processing
