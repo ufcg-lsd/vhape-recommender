@@ -80,6 +80,4 @@ kubectl logs -n kube-system deploy/vhape-recommender
 
 ## Next steps
 
-See the [VHAPE Recommender guide](recommender.md) to configure a `VhapePolicy`, create a VPA object, and inspect recommendations.
-
-See [Uninstalling VHAPE components](uninstall.md) to remove the installation.
+See the [VHAPE Recommender guide](recommender-guide.md) to setup the VHAPE recommender and inspect recommendations.

@@ -59,7 +59,7 @@ kubectl apply -f vhapepolicy.yaml
 
 For policy configuration, heuristics, scaling rules, and recommendation constraints, see [VhapePolicy](vhape-policy.md).
 
-### 2. Create a VPA object
+### 3. Create a VPA object
 
 This repository provides an example at:
 
@@ -105,7 +105,7 @@ Apply the VPA object:
 kubectl apply -f vpa_object.yaml
 ```
 
-### 3. Check recommendations
+### 4. Check recommendations
 
 Describe the VPA:
 

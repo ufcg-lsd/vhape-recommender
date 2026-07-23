@@ -4,7 +4,7 @@ This guide explains how to extend the VHAPE Recommender with new recommendation 
 
 A heuristic is responsible for producing resource recommendations from usage data. A scaling rule is applied later, after the heuristic runs, to optionally constrain how the recommendation moves relative to the current request.
 
-For image builds and Helm chart publishing, see the [release guide](../release.md).
+For image builds and Helm chart publishing, see the [release guide](release.md).
 
 ## Adding a new heuristic
 
