@@ -1,8 +1,10 @@
-# Development guide
+# VHAPE Recommender development
 
-This guide explains common development tasks in VHAPE: adding new recommendation heuristics adding new scaling rules, building the recommender image and pushing helm charts.
+This guide explains how to extend the VHAPE Recommender with new recommendation heuristics and scaling rules.
 
 A heuristic is responsible for producing resource recommendations from usage data. A scaling rule is applied later, after the heuristic runs, to optionally constrain how the recommendation moves relative to the current request.
+
+For image builds and Helm chart publishing, see the [release guide](../release.md).
 
 ## Adding a new heuristic
 
@@ -35,10 +37,10 @@ type ResourceEstimator interface {
 
 The estimator is responsible for deciding:
 
-* how it stores samples;
-* how it handles missing data;
-* how it calculates `Target`, `LowerBound`, `UpperBound`, and `UncappedTarget`;
-* how it applies `constraints.Min`, `constraints.Max`, and `constraints.CurrentRequest`, when relevant.
+- how it stores samples;
+- how it handles missing data;
+- how it calculates `Target`, `LowerBound`, `UpperBound`, and `UncappedTarget`;
+- how it applies `constraints.Min`, `constraints.Max`, and `constraints.CurrentRequest`, when relevant.
 
 ### Step 2. Create a heuristic config struct
 
@@ -97,7 +99,7 @@ case MyHeuristic:
 
 Update `yamls/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic.
 
-For example:
+Example:
 
 ```yaml
 my-heuristic:
