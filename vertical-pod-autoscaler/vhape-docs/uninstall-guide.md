@@ -27,20 +27,6 @@ Uninstall the Helm release:
 helm uninstall vhape-recommender -n kube-system
 ```
 
-### Remove `VhapePolicy` resources
-
-List existing policies:
-
-```bash
-kubectl get vhapepolicies -A
-```
-
-Delete all VHAPE policies:
-
-```bash
-kubectl delete vhapepolicies.autoscaling.vhape.io --all -A
-```
-
 To remove the `VhapePolicy` CRD as well:
 
 ```bash
@@ -57,7 +43,7 @@ kubectl get vpa -A -l autoscaling.vhape.io/recommender
 
 The selector checks for the existence of the `autoscaling.vhape.io/recommender` label.
 
-To the labeled VPA objects:
+To delete the labeled VPA objects:
 
 ```bash
 kubectl delete vpa -A -l autoscaling.vhape.io/recommender
