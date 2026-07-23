@@ -43,6 +43,8 @@ kubectl get vpa -A -l autoscaling.vhape.io/recommender
 
 The selector checks for the existence of the `autoscaling.vhape.io/recommender` label.
 
+VPA objects associated with VHAPE are expected to include this label. The VHAPE Watcher adds it automatically to generated VPAs, and the VPA examples provided in the recommender guide and in the repository include it as well. Manually created VPAs may be missing the label if it was not added during configuration.
+
 To delete the labeled VPA objects:
 
 ```bash
