@@ -1,11 +1,11 @@
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapeIgnoredWorkload
 metadata:
-  name: deployment-api-legada-producao
+  name: legacy-api-deployment-production # name of the exclusion rule
 spec:
-  targetRef:
+  targetRef: # Deployment to be excluded from Watcher management
     apiVersion: apps/v1
     kind: Deployment
-    namespace: producao
-    name: api-legada
-  reason: "VPA gerenciado manualmente"
+    namespace: production # namespace where the Deployment is defined
+    name: legacy-api # name of the Deployment
+  reason: "VPA managed manually" # optional reason for excluding the workload

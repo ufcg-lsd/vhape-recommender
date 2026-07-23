@@ -1,9 +1,9 @@
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapeWatchedNamespace
 metadata:
-  name: producao
+  name: production # namespace to be managed by the VHAPE Watcher
 spec:
-  vhapePolicyRef:
-    namespace: kube-system
-    name: vhape-policy-p93-default
-  vpaUpdateMode: InPlaceOrRecreate
+  vhapePolicyRef: # default policy used by VPAs created by the Watcher
+    namespace: kube-system # namespace where the VhapePolicy is defined
+    name: vhape-policy-p93-default # name of the VhapePolicy
+  vpaUpdateMode: InPlaceOrRecreate # update mode used by managed VPAs
