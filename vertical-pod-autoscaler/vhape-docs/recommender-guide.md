@@ -71,7 +71,7 @@ The created VPA object must meet the following requirements:
 
 - It must be created in the same namespace as the target workload.
 - It must include the `autoscaling.vhape.io/recommender` label set to `vhape-recommender`.
-- It must include the vhape/policy annotation, which selects a VhapePolicy. The annotation value must use the <namespace>/<name> format, for example kube-system/vhape-policy-p93-default.
+- It must include the `vhape/policy` annotation, which selects a `VhapePolicy`. The annotation value must use the `<namespace>/<name>` format, for example `kube-system/vhape-policy-p93-default`.
 - The `spec.recommenders[].name` field must select the VHAPE Recommender `vhape-recommender`.
 
 Optionally, set `updateMode: "Off"` to generate recommendations without applying them automatically.
