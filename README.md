@@ -12,7 +12,7 @@ VHAPE includes:
 ### VHAPE Recommender
 
 * [Recommender installation](vertical-pod-autoscaler/vhape-docs/recommender-installation.md)
-  Install the upstream VPA components and the VHAPE Recommender with Helm.
+  Install the VHAPE Recommender with Helm.
 
 * [Recommender guide](vertical-pod-autoscaler/vhape-docs/recommender-guide.md)
   Configure workloads to use the VHAPE Recommender and inspect generated recommendations.
@@ -26,7 +26,7 @@ VHAPE includes:
 ### VHAPE Watcher
 
 * [Watcher installation](vertical-pod-autoscaler/vhape-docs/watcher-installation.md)
-  Install the VHAPE Watcher and its custom resources with Helm.
+  Install the VHAPE Watcher with Helm.
 
 * [Watcher guide](vertical-pod-autoscaler/vhape-docs/watcher-guide.md)
   Configure watched namespaces, exclude workloads, and understand VPA reconciliation behavior.
