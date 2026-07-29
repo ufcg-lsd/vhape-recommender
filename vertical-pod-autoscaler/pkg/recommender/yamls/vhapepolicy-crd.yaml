@@ -26,6 +26,9 @@ spec:
           properties:
             spec:
               type: object
+              x-kubernetes-validations:
+                - rule: "self == oldSelf"
+                  message: "VhapePolicy spec is immutable; create a new policy and update the VPA annotation"
               required:
                 - resources
               properties:
