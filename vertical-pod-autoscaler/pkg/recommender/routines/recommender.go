@@ -18,7 +18,7 @@ package routines
 
 import (
 	"context"
-=	"sync"
+	"sync"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -117,7 +117,7 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 		}
 	}
 
-	_, err := vpa_utils.UpdateVpaStatusIfNeeded(
+	_, err = vpa_utils.UpdateVpaStatusIfNeeded(
 		r.vpaClient.VerticalPodAutoscalers(vpa.ID.Namespace), vpa.ID.VpaName, vpa.AsStatus(), &observedVpa.Status)
 	if err != nil {
 		klog.ErrorS(err, "Cannot update VPA", "vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName))
