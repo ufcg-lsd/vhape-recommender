@@ -2,7 +2,9 @@ package logic
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -15,16 +17,15 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const vhapePolicyAnnotation = "vhape/policy"
+
 // PodResourceRecommender computes resource recommendations for a VPA object.
 type PodResourceRecommender interface {
 	GetRecommendedPodResources(
 		containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
-		vpaNamespace string,
-		vpaName string,
-		policyNamespace string,
-		policyName string,
+		vpa *model.Vpa,
 		matchingPods []model.PodID,
-	) RecommendedPodResources
+	) (RecommendedPodResources, error)
 }
 
 // PodRecommendationLimits contains global pod minimum recommendation limits.
@@ -46,7 +47,6 @@ type RecommendationFormat struct {
 // RecommendedPodResources maps container names to their resource recommendations.
 type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 
-
 // ResourceEstimators contains the estimators used for each supported resource.
 //
 // Each estimator is resource-specific. This allows CPU and memory to use
@@ -54,6 +54,9 @@ type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 type ResourceEstimators struct {
 	CPU    estimators.ResourceEstimator
 	Memory estimators.ResourceEstimator
+
+	policyNamespace string
+	policyName      string
 }
 
 // podResourceRecommender is the default PodResourceRecommender implementation.
@@ -67,11 +70,10 @@ type podResourceRecommender struct {
 	metricsClient input_metrics.MetricsClient
 	mu            sync.Mutex
 
-
-	// estimators caches resource estimators by VPA namespace/name.
+	// estimators caches resource estimators by VPA.
 	// Estimators keep usage history in memory, so they must be reused across
 	// recommendation cycles for the same VPA.
-	estimators    map[string]*ResourceEstimators
+	estimators map[model.VpaID]*ResourceEstimators
 }
 
 // containerUsage stores current resource usage samples grouped by container name.
@@ -86,35 +88,43 @@ func CreatePodResourceRecommender(config PodRecommendationLimits, dynamicClient 
 		config:        config,
 		dynamicClient: dynamicClient,
 		metricsClient: metricsClient,
-		estimators:    make(map[string]*ResourceEstimators),
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
 	}
 }
 
 // GetRecommendedPodResources returns recommendations for all containers managed by a VPA.
 func (r *podResourceRecommender) GetRecommendedPodResources(
 	containerStates model.ContainerNameToAggregateStateMap,
-	vpaNamespace string,
-	vpaName string,
-	policyNamespace string,
-	policyName string,
+	vpa *model.Vpa,
 	matchingPods []model.PodID,
-) RecommendedPodResources {
+) (RecommendedPodResources, error) {
+	if vpa == nil {
+		return nil, fmt.Errorf("VPA is nil")
+	}
+
+	policy, err := r.fetchPolicy(vpa)
+	if err != nil {
+		return nil, err
+	}
+
+	resourceEstimators := r.getOrCreateEstimators(vpa, policy)
 	recommendations := make(RecommendedPodResources)
-
 	if len(containerStates) == 0 {
-		return recommendations
+		return recommendations, nil
 	}
 
-	policy, ok := r.fetchPolicy(policyNamespace, policyName)
-	if !ok {
-		return recommendations
+	usage, err := r.collectCurrentUsage(matchingPods)
+	if err != nil {
+		return nil, fmt.Errorf("VPA %q/%q: collect current usage: %w", vpa.ID.Namespace, vpa.ID.VpaName, err)
 	}
 
-	usage := r.collectCurrentUsage(matchingPods)
-	resourceEstimators := r.getOrCreateEstimators(vpaNamespace, vpaName, policy)
 	for containerName := range containerStates {
-		resourceEstimators.CPU.FeedSamples(containerName, usage.CPU[containerName])
-		resourceEstimators.Memory.FeedSamples(containerName, usage.Memory[containerName])
+		if cpuSamples := usage.CPU[containerName]; len(cpuSamples) > 0 {
+			resourceEstimators.CPU.FeedSamples(containerName, cpuSamples)
+		}
+		if memorySamples := usage.Memory[containerName]; len(memorySamples) > 0 {
+			resourceEstimators.Memory.FeedSamples(containerName, memorySamples)
+		}
 	}
 
 	for containerName, state := range containerStates {
@@ -127,28 +137,39 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 		)
 	}
 
-	return recommendations
+	return recommendations, nil
 }
 
-// fetchPolicy loads the VhapePolicy referenced by the VPA.
-func (r *podResourceRecommender) fetchPolicy(policyNamespace string, policyName string) (*VhapePolicy, bool) {
-	policy, err := FetchVhapePolicy(r.dynamicClient, policyNamespace, policyName)
-	if err != nil {
-		klog.Warningf("Couldn't fetch policy %q in namespace %q. Skipping VPA. Error: %v", policyName, policyNamespace, err)
-		return nil, false
+// fetchPolicy loads the VhapePolicy referenced by the VPA annotation.
+func (r *podResourceRecommender) fetchPolicy(vpa *model.Vpa) (*VhapePolicy, error) {
+	policyRef := vpa.Annotations[vhapePolicyAnnotation]
+	parts := strings.Split(policyRef, "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return nil, fmt.Errorf(
+			"VPA %q/%q: invalid or missing %s annotation; expected <namespace>/<name>",
+			vpa.ID.Namespace,
+			vpa.ID.VpaName,
+			vhapePolicyAnnotation,
+		)
 	}
 
-	return policy, true
+	policy, err := FetchVhapePolicy(r.dynamicClient, parts[0], parts[1])
+	if err != nil {
+		return nil, fmt.Errorf(
+			"VPA %q/%q: fetch policy %q: %w",
+			vpa.ID.Namespace,
+			vpa.ID.VpaName,
+			policyRef,
+			err,
+		)
+	}
+
+	return policy, nil
 }
 
 // collectCurrentUsage collects the latest usage metrics for containers running in the
 // pods matched by the VPA.
-func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID) containerUsage {
-	usage := containerUsage{
-		CPU:    make(map[string][]model.ResourceAmount),
-		Memory: make(map[string][]model.ResourceAmount),
-	}
-
+func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID) (containerUsage, error) {
 	podSet := make(map[model.PodID]struct{}, len(matchingPods))
 	for _, podID := range matchingPods {
 		podSet[podID] = struct{}{}
@@ -156,8 +177,12 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 
 	snapshots, err := r.metricsClient.GetContainersMetrics(context.TODO())
 	if err != nil {
-		klog.Warningf("Failed to collect container metrics: %v", err)
-		return usage
+		return containerUsage{}, fmt.Errorf("collect container metrics: %w", err)
+	}
+
+	usage := containerUsage{
+		CPU:    make(map[string][]model.ResourceAmount),
+		Memory: make(map[string][]model.ResourceAmount),
 	}
 
 	for _, snap := range snapshots {
@@ -166,40 +191,49 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 		}
 
 		containerName := snap.ID.ContainerName
-
-		usage.CPU[containerName] = append(
-			usage.CPU[containerName],
-			snap.Usage[model.ResourceCPU],
-		)
-
-		usage.Memory[containerName] = append(
-			usage.Memory[containerName],
-			snap.Usage[model.ResourceMemory],
-		)
+		if cpu, ok := snap.Usage[model.ResourceCPU]; ok {
+			usage.CPU[containerName] = append(usage.CPU[containerName], cpu)
+		}
+		if memory, ok := snap.Usage[model.ResourceMemory]; ok {
+			usage.Memory[containerName] = append(usage.Memory[containerName], memory)
+		}
 	}
 
-	return usage
+	return usage, nil
 }
 
-// getOrCreateEstimators returns the estimator set associated with the VPA and VhapePolicy pair.
-func (r *podResourceRecommender) getOrCreateEstimators(vpaNamespace string, vpaName string, policy *VhapePolicy) *ResourceEstimators {
-	key := vpaNamespace + "/" + vpaName
-
+// getOrCreateEstimators returns the estimators associated with a VPA.
+// The estimators are recreated when the VPA annotation points to another policy.
+func (r *podResourceRecommender) getOrCreateEstimators(vpa *model.Vpa, policy *VhapePolicy) *ResourceEstimators {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if cached, ok := r.estimators[key]; ok {
-		klog.V(4).InfoS("Cached estimators found for the policy", "key", key)
-		return cached
+	if cached, ok := r.estimators[vpa.ID]; ok {
+		if cached.policyNamespace == policy.Namespace && cached.policyName == policy.Name {
+			klog.V(4).InfoS(
+				"Cached estimators found",
+				"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+				"policy", klog.KRef(policy.Namespace, policy.Name),
+			)
+			return cached
+		}
+
+		klog.InfoS(
+			"VPA policy changed; estimators discarded",
+			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+			"oldPolicy", klog.KRef(cached.policyNamespace, cached.policyName),
+			"newPolicy", klog.KRef(policy.Namespace, policy.Name),
+		)
 	}
 
 	created := &ResourceEstimators{
-		CPU:    policy.Spec.Resources.CPU.Heuristic.NewEstimator(model.ResourceCPU),
-		Memory: policy.Spec.Resources.Memory.Heuristic.NewEstimator(model.ResourceMemory),
+		CPU:             policy.Spec.Resources.CPU.Heuristic.NewEstimator(model.ResourceCPU),
+		Memory:          policy.Spec.Resources.Memory.Heuristic.NewEstimator(model.ResourceMemory),
+		policyNamespace: policy.Namespace,
+		policyName:      policy.Name,
 	}
 
-	r.estimators[key] = created
-
+	r.estimators[vpa.ID] = created
 	return created
 }
 
