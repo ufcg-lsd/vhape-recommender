@@ -36,17 +36,16 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/test"
 )
 
-type mockPodResourceRecommender struct{}
+type mockPodResourceRecommender struct {
+	err   error
+}
 
 func (m *mockPodResourceRecommender) GetRecommendedPodResources(
-	containerNameToAggregateStateMap model.ContainerNameToAggregateStateMap,
-	namespace string,
-	vpaName string,
-	policyNamespace string,
-	policyName string,
+	containerStates model.ContainerNameToAggregateStateMap,
+	vpa *model.Vpa,
 	matchingPods []model.PodID,
-) logic.RecommendedPodResources {
-	return logic.RecommendedPodResources{}
+) (logic.RecommendedPodResources, error) {
+	return logic.RecommendedPodResources{}, m.err
 }
 
 // TestProcessUpdateVPAsConcurrency tests processVPAUpdate for race conditions when run concurrently
@@ -355,56 +354,23 @@ func (k mockAggregateStateKey) Labels() labels.Labels {
 	return labels
 }
 
-func TestParsePolicyRef(t *testing.T) {
-	tests := []struct {
-		name            string
-		ref             string
-		wantNamespace   string
-		wantName        string
-		wantOk          bool
-	}{
-		{
-			name:          "valid ref",
-			ref:           "kube-system/my-policy",
-			wantNamespace: "kube-system",
-			wantName:      "my-policy",
-			wantOk:        true,
-		},
-		{
-			name:    "empty string",
-			ref:     "",
-			wantOk:  false,
-		},
-		{
-			name:    "missing slash",
-			ref:     "mypolicy",
-			wantOk:  false,
-		},
-		{
-			name:    "empty namespace",
-			ref:     "/my-policy",
-			wantOk:  false,
-		},
-		{
-			name:    "empty name",
-			ref:     "kube-system/",
-			wantOk:  false,
-		},
-		{
-			name:    "multiple slashes",
-			ref:     "a/b/c",
-			wantOk:  false,
-		},
+func TestProcessVPAUpdateReturnsWhenRecommendationFails(t *testing.T) {
+	vpaID := model.VpaID{Namespace: "default", VpaName: "test-vpa"}
+	selector, err := labels.Parse("app=test")
+	assert.NoError(t, err)
+	vpa := model.NewVpa(vpaID, selector, time.Now())
+	observedVPA := test.VerticalPodAutoscaler().
+		WithName(vpaID.VpaName).
+		WithNamespace(vpaID.Namespace).
+		WithContainer("app").
+		Get()
+	mock := &mockPodResourceRecommender{err: assert.AnError}
+	r := &recommender{
+		clusterState:           model.NewClusterState(time.Minute),
+		podResourceRecommender: mock,
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ns, name, ok := parsePolicyRef(tt.ref)
-			assert.Equal(t, tt.wantOk, ok)
-			if ok {
-				assert.Equal(t, tt.wantNamespace, ns)
-				assert.Equal(t, tt.wantName, name)
-			}
-		})
-	}
+	processVPAUpdate(r, vpa, observedVPA)
+
+	assert.False(t, vpa.HasRecommendation())
 }
