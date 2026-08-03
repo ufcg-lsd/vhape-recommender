@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -59,6 +60,7 @@ func newTestPolicyObject(namespace, name string, spec map[string]interface{}) *u
 			"metadata": map[string]interface{}{
 				"namespace": namespace,
 				"name":      name,
+				"uid":       "uid-" + namespace + "-" + name,
 			},
 			"spec": spec,
 		},
@@ -100,6 +102,7 @@ func newTestVPA(namespace, name, policyRef string) *model.Vpa {
 
 func newEstimatorPolicy(namespace, name string) *VhapePolicy {
 	return &VhapePolicy{
+		UID:       types.UID("uid-" + namespace + "-" + name),
 		Namespace: namespace,
 		Name:      name,
 		Spec: VhapePolicySpec{
@@ -424,8 +427,12 @@ func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 
 	assert.NotNil(t, est.CPU)
 	assert.NotNil(t, est.Memory)
-	assert.Equal(t, "default", est.policyNamespace)
-	assert.Equal(t, "policy-a", est.policyName)
+
+	assert.Equal(
+		t,
+		types.UID("uid-default-policy-a"),
+		est.policyUID,
+	)
 }
 
 func TestGetOrCreateEstimatorsReturnsCachedForSamePolicy(t *testing.T) {
@@ -447,7 +454,11 @@ func TestGetOrCreateEstimatorsRecreatesWhenPolicyChanges(t *testing.T) {
 	second := r.getOrCreateEstimators(vpa, newEstimatorPolicy("default", "policy-b"))
 
 	assert.NotSame(t, first, second)
-	assert.Equal(t, "policy-b", second.policyName)
+	assert.Equal(
+		t,
+		types.UID("uid-default-policy-b"),
+		second.policyUID,
+	)
 	assert.Same(t, second, r.estimators[vpa.ID])
 }
 
@@ -640,8 +651,7 @@ func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testi
 			vpa.ID: {
 				CPU:             cpuEstimator,
 				Memory:          memoryEstimator,
-				policyNamespace: "default",
-				policyName:      "policy",
+				policyUID: types.UID("uid-default-policy"),
 			},
 		},
 	}
@@ -684,7 +694,31 @@ func TestGetRecommendedPodResourcesRecreatesEstimatorsAfterPolicyAnnotationChang
 	second := r.estimators[vpa.ID]
 
 	assert.NotSame(t, first, second)
-	assert.Equal(t, "policy-b", second.policyName)
+	assert.Equal(
+		t,
+		types.UID("uid-default-policy-b"),
+		second.policyUID,
+	)
+}
+
+func TestGetOrCreateEstimatorsRecreatesWhenPolicyUIDChanges(t *testing.T) {
+	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
+	r := &podResourceRecommender{
+		estimators: make(map[model.VpaID]*ResourceEstimators),
+	}
+
+	firstPolicy := newEstimatorPolicy("default", "policy-a")
+	firstPolicy.UID = types.UID("policy-uid-1")
+
+	secondPolicy := newEstimatorPolicy("default", "policy-a")
+	secondPolicy.UID = types.UID("policy-uid-2")
+
+	first := r.getOrCreateEstimators(vpa, firstPolicy)
+	second := r.getOrCreateEstimators(vpa, secondPolicy)
+
+	assert.NotSame(t, first, second)
+	assert.Equal(t, types.UID("policy-uid-2"), second.policyUID)
+	assert.Same(t, second, r.estimators[vpa.ID])
 }
 
 func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {

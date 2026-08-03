@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"k8s.io/apimachinery/pkg/types"
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
@@ -54,9 +55,7 @@ type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 type ResourceEstimators struct {
 	CPU    estimators.ResourceEstimator
 	Memory estimators.ResourceEstimator
-
-	policyNamespace string
-	policyName      string
+	policyUID types.UID
 }
 
 // podResourceRecommender is the default PodResourceRecommender implementation.
@@ -204,16 +203,20 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 
 // getOrCreateEstimators returns the estimators associated with a VPA.
 // The estimators are recreated when the VPA annotation points to another policy.
-func (r *podResourceRecommender) getOrCreateEstimators(vpa *model.Vpa, policy *VhapePolicy) *ResourceEstimators {
+func (r *podResourceRecommender) getOrCreateEstimators(
+	vpa *model.Vpa,
+	policy *VhapePolicy,
+) *ResourceEstimators {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if cached, ok := r.estimators[vpa.ID]; ok {
-		if cached.policyNamespace == policy.Namespace && cached.policyName == policy.Name {
+		if cached.policyUID == policy.UID {
 			klog.V(4).InfoS(
 				"Cached estimators found",
 				"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
 				"policy", klog.KRef(policy.Namespace, policy.Name),
+				"policyUID", policy.UID,
 			)
 			return cached
 		}
@@ -221,16 +224,16 @@ func (r *podResourceRecommender) getOrCreateEstimators(vpa *model.Vpa, policy *V
 		klog.InfoS(
 			"VPA policy changed; estimators discarded",
 			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
-			"oldPolicy", klog.KRef(cached.policyNamespace, cached.policyName),
+			"oldPolicyUID", cached.policyUID,
 			"newPolicy", klog.KRef(policy.Namespace, policy.Name),
+			"newPolicyUID", policy.UID,
 		)
 	}
 
 	created := &ResourceEstimators{
-		CPU:             policy.Spec.Resources.CPU.Heuristic.NewEstimator(model.ResourceCPU),
-		Memory:          policy.Spec.Resources.Memory.Heuristic.NewEstimator(model.ResourceMemory),
-		policyNamespace: policy.Namespace,
-		policyName:      policy.Name,
+		CPU:       policy.Spec.Resources.CPU.Heuristic.NewEstimator(model.ResourceCPU),
+		Memory:    policy.Spec.Resources.Memory.Heuristic.NewEstimator(model.ResourceMemory),
+		policyUID: policy.UID,
 	}
 
 	r.estimators[vpa.ID] = created
