@@ -97,7 +97,7 @@ case MyHeuristic:
 
 ### Step 5. Update the CRD schema
 
-Update `yamls/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic.
+Update `charts/vhape-recommender/crds/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic.
 
 Example:
 
@@ -191,7 +191,7 @@ func SelectScalingRule(name string) ScalingRule {
 
 ### Step 4. Update the CRD enum
 
-In `yamls/vhapepolicy-crd.yaml`, add the new rule to the `scalingRule` enum:
+In `charts/vhape-recommender/crds/vhapepolicy-crd.yaml`, add the new rule to the `scalingRule` enum:
 
 ```yaml
 scalingRule:
