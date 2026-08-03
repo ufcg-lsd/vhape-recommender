@@ -3,6 +3,9 @@ kind: VerticalPodAutoscaler
 metadata:
   name: vhape-vpa-object
   namespace: default
+  labels:
+    # marks this VPA as using the VHAPE recommender
+    autoscaling.vhape.io/recommender: "vhape-recommender"
   annotations:
     # Reference to the VhapePolicy used to calculate recommendations
     vhape/policy: "kube-system/vhape-policy-p93-default"
