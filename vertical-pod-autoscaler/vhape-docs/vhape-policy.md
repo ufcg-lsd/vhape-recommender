@@ -33,6 +33,9 @@ spec:
   scalingRule: ""
 ```
 
+`VhapePolicy.spec` is immutable. After a policy is created, its CPU heuristic, memory heuristic, parameters, and scaling rule cannot be edited in place. To change policy behavior, create another `VhapePolicy`.
+
+
 ## Resource heuristics
 
 `spec.resources` must define both `cpu` and `memory`.
