@@ -1,0 +1,69 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vhapeignoredworkloads.autoscaling.vhape.io
+spec:
+  group: autoscaling.vhape.io
+  scope: Cluster
+  names:
+    plural: vhapeignoredworkloads
+    singular: vhapeignoredworkload
+    kind: VhapeIgnoredWorkload
+    listKind: VhapeIgnoredWorkloadList
+    shortNames:
+      - viw
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: Marks a workload that must be ignored by VHAPE Watcher.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - targetRef
+              properties:
+                targetRef:
+                  type: object
+                  required:
+                    - apiVersion
+                    - kind
+                    - namespace
+                    - name
+                  properties:
+                    apiVersion:
+                      type: string
+                      example: apps/v1
+                    kind:
+                      type: string
+                      example: Deployment
+                    namespace:
+                      type: string
+                      example: producao
+                    name:
+                      type: string
+                      example: api-legada
+                reason:
+                  type: string
+      additionalPrinterColumns:
+        - name: Kind
+          type: string
+          jsonPath: .spec.targetRef.kind
+        - name: Namespace
+          type: string
+          jsonPath: .spec.targetRef.namespace
+        - name: Name
+          type: string
+          jsonPath: .spec.targetRef.name
+        - name: Reason
+          type: string
+          jsonPath: .spec.reason

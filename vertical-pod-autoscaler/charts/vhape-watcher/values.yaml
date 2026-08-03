@@ -1,0 +1,17 @@
+image:
+  repository: vtexlsd/vhape-watcher
+  tag: ""
+  pullPolicy: IfNotPresent
+
+config:
+  workers: 1
+  kubeApiQps: 10
+  kubeApiBurst: 20
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 256Mi

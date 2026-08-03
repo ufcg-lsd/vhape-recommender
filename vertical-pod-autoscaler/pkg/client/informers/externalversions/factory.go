@@ -28,6 +28,7 @@ import (
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	versioned "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
 	autoscalingk8sio "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io"
+	autoscalingvhapeio "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.vhape.io"
 	internalinterfaces "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/internalinterfaces"
 	pocautoscalingk8sio "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/poc.autoscaling.k8s.io"
 	cache "k8s.io/client-go/tools/cache"
@@ -257,11 +258,16 @@ type SharedInformerFactory interface {
 	InformerFor(obj runtime.Object, newFunc internalinterfaces.NewInformerFunc) cache.SharedIndexInformer
 
 	Autoscaling() autoscalingk8sio.Interface
+	VhapeAutoscaling() autoscalingvhapeio.Interface
 	Poc() pocautoscalingk8sio.Interface
 }
 
 func (f *sharedInformerFactory) Autoscaling() autoscalingk8sio.Interface {
 	return autoscalingk8sio.New(f, f.namespace, f.tweakListOptions)
+}
+
+func (f *sharedInformerFactory) VhapeAutoscaling() autoscalingvhapeio.Interface {
+	return autoscalingvhapeio.New(f, f.namespace, f.tweakListOptions)
 }
 
 func (f *sharedInformerFactory) Poc() pocautoscalingk8sio.Interface {
