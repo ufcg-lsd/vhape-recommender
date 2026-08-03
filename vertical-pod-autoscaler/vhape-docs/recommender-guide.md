@@ -61,42 +61,20 @@ For policy configuration, heuristics, scaling rules, and recommendation constrai
 
 ### 3. Create a VPA object
 
-This repository provides an example at:
-
-```text
-vertical-pod-autoscaler/pkg/recommender/yamls/vpa_object.yaml
-```
-
 The created VPA object must meet the following requirements:
 
 - It must be created in the same namespace as the target workload.
+- It must define spec.targetRef to identify the workload whose containers will receive resource recommendations.
 - It must include the `autoscaling.vhape.io/recommender` label set to `vhape-recommender`.
 - It must include the `vhape/policy` annotation, which selects a `VhapePolicy`. The annotation value must use the `<namespace>/<name>` format, for example `kube-system/vhape-policy-p93-default`.
 - The `spec.recommenders[].name` field must select the VHAPE Recommender `vhape-recommender`.
 
 Optionally, set `updateMode: "Off"` to generate recommendations without applying them automatically.
 
-Example:
+This repository provides an example at:
 
-```yaml
-apiVersion: autoscaling.k8s.io/v1
-kind: VerticalPodAutoscaler
-metadata:
-  name: my-app-vpa
-  namespace: default
-  labels:
-    autoscaling.vhape.io/recommender: "vhape-recommender"
-  annotations:
-    vhape/policy: "kube-system/vhape-policy-p93-default"
-spec:
-  targetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: my-app
-  recommenders:
-    - name: vhape-recommender
-  updatePolicy:
-    updateMode: "Recreate"
+```text
+vertical-pod-autoscaler/pkg/recommender/yamls/vpa_object_example.yaml
 ```
 
 Apply the VPA object:
@@ -128,12 +106,11 @@ status:
 
 ## Operational notes
 
-### Estimator cache lifecycle
+### Changes to the associated VHAPE policy restart estimators
 
-Estimators are cached by VPA namespace/name. This means their sample history persists across recommender loops for the same VPA.
+If the `VhapePolicy` annotation on the VPA object changes after the estimators have been created, the existing estimators are recreated using the new policy configuration.
 
-If a `VhapePolicy` is changed after estimators have already been created, the existing estimators may continue using the old configuration until the recommender restarts.
-
+Because estimators retain container usage history, recreating them causes that history to be lost.
 
 ### Capping and post-processing
 

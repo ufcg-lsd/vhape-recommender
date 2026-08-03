@@ -119,6 +119,6 @@ For a `24h` sliding window, this means samples must span at least about 29 minut
 If there is not enough coverage, the estimator falls back to:
 
 1. `CurrentRequest`, when it is greater than zero;
-2. `Min`, when the current request is missing or zero.
+2. The default minimum value configured through VPA global flags, when the current request is missing.
 
 This avoids making aggressive recommendations from too little data.
