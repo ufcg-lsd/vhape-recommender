@@ -27,6 +27,8 @@ type PodResourceRecommender interface {
 		vpa *model.Vpa,
 		matchingPods []model.PodID,
 	) (RecommendedPodResources, error)
+
+	Free(vpaID model.VpaID)
 }
 
 // PodRecommendationLimits contains global pod minimum recommendation limits.
@@ -359,6 +361,22 @@ func (r *podResourceRecommender) applyScalingRule(
 	return rule.Apply(rec, containerName, resourceName, currentRequest)
 }
 
+func (r *podResourceRecommender) Free(vpaID model.VpaID) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, found := r.estimators[vpaID]; !found {
+		return
+	}
+
+	delete(r.estimators, vpaID)
+
+	klog.V(3).InfoS(
+		"VPA estimators released",
+		"vpa", klog.KRef(vpaID.Namespace, vpaID.VpaName),
+	)
+}
+
 // FilterControlledResources returns estimations from 'estimation' only for resources present in 'controlledResources'.
 func FilterControlledResources(estimation model.Resources, controlledResources []model.ResourceName) model.Resources {
 	result := make(model.Resources)
@@ -391,3 +409,4 @@ func MapToListOfRecommendedContainerResources(resources RecommendedPodResources,
 		ContainerRecommendations: containerResources,
 	}
 }
+
