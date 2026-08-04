@@ -17,6 +17,7 @@ limitations under the License.
 package routines
 
 import (
+	"context"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -30,6 +31,7 @@ import (
 
 	v1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpa_fake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	metrics_recommender "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/metrics/recommender"
@@ -38,6 +40,7 @@ import (
 
 type mockPodResourceRecommender struct {
 	err   error
+	freed []model.VpaID
 }
 
 func (m *mockPodResourceRecommender) GetRecommendedPodResources(
@@ -46,6 +49,21 @@ func (m *mockPodResourceRecommender) GetRecommendedPodResources(
 	matchingPods []model.PodID,
 ) (logic.RecommendedPodResources, error) {
 	return logic.RecommendedPodResources{}, m.err
+}
+
+func (m *mockPodResourceRecommender) Free(vpaID model.VpaID) {
+	m.freed = append(m.freed, vpaID)
+}
+
+type mockClusterStateFeeder struct {
+	input.ClusterStateFeeder
+	loadVPAsFn func(context.Context)
+}
+
+func (m *mockClusterStateFeeder) LoadVPAs(ctx context.Context) {
+	if m.loadVPAsFn != nil {
+		m.loadVPAsFn(ctx)
+	}
 }
 
 // TestProcessUpdateVPAsConcurrency tests processVPAUpdate for race conditions when run concurrently
@@ -373,4 +391,113 @@ func TestProcessVPAUpdateReturnsWhenRecommendationFails(t *testing.T) {
 	processVPAUpdate(r, vpa, observedVPA)
 
 	assert.False(t, vpa.HasRecommendation())
+}
+
+func TestLoadVPAsFreesEstimatorsForDeletedVPA(t *testing.T) {
+	clusterState := model.NewClusterState(time.Minute)
+	vpaID := model.VpaID{
+		Namespace: "default",
+		VpaName:   "deleted-vpa",
+	}
+
+	apiVPA := test.VerticalPodAutoscaler().
+		WithName(vpaID.VpaName).
+		WithNamespace(vpaID.Namespace).
+		WithContainer("app").
+		Get()
+
+	assert.NoError(
+		t,
+		clusterState.AddOrUpdateVpa(apiVPA, labels.Everything()),
+	)
+
+	podRecommender := &mockPodResourceRecommender{}
+
+	r := &recommender{
+		clusterState: clusterState,
+		clusterStateFeeder: &mockClusterStateFeeder{
+			loadVPAsFn: func(context.Context) {
+				assert.NoError(t, clusterState.DeleteVpa(vpaID))
+			},
+		},
+		podResourceRecommender: podRecommender,
+	}
+
+	r.loadVPAs(context.Background())
+
+	assert.Equal(t, []model.VpaID{vpaID}, podRecommender.freed)
+}
+
+func TestLoadVPAsKeepsEstimatorsForUnchangedVPA(t *testing.T) {
+	clusterState := model.NewClusterState(time.Minute)
+	vpaID := model.VpaID{
+		Namespace: "default",
+		VpaName:   "existing-vpa",
+	}
+
+	apiVPA := test.VerticalPodAutoscaler().
+		WithName(vpaID.VpaName).
+		WithNamespace(vpaID.Namespace).
+		WithContainer("app").
+		Get()
+
+	assert.NoError(
+		t,
+		clusterState.AddOrUpdateVpa(apiVPA, labels.Everything()),
+	)
+
+	podRecommender := &mockPodResourceRecommender{}
+
+	r := &recommender{
+		clusterState: clusterState,
+		clusterStateFeeder: &mockClusterStateFeeder{
+			loadVPAsFn: func(context.Context) {},
+		},
+		podResourceRecommender: podRecommender,
+	}
+
+	r.loadVPAs(context.Background())
+
+	assert.Empty(t, podRecommender.freed)
+}
+
+func TestLoadVPAsFreesEstimatorsForReplacedVPA(t *testing.T) {
+	clusterState := model.NewClusterState(time.Minute)
+	vpaID := model.VpaID{
+		Namespace: "default",
+		VpaName:   "replaced-vpa",
+	}
+
+	apiVPA := test.VerticalPodAutoscaler().
+		WithName(vpaID.VpaName).
+		WithNamespace(vpaID.Namespace).
+		WithContainer("app").
+		Get()
+
+	assert.NoError(
+		t,
+		clusterState.AddOrUpdateVpa(apiVPA, labels.Everything()),
+	)
+
+	originalVPA := clusterState.VPAs()[vpaID]
+	podRecommender := &mockPodResourceRecommender{}
+
+	r := &recommender{
+		clusterState: clusterState,
+		clusterStateFeeder: &mockClusterStateFeeder{
+			loadVPAsFn: func(context.Context) {
+				assert.NoError(t, clusterState.DeleteVpa(vpaID))
+				assert.NoError(
+					t,
+					clusterState.AddOrUpdateVpa(apiVPA, labels.Nothing()),
+				)
+			},
+		},
+		podResourceRecommender: podRecommender,
+	}
+
+	r.loadVPAs(context.Background())
+
+	assert.NotSame(t, originalVPA, clusterState.VPAs()[vpaID])
+	assert.Equal(t, []model.VpaID{vpaID}, podRecommender.freed)
 }

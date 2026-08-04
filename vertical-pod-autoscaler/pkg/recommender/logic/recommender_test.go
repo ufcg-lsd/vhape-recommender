@@ -783,3 +783,38 @@ func TestCreatePodResourceRecommender(t *testing.T) {
 	rec := CreatePodResourceRecommender(PodRecommendationLimits{}, client, mc)
 	assert.NotNil(t, rec)
 }
+
+func TestFreeRemovesOnlyRequestedVPAEstimators(t *testing.T) {
+	vpaA := newTestVPA("default", "vpa-a", "default/policy")
+	vpaB := newTestVPA("default", "vpa-b", "default/policy")
+
+	r := &podResourceRecommender{
+		estimators: map[model.VpaID]*ResourceEstimators{
+			vpaA.ID: &ResourceEstimators{},
+			vpaB.ID: &ResourceEstimators{},
+		},
+	}
+
+	r.Free(vpaA.ID)
+
+	assert.NotContains(t, r.estimators, vpaA.ID)
+	assert.Contains(t, r.estimators, vpaB.ID)
+}
+
+func TestFreeDoesNothingWhenEstimatorsDoNotExist(t *testing.T) {
+	vpaID := model.VpaID{
+		Namespace: "default",
+		VpaName:   "missing-vpa",
+	}
+
+	r := &podResourceRecommender{
+		estimators: make(map[model.VpaID]*ResourceEstimators),
+	}
+
+	assert.NotPanics(t, func() {
+		r.Free(vpaID)
+		r.Free(vpaID)
+	})
+
+	assert.Empty(t, r.estimators)
+}
