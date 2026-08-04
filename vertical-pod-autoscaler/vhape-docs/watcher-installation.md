@@ -41,6 +41,15 @@ Check logs:
 kubectl logs -n kube-system deploy/vhape-watcher
 ```
 
+## Upgrading watcher CRDs
+
+Helm installs files from a chart's `crds/` directory on the first installation, but it does not upgrade those CRDs on later releases. Apply the current CRD explicitly if you're upgrading your current release:
+
+```bash
+kubectl apply -f vertical-pod-autoscaler/charts/vhape-watcher/crds/vhapewatchednamespace-crd.yaml
+kubectl apply -f vertical-pod-autoscaler/charts/vhape-watcher/crds/vhapeignoredworkload-crd.yaml
+```
+
 ## Next steps
 
 See the [VHAPE Watcher guide](watcher-guide.md) to configure watched namespaces and workload exceptions.

@@ -78,6 +78,14 @@ Check logs:
 kubectl logs -n kube-system deploy/vhape-recommender
 ```
 
+## Upgrading the chart and CRD
+
+Helm installs files from a chart's `crds/` directory on the first installation, but it does not upgrade those CRDs on later releases. Apply the current CRD explicitly if you're upgrading your current release:
+
+```bash
+kubectl apply -f vertical-pod-autoscaler/charts/vhape-recommender/crds/vhapepolicy-crd.yaml
+```
+
 ## Next steps
 
 See the [VHAPE Recommender guide](recommender-guide.md) to setup the VHAPE recommender and inspect recommendations.

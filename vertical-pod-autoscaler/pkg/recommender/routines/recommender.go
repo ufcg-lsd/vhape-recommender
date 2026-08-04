@@ -20,7 +20,7 @@ import (
 	"context"
 	"sync"
 	"time"
-	"strings"
+
 	"k8s.io/klog/v2"
 
 	vpaautoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -76,21 +76,22 @@ func (r *recommender) GetClusterStateFeeder() input.ClusterStateFeeder {
 }
 
 func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalingv1.VerticalPodAutoscaler) {
-	policyNamespace, policyName, ok := parsePolicyRef(vpa.Annotations["vhape/policy"])
-	if !ok {
-		klog.Warningf("Skipping VPA %q/%q: invalid or missing vhape/policy annotation. Expected format: <namespace>/<name>", observedVpa.Namespace, observedVpa.Name)
+	resources, err := r.podResourceRecommender.GetRecommendedPodResources(
+		GetContainerNameToAggregateStateMap(vpa),
+		vpa,
+		r.clusterState.GetMatchingPods(vpa),
+	)
+
+	if err != nil {
+		klog.Errorf(
+			"Failed to get resource recommendation for VPA %q/%q: %v",
+			observedVpa.Namespace,
+			observedVpa.Name,
+			err,
+		)
 		return
 	}
 
-	resources := r.podResourceRecommender.GetRecommendedPodResources(
-		GetContainerNameToAggregateStateMap(vpa),
-		observedVpa.Namespace,
-		observedVpa.Name,
-		policyNamespace,
-		policyName,
-		r.clusterState.GetMatchingPods(vpa),
-	)
-	
 	had := vpa.HasRecommendation()
 
 	listOfResourceRecommendation := logic.MapToListOfRecommendedContainerResources(resources, r.recommendationFormat)
@@ -116,7 +117,7 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 		}
 	}
 
-	_, err := vpa_utils.UpdateVpaStatusIfNeeded(
+	_, err = vpa_utils.UpdateVpaStatusIfNeeded(
 		r.vpaClient.VerticalPodAutoscalers(vpa.ID.Namespace), vpa.ID.VpaName, vpa.AsStatus(), &observedVpa.Status)
 	if err != nil {
 		klog.ErrorS(err, "Cannot update VPA", "vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName))
@@ -248,12 +249,4 @@ func (c RecommenderFactory) Make() Recommender {
 	}
 	klog.V(3).InfoS("New Recommender created", "recommender", recommender)
 	return recommender
-}
-
-func parsePolicyRef(ref string) (string, string, bool) {
-	parts := strings.Split(ref, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
 }

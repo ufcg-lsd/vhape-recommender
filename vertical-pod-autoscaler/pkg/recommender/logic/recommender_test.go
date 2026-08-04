@@ -9,8 +9,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -32,9 +34,16 @@ func (m *mockMetricsClient) GetContainersMetrics(_ context.Context) ([]*input_me
 
 type mockResourceEstimator struct {
 	recommendations map[string]recommendation.SingleResourceRecommendation
+	feedCalls       map[string][][]model.ResourceAmount
 }
 
-func (m *mockResourceEstimator) FeedSamples(_ string, _ []model.ResourceAmount) {}
+func (m *mockResourceEstimator) FeedSamples(containerName string, samples []model.ResourceAmount) {
+	if m.feedCalls == nil {
+		m.feedCalls = make(map[string][][]model.ResourceAmount)
+	}
+	copied := append([]model.ResourceAmount(nil), samples...)
+	m.feedCalls[containerName] = append(m.feedCalls[containerName], copied)
+}
 
 func (m *mockResourceEstimator) GetSingleResourceRecommendation(containerName string, _ estimators.ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
 	if r, ok := m.recommendations[containerName]; ok {
@@ -51,6 +60,7 @@ func newTestPolicyObject(namespace, name string, spec map[string]interface{}) *u
 			"metadata": map[string]interface{}{
 				"namespace": namespace,
 				"name":      name,
+				"uid":       "uid-" + namespace + "-" + name,
 			},
 			"spec": spec,
 		},
@@ -73,6 +83,40 @@ func newTestPolicySpec() map[string]interface{} {
 					"headroom":      0.1,
 					"slidingWindow": "1h",
 				},
+			},
+		},
+	}
+}
+
+func newTestVPA(namespace, name, policyRef string) *model.Vpa {
+	vpa := model.NewVpa(
+		model.VpaID{Namespace: namespace, VpaName: name},
+		labels.Everything(),
+		time.Now(),
+	)
+	if policyRef != "" {
+		vpa.Annotations[vhapePolicyAnnotation] = policyRef
+	}
+	return vpa
+}
+
+func newEstimatorPolicy(namespace, name string) *VhapePolicy {
+	return &VhapePolicy{
+		UID:       types.UID("uid-" + namespace + "-" + name),
+		Namespace: namespace,
+		Name:      name,
+		Spec: VhapePolicySpec{
+			Resources: VhapeResourcesSpec{
+				CPU: VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{
+					Percentile:    0.9,
+					Headroom:      0.1,
+					SlidingWindow: time.Hour,
+				}},
+				Memory: VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{
+					Percentile:    0.9,
+					Headroom:      0.1,
+					SlidingWindow: time.Hour,
+				}},
 			},
 		},
 	}
@@ -326,8 +370,9 @@ func TestCollectCurrentUsageReturnsMetrics(t *testing.T) {
 	}
 
 	r := &podResourceRecommender{metricsClient: mc}
-	usage := r.collectCurrentUsage([]model.PodID{podID})
+	usage, err := r.collectCurrentUsage([]model.PodID{podID})
 
+	assert.NoError(t, err)
 	assert.Equal(t, model.ResourceAmount(200), usage.CPU["app"][0])
 	assert.Equal(t, model.ResourceAmount(512), usage.Memory["app"][0])
 }
@@ -343,117 +388,88 @@ func TestCollectCurrentUsageFiltersNonMatchingPods(t *testing.T) {
 				ID:             model.ContainerID{PodID: matchingPod, ContainerName: "app"},
 				SnapshotTime:   now,
 				SnapshotWindow: time.Minute,
-				Usage: model.Resources{model.ResourceCPU: 100, model.ResourceMemory: 256},
+				Usage:          model.Resources{model.ResourceCPU: 100, model.ResourceMemory: 256},
 			},
 			{
 				ID:             model.ContainerID{PodID: otherPod, ContainerName: "app"},
 				SnapshotTime:   now,
 				SnapshotWindow: time.Minute,
-				Usage: model.Resources{model.ResourceCPU: 300, model.ResourceMemory: 768},
+				Usage:          model.Resources{model.ResourceCPU: 300, model.ResourceMemory: 768},
 			},
 		},
 	}
 
 	r := &podResourceRecommender{metricsClient: mc}
-	usage := r.collectCurrentUsage([]model.PodID{matchingPod})
+	usage, err := r.collectCurrentUsage([]model.PodID{matchingPod})
 
+	assert.NoError(t, err)
 	assert.Len(t, usage.CPU["app"], 1)
 	assert.Equal(t, model.ResourceAmount(100), usage.CPU["app"][0])
 }
 
-func TestCollectCurrentUsageReturnsEmptyOnError(t *testing.T) {
+func TestCollectCurrentUsageReturnsErrorWithoutEmptyPoints(t *testing.T) {
 	mc := &mockMetricsClient{err: assert.AnError}
 
 	r := &podResourceRecommender{metricsClient: mc}
-	usage := r.collectCurrentUsage([]model.PodID{{Namespace: "default", PodName: "pod-1"}})
+	usage, err := r.collectCurrentUsage([]model.PodID{{Namespace: "default", PodName: "pod-1"}})
 
-	assert.Empty(t, usage.CPU)
-	assert.Empty(t, usage.Memory)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Nil(t, usage.CPU)
+	assert.Nil(t, usage.Memory)
 }
 
 func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
-	policy := &VhapePolicy{
-		Spec: VhapePolicySpec{
-			Resources: VhapeResourcesSpec{
-				CPU: VhapeResourceSpec{
-					Heuristic: &PercentileHysteresisSpec{
-						Percentile:    0.9,
-						Headroom:      0.1,
-						SlidingWindow: time.Hour,
-					},
-				},
-				Memory: VhapeResourceSpec{
-					Heuristic: &PercentileHysteresisSpec{
-						Percentile:    0.9,
-						Headroom:      0.1,
-						SlidingWindow: time.Hour,
-					},
-				},
-			},
-		},
-	}
+	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
+	policy := newEstimatorPolicy("default", "policy-a")
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	r := &podResourceRecommender{estimators: make(map[string]*ResourceEstimators)}
-	est := r.getOrCreateEstimators("default", "my-vpa", policy)
+	est := r.getOrCreateEstimators(vpa, policy)
 
 	assert.NotNil(t, est.CPU)
 	assert.NotNil(t, est.Memory)
+
+	assert.Equal(
+		t,
+		types.UID("uid-default-policy-a"),
+		est.policyUID,
+	)
 }
 
-func TestGetOrCreateEstimatorsReturnsCached(t *testing.T) {
-	policy := &VhapePolicy{
-		Spec: VhapePolicySpec{
-			Resources: VhapeResourcesSpec{
-				CPU: VhapeResourceSpec{
-					Heuristic: &PercentileHysteresisSpec{
-						Percentile:    0.9,
-						Headroom:      0.1,
-						SlidingWindow: time.Hour,
-					},
-				},
-				Memory: VhapeResourceSpec{
-					Heuristic: &PercentileHysteresisSpec{
-						Percentile:    0.9,
-						Headroom:      0.1,
-						SlidingWindow: time.Hour,
-					},
-				},
-			},
-		},
-	}
+func TestGetOrCreateEstimatorsReturnsCachedForSamePolicy(t *testing.T) {
+	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
+	policy := newEstimatorPolicy("default", "policy-a")
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	r := &podResourceRecommender{estimators: make(map[string]*ResourceEstimators)}
-	first := r.getOrCreateEstimators("default", "my-vpa", policy)
-	second := r.getOrCreateEstimators("default", "my-vpa", policy)
+	first := r.getOrCreateEstimators(vpa, policy)
+	second := r.getOrCreateEstimators(vpa, policy)
 
 	assert.Same(t, first, second)
 }
 
-func TestGetOrCreateEstimatorsSeparatesByVPA(t *testing.T) {
-	policy := &VhapePolicy{
-		Spec: VhapePolicySpec{
-			Resources: VhapeResourcesSpec{
-				CPU: VhapeResourceSpec{
-					Heuristic: &PercentileHysteresisSpec{
-						Percentile:    0.9,
-						Headroom:      0.1,
-						SlidingWindow: time.Hour,
-					},
-				},
-				Memory: VhapeResourceSpec{
-					Heuristic: &PercentileHysteresisSpec{
-						Percentile:    0.9,
-						Headroom:      0.1,
-						SlidingWindow: time.Hour,
-					},
-				},
-			},
-		},
-	}
+func TestGetOrCreateEstimatorsRecreatesWhenPolicyChanges(t *testing.T) {
+	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	r := &podResourceRecommender{estimators: make(map[string]*ResourceEstimators)}
-	first := r.getOrCreateEstimators("default", "vpa-a", policy)
-	second := r.getOrCreateEstimators("default", "vpa-b", policy)
+	first := r.getOrCreateEstimators(vpa, newEstimatorPolicy("default", "policy-a"))
+	second := r.getOrCreateEstimators(vpa, newEstimatorPolicy("default", "policy-b"))
+
+	assert.NotSame(t, first, second)
+	assert.Equal(
+		t,
+		types.UID("uid-default-policy-b"),
+		second.policyUID,
+	)
+	assert.Same(t, second, r.estimators[vpa.ID])
+}
+
+func TestGetOrCreateEstimatorsSeparatesByVPA(t *testing.T) {
+	policy := newEstimatorPolicy("default", "policy-a")
+	vpaA := newTestVPA("default", "vpa-a", "default/policy-a")
+	vpaB := newTestVPA("default", "vpa-b", "default/policy-a")
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+
+	first := r.getOrCreateEstimators(vpaA, policy)
+	second := r.getOrCreateEstimators(vpaB, policy)
 
 	assert.NotSame(t, first, second)
 }
@@ -468,14 +484,23 @@ func TestFetchPolicyReturnsValidPolicy(t *testing.T) {
 	)
 
 	r := &podResourceRecommender{dynamicClient: client}
-	policy, ok := r.fetchPolicy("default", "my-policy")
+	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "default/my-policy"))
 
-	assert.True(t, ok)
+	assert.NoError(t, err)
 	assert.NotNil(t, policy)
 	assert.Equal(t, "my-policy", policy.Name)
 }
 
-func TestFetchPolicyReturnsFalseOnError(t *testing.T) {
+func TestFetchPolicyReturnsErrorForInvalidAnnotation(t *testing.T) {
+	r := &podResourceRecommender{}
+
+	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "invalid"))
+
+	assert.Nil(t, policy)
+	assert.ErrorContains(t, err, "invalid or missing vhape/policy annotation")
+}
+
+func TestFetchPolicyReturnsErrorWhenPolicyDoesNotExist(t *testing.T) {
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
 		runtime.NewScheme(),
 		map[schema.GroupVersionResource]string{
@@ -484,10 +509,11 @@ func TestFetchPolicyReturnsFalseOnError(t *testing.T) {
 	)
 
 	r := &podResourceRecommender{dynamicClient: client}
-	policy, ok := r.fetchPolicy("default", "missing")
+	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "default/missing"))
 
-	assert.False(t, ok)
 	assert.Nil(t, policy)
+	assert.Error(t, err)
+	assert.ErrorContains(t, err, `fetch policy "default/missing"`)
 }
 
 func TestRecommendContainerResourcesComputesFullRecommendation(t *testing.T) {
@@ -558,34 +584,141 @@ func TestRecommendContainerResourcesFiltersControlledResources(t *testing.T) {
 	assert.Equal(t, model.ResourceAmount(512), rec.Target[model.ResourceMemory])
 }
 
-func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
-	r := &podResourceRecommender{
-		estimators: make(map[string]*ResourceEstimators),
-	}
+func TestGetRecommendedPodResourcesReturnsErrorForNilVPA(t *testing.T) {
+	r := &podResourceRecommender{}
 
-	got := r.GetRecommendedPodResources(nil, "default", "vpa", "default", "policy", nil)
-	assert.Empty(t, got)
+	got, err := r.GetRecommendedPodResources(nil, nil, nil)
+
+	assert.Nil(t, got)
+	assert.ErrorContains(t, err, "VPA is nil")
 }
 
-func TestGetRecommendedPodResourcesNoPolicy(t *testing.T) {
+func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
 	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
 		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			VhapePolicyGVR: "VhapePolicyList",
-		},
+		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
+		newTestPolicyObject("default", "policy", newTestPolicySpec()),
 	)
-
 	r := &podResourceRecommender{
 		dynamicClient: client,
-		estimators:    make(map[string]*ResourceEstimators),
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
 	}
+	vpa := newTestVPA("default", "vpa", "default/policy")
 
+	got, err := r.GetRecommendedPodResources(nil, vpa, nil)
+
+	assert.NoError(t, err)
+	assert.Empty(t, got)
+	assert.Contains(t, r.estimators, vpa.ID)
+}
+
+func TestGetRecommendedPodResourcesReturnsPolicyError(t *testing.T) {
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
+	)
+	r := &podResourceRecommender{
+		dynamicClient: client,
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
+	}
 	containerStates := model.ContainerNameToAggregateStateMap{
 		"app": model.NewAggregateContainerState(),
 	}
 
-	got := r.GetRecommendedPodResources(containerStates, "default", "vpa", "default", "missing-policy", nil)
-	assert.Empty(t, got)
+	got, err := r.GetRecommendedPodResources(
+		containerStates,
+		newTestVPA("default", "vpa", "default/missing-policy"),
+		nil,
+	)
+
+	assert.Nil(t, got)
+	assert.Error(t, err)
+}
+
+func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testing.T) {
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
+		newTestPolicyObject("default", "policy", newTestPolicySpec()),
+	)
+	vpa := newTestVPA("default", "vpa", "default/policy")
+	cpuEstimator := &mockResourceEstimator{}
+	memoryEstimator := &mockResourceEstimator{}
+	r := &podResourceRecommender{
+		dynamicClient: client,
+		metricsClient: &mockMetricsClient{err: assert.AnError},
+		estimators: map[model.VpaID]*ResourceEstimators{
+			vpa.ID: {
+				CPU:             cpuEstimator,
+				Memory:          memoryEstimator,
+				policyUID: types.UID("uid-default-policy"),
+			},
+		},
+	}
+	containerStates := model.ContainerNameToAggregateStateMap{
+		"app": model.NewAggregateContainerState(),
+	}
+
+	got, err := r.GetRecommendedPodResources(
+		containerStates,
+		vpa,
+		[]model.PodID{{Namespace: "default", PodName: "pod-1"}},
+	)
+
+	assert.Nil(t, got)
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Empty(t, cpuEstimator.feedCalls)
+	assert.Empty(t, memoryEstimator.feedCalls)
+}
+
+func TestGetRecommendedPodResourcesRecreatesEstimatorsAfterPolicyAnnotationChange(t *testing.T) {
+	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
+		runtime.NewScheme(),
+		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
+		newTestPolicyObject("default", "policy-a", newTestPolicySpec()),
+		newTestPolicyObject("default", "policy-b", newTestPolicySpec()),
+	)
+	vpa := newTestVPA("default", "vpa", "default/policy-a")
+	r := &podResourceRecommender{
+		dynamicClient: client,
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
+	}
+
+	_, err := r.GetRecommendedPodResources(nil, vpa, nil)
+	assert.NoError(t, err)
+	first := r.estimators[vpa.ID]
+
+	vpa.Annotations[vhapePolicyAnnotation] = "default/policy-b"
+	_, err = r.GetRecommendedPodResources(nil, vpa, nil)
+	assert.NoError(t, err)
+	second := r.estimators[vpa.ID]
+
+	assert.NotSame(t, first, second)
+	assert.Equal(
+		t,
+		types.UID("uid-default-policy-b"),
+		second.policyUID,
+	)
+}
+
+func TestGetOrCreateEstimatorsRecreatesWhenPolicyUIDChanges(t *testing.T) {
+	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
+	r := &podResourceRecommender{
+		estimators: make(map[model.VpaID]*ResourceEstimators),
+	}
+
+	firstPolicy := newEstimatorPolicy("default", "policy-a")
+	firstPolicy.UID = types.UID("policy-uid-1")
+
+	secondPolicy := newEstimatorPolicy("default", "policy-a")
+	secondPolicy.UID = types.UID("policy-uid-2")
+
+	first := r.getOrCreateEstimators(vpa, firstPolicy)
+	second := r.getOrCreateEstimators(vpa, secondPolicy)
+
+	assert.NotSame(t, first, second)
+	assert.Equal(t, types.UID("policy-uid-2"), second.policyUID)
+	assert.Same(t, second, r.estimators[vpa.ID])
 }
 
 func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {
@@ -599,25 +732,23 @@ func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {
 
 	now := time.Now()
 	podID := model.PodID{Namespace: "default", PodName: "pod-1"}
-
+	
 	mc := &mockMetricsClient{
 		snapshots: []*input_metrics.ContainerMetricsSnapshot{
 			{
 				ID:             model.ContainerID{PodID: podID, ContainerName: "app"},
 				SnapshotTime:   now,
 				SnapshotWindow: time.Minute,
-				Usage: model.Resources{model.ResourceCPU: 200, model.ResourceMemory: 512},
+				Usage:          model.Resources{model.ResourceCPU: 200, model.ResourceMemory: 512},
 			},
 		},
 	}
-
 	r := &podResourceRecommender{
 		config:        PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100},
 		dynamicClient: client,
 		metricsClient: mc,
-		estimators:    make(map[string]*ResourceEstimators),
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
 	}
-
 	state := model.NewAggregateContainerState()
 	state.ObserveRequest(model.Resources{
 		model.ResourceCPU:    200,
@@ -626,17 +757,18 @@ func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {
 	state.UpdateFromPolicy(&vpa_types.ContainerResourcePolicy{
 		ControlledResources: &[]v1.ResourceName{v1.ResourceCPU, v1.ResourceMemory},
 	})
+	containerStates := model.ContainerNameToAggregateStateMap{"app": state}
 
-	containerStates := model.ContainerNameToAggregateStateMap{
-		"app": state,
-	}
+	got, err := r.GetRecommendedPodResources(
+		containerStates,
+		newTestVPA("default", "vpa", "default/my-policy"),
+		[]model.PodID{podID},
+	)
 
-	got := r.GetRecommendedPodResources(containerStates, "default", "vpa", "default", "my-policy", []model.PodID{podID})
-
+	assert.NoError(t, err)
 	assert.Contains(t, got, "app")
-	rec := got["app"]
-	assert.NotNil(t, rec.Target)
-	assert.NotNil(t, rec.UncappedTarget)
+	assert.NotNil(t, got["app"].Target)
+	assert.NotNil(t, got["app"].UncappedTarget)
 }
 
 func TestCreatePodResourceRecommender(t *testing.T) {

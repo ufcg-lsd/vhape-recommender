@@ -56,6 +56,8 @@ appVersion: "1.1.0"
 
 Make sure `values.yaml` points to the intended image version. If `values.yaml` leaves `image.tag` empty, the chart uses `appVersion` as the image tag.
 
+Do not change the spec of a default policy while keeping its existing name. `VhapePolicy.spec` is immutable, so upgrades of installations that already contain that policy would fail.
+
 ### Step 2. Package the chart
 
 Package the chart:
