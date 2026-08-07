@@ -186,7 +186,7 @@ func (r *recommender) RunOnce() {
 	klog.V(3).InfoS("----------------------------------------------------------------")
 	klog.V(3).InfoS("Recommender Run")
 
-	r.clusterStateFeeder.LoadVPAs(ctx)
+	r.loadVPAs(ctx)
 	timer.ObserveStep("LoadVPAs")
 
 	r.clusterStateFeeder.LoadPods()
@@ -226,6 +226,28 @@ type RecommenderFactory struct {
 	CheckpointsWriteTimeout time.Duration
 	UseCheckpoints          bool
 	UpdateWorkerCount       int
+}
+
+func (r *recommender) loadVPAs(ctx context.Context) {
+	// Snapshot the currently tracked VPAs so removed or replaced objects can be
+	// identified after the cluster state is reconciled.
+	trackedVPAs := make(map[model.VpaID]*model.Vpa, len(r.clusterState.VPAs()))
+	for vpaID, vpa := range r.clusterState.VPAs() {
+		trackedVPAs[vpaID] = vpa
+	}
+
+	// Reconcile the cluster state with the latest VPA objects.
+	r.clusterStateFeeder.LoadVPAs(ctx)
+
+	currentVPAs := r.clusterState.VPAs()
+
+	// Release estimators for VPAs that were removed or recreated during reconciliation.
+	for vpaID, trackedVPA := range trackedVPAs {
+		currentVPA, found := currentVPAs[vpaID]
+		if !found || currentVPA != trackedVPA {
+			r.podResourceRecommender.Free(vpaID)
+		}
+	}
 }
 
 // Make creates a new recommender instance,
