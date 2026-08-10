@@ -1,10 +1,11 @@
-package informers
+package informers_test
 
 import (
 	"testing"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
+	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	kubefake "k8s.io/client-go/kubernetes/fake"
@@ -15,7 +16,7 @@ import (
 func TestNew(t *testing.T) {
 	clients := newTestClients()
 
-	informers, err := New(clients)
+	informers, err := watcherinformers.New(clients)
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestNewRejectsInvalidClients(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := New(tt.clients); err == nil {
+			if _, err := watcherinformers.New(tt.clients); err == nil {
 				t.Fatal("New() expected error, got nil")
 			}
 		})
@@ -78,7 +79,7 @@ func TestNewRejectsInvalidClients(t *testing.T) {
 }
 
 func TestNewRegistersDeploymentToVPAsIndex(t *testing.T) {
-	informers, err := New(newTestClients())
+	informers, err := watcherinformers.New(newTestClients())
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
