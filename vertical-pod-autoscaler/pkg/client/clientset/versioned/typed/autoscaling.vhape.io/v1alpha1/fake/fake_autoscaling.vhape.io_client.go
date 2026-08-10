@@ -28,12 +28,20 @@ type FakeVhapeAutoscalingV1alpha1 struct {
 	*testing.Fake
 }
 
+func (c *FakeVhapeAutoscalingV1alpha1) VhapeIgnoredNamespaces() v1alpha1.VhapeIgnoredNamespaceInterface {
+	return newFakeVhapeIgnoredNamespaces(c)
+}
+
 func (c *FakeVhapeAutoscalingV1alpha1) VhapeIgnoredWorkloads() v1alpha1.VhapeIgnoredWorkloadInterface {
 	return newFakeVhapeIgnoredWorkloads(c)
 }
 
 func (c *FakeVhapeAutoscalingV1alpha1) VhapeWatchedNamespaces() v1alpha1.VhapeWatchedNamespaceInterface {
 	return newFakeVhapeWatchedNamespaces(c)
+}
+
+func (c *FakeVhapeAutoscalingV1alpha1) VhapeWatchedNamespaceRegexes() v1alpha1.VhapeWatchedNamespaceRegexInterface {
+	return newFakeVhapeWatchedNamespaceRegexes(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate
