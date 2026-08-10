@@ -445,13 +445,7 @@ func newTestReconcilerWithState(
 func newScopeResolver(t *testing.T, informers *watcherinformers.Informers) *watcherscope.Scope {
 	t.Helper()
 
-	scopeResolver, err := watcherscope.New(
-		informers.VhapeWatchedNamespace.Lister(),
-		informers.VhapeIgnoredWorkload.Lister(),
-		informers.VhapeWatchedNamespaceRegex.Lister(),
-		informers.VhapeIgnoredNamespace.Lister(),
-		informers.Namespace.Lister(),
-	)
+	scopeResolver, err := watcherscope.New(informers)
 	if err != nil {
 		t.Fatalf("scope.New() returned error: %v", err)
 	}

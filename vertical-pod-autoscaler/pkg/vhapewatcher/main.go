@@ -73,13 +73,7 @@ func run(
 		return fmt.Errorf("create informers: %w", err)
 	}
 
-	scopeResolver, err := watcherscope.New(
-		informerSet.VhapeWatchedNamespace.Lister(),
-		informerSet.VhapeIgnoredWorkload.Lister(),
-		informerSet.VhapeWatchedNamespaceRegex.Lister(),
-		informerSet.VhapeIgnoredNamespace.Lister(),
-		informerSet.Namespace.Lister(),
-	)
+	scopeResolver, err := watcherscope.New(informerSet)
 	if err != nil {
 		return fmt.Errorf("create scope resolver: %w", err)
 	}
