@@ -7,13 +7,14 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 )
 
-// VhapePolicyGVR identifies the VhapePolicy custom resource in the Kubernetes API. 
+// VhapePolicyGVR identifies the VhapePolicy custom resource in the Kubernetes API.
 var VhapePolicyGVR = schema.GroupVersionResource{
 	Group:    "autoscaling.vhape.io",
 	Version:  "v1alpha1",
@@ -22,6 +23,7 @@ var VhapePolicyGVR = schema.GroupVersionResource{
 
 // VhapePolicy is the parsed representation of a VhapePolicy custom resource.
 type VhapePolicy struct {
+	UID       types.UID
 	Name      string
 	Namespace string
 	Spec      VhapePolicySpec
@@ -131,6 +133,7 @@ func FetchVhapePolicy(client dynamic.Interface, policyNamespace string, policyNa
 	}
 
 	policy := &VhapePolicy{
+		UID:       unstructuredPolicy.GetUID(),
 		Name:      unstructuredPolicy.GetName(),
 		Namespace: unstructuredPolicy.GetNamespace(),
 		Spec: VhapePolicySpec{

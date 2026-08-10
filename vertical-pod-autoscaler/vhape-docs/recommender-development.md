@@ -1,8 +1,10 @@
-# Development guide
+# VHAPE Recommender development
 
-This guide explains common development tasks in VHAPE: adding new recommendation heuristics adding new scaling rules, building the recommender image and pushing helm charts.
+This guide explains how to extend the VHAPE Recommender with new recommendation heuristics and scaling rules.
 
 A heuristic is responsible for producing resource recommendations from usage data. A scaling rule is applied later, after the heuristic runs, to optionally constrain how the recommendation moves relative to the current request.
+
+For image builds and Helm chart publishing, see the [release guide](release-guide.md).
 
 ## Adding a new heuristic
 
@@ -35,10 +37,10 @@ type ResourceEstimator interface {
 
 The estimator is responsible for deciding:
 
-* how it stores samples;
-* how it handles missing data;
-* how it calculates `Target`, `LowerBound`, `UpperBound`, and `UncappedTarget`;
-* how it applies `constraints.Min`, `constraints.Max`, and `constraints.CurrentRequest`, when relevant.
+- how it stores samples;
+- how it handles missing data;
+- how it calculates `Target`, `LowerBound`, `UpperBound`, and `UncappedTarget`;
+- how it applies `constraints.Min`, `constraints.Max`, and `constraints.CurrentRequest`, when relevant.
 
 ### Step 2. Create a heuristic config struct
 
@@ -95,9 +97,9 @@ case MyHeuristic:
 
 ### Step 5. Update the CRD schema
 
-Update `yamls/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic.
+Update `charts/vhape-recommender/crds/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic.
 
-For example:
+Example:
 
 ```yaml
 my-heuristic:
@@ -189,7 +191,7 @@ func SelectScalingRule(name string) ScalingRule {
 
 ### Step 4. Update the CRD enum
 
-In `yamls/vhapepolicy-crd.yaml`, add the new rule to the `scalingRule` enum:
+In `charts/vhape-recommender/crds/vhapepolicy-crd.yaml`, add the new rule to the `scalingRule` enum:
 
 ```yaml
 scalingRule:
@@ -206,99 +208,4 @@ scalingRule:
 ```yaml
 spec:
   scalingRule: my-rule
-```
-
-## Building the recommender image
-
-Use this section when you need to build and publish a VHAPE Recommender image from local code changes.
-
-The recommender image is built from `vertical-pod-autoscaler/pkg/recommender`, which contains the recommender `Makefile`.
-
-From the repository root, enter the recommender directory:
-
-```bash
-cd vertical-pod-autoscaler/pkg/recommender
-```
-
-Build and publish the image:
-
-```bash
-make release REGISTRY=<registry> TAG=<tag> ALL_ARCHITECTURES=amd64
-```
-
-## Publishing a new Helm chart
-
-Use this section when you need to package and publish a new VHAPE Helm chart version.
-
-### Step 1. Update the chart metadata
-
-Before publishing a new chart, update `Chart.yaml`.
-
-```yaml
-version: 0.1.0
-appVersion: "1.0.0"
-```
-
-* `version` is the Helm chart version.
-* `appVersion` is the VHAPE recommender application version.
-* If `values.yaml` leaves `image.tag` empty, the chart uses `appVersion` as the image tag.
-
-If only the chart changed, increment `version`:
-
-```yaml
-version: 0.1.1
-appVersion: "1.0.0"
-```
-
-If the recommender image also changed, increment both `version` and `appVersion`:
-
-```yaml
-version: 0.2.0
-appVersion: "1.1.0"
-```
-
-Make sure `values.yaml` points to the intended recommender image version.
-
-### Step 2. Package the chart
-
-Package the chart:
-
-```bash
-helm package vertical-pod-autoscaler/charts/vhape-recommender
-```
-
-this creates a file:
-
-```text
-vhape-recommender-chart-<chart-version>.tgz
-```
-
-### Step 3. Log in to an OCI registry
-
-Log in to the OCI registry where the chart will be published:
-
-```bash
-helm registry login <registry-host> -u <username>
-```
-
-For example, for Docker Hub, use:
-
-```bash
-helm registry login registry-1.docker.io -u <dockerhub-username>
-```
-
-### Step 4. Push the chart to the OCI registry
-
-Push the packaged chart:
-
-```bash
-helm push vhape-recommender-chart-<chart-version>.tgz \
-  oci://<registry-host>/<registry-path>
-```
-
-For Docker Hub:
-
-```bash
-helm push vhape-recommender-chart-<chart-version>.tgz \
-  oci://registry-1.docker.io/<dockerhub-username>
 ```

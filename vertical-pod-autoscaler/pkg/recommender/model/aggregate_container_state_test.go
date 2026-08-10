@@ -251,6 +251,55 @@ func TestUpdateFromPolicyScalingMode(t *testing.T) {
 	}
 }
 
+func TestObserveRequest(t *testing.T) {
+	cs := NewAggregateContainerState()
+	request := Resources{
+		ResourceCPU:    CPUAmountFromCores(1.0),
+		ResourceMemory: MemoryAmountFromBytes(512e6),
+	}
+	now := time.Now()
+
+	cs.ObserveRequest(request, now)
+
+	assert.Equal(t, request, cs.GetLastObservedRequest())
+	assert.Equal(t, now, cs.LastObservedRequestAt)
+}
+
+func TestGetLastObservedRequestReturnsZeroWhenEmpty(t *testing.T) {
+	cs := NewAggregateContainerState()
+	got := cs.GetLastObservedRequest()
+	assert.Empty(t, got)
+}
+
+func TestMergeContainerStatePreservesNewerRequest(t *testing.T) {
+	a := NewAggregateContainerState()
+	b := NewAggregateContainerState()
+
+	olderTime := time.Now()
+	newerTime := olderTime.Add(time.Minute)
+
+	a.ObserveRequest(Resources{ResourceCPU: CPUAmountFromCores(1.0)}, olderTime)
+	b.ObserveRequest(Resources{ResourceCPU: CPUAmountFromCores(2.0)}, newerTime)
+
+	a.MergeContainerState(b)
+
+	assert.Equal(t, CPUAmountFromCores(2.0), a.GetLastObservedRequest()[ResourceCPU])
+	assert.Equal(t, newerTime, a.LastObservedRequestAt)
+}
+
+func TestMergeContainerStateKeepsOlderWhenNewerHasZeroTime(t *testing.T) {
+	a := NewAggregateContainerState()
+	b := NewAggregateContainerState()
+
+	olderTime := time.Now()
+	a.ObserveRequest(Resources{ResourceCPU: CPUAmountFromCores(1.0)}, olderTime)
+
+	a.MergeContainerState(b)
+
+	assert.Equal(t, CPUAmountFromCores(1.0), a.GetLastObservedRequest()[ResourceCPU])
+	assert.Equal(t, olderTime, a.LastObservedRequestAt)
+}
+
 func TestUpdateFromPolicyControlledResources(t *testing.T) {
 	testCases := []struct {
 		name     string

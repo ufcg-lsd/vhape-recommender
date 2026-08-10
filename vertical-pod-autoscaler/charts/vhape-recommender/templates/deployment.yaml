@@ -22,3 +22,5 @@ spec:
             - /recommender
           args:
             - --recommender-name=vhape-recommender
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

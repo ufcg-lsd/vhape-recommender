@@ -20,7 +20,7 @@ import (
 	"context"
 	"sync"
 	"time"
-	"strings"
+
 	"k8s.io/klog/v2"
 
 	vpaautoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -76,21 +76,22 @@ func (r *recommender) GetClusterStateFeeder() input.ClusterStateFeeder {
 }
 
 func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalingv1.VerticalPodAutoscaler) {
-	policyNamespace, policyName, ok := parsePolicyRef(vpa.Annotations["vhape/policy"])
-	if !ok {
-		klog.Warningf("Skipping VPA %q/%q: invalid or missing vhape/policy annotation. Expected format: <namespace>/<name>", observedVpa.Namespace, observedVpa.Name)
+	resources, err := r.podResourceRecommender.GetRecommendedPodResources(
+		GetContainerNameToAggregateStateMap(vpa),
+		vpa,
+		r.clusterState.GetMatchingPods(vpa),
+	)
+
+	if err != nil {
+		klog.Errorf(
+			"Failed to get resource recommendation for VPA %q/%q: %v",
+			observedVpa.Namespace,
+			observedVpa.Name,
+			err,
+		)
 		return
 	}
 
-	resources := r.podResourceRecommender.GetRecommendedPodResources(
-		GetContainerNameToAggregateStateMap(vpa),
-		observedVpa.Namespace,
-		observedVpa.Name,
-		policyNamespace,
-		policyName,
-		r.clusterState.GetMatchingPods(vpa),
-	)
-	
 	had := vpa.HasRecommendation()
 
 	listOfResourceRecommendation := logic.MapToListOfRecommendedContainerResources(resources, r.recommendationFormat)
@@ -116,7 +117,7 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 		}
 	}
 
-	_, err := vpa_utils.UpdateVpaStatusIfNeeded(
+	_, err = vpa_utils.UpdateVpaStatusIfNeeded(
 		r.vpaClient.VerticalPodAutoscalers(vpa.ID.Namespace), vpa.ID.VpaName, vpa.AsStatus(), &observedVpa.Status)
 	if err != nil {
 		klog.ErrorS(err, "Cannot update VPA", "vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName))
@@ -185,7 +186,7 @@ func (r *recommender) RunOnce() {
 	klog.V(3).InfoS("----------------------------------------------------------------")
 	klog.V(3).InfoS("Recommender Run")
 
-	r.clusterStateFeeder.LoadVPAs(ctx)
+	r.loadVPAs(ctx)
 	timer.ObserveStep("LoadVPAs")
 
 	r.clusterStateFeeder.LoadPods()
@@ -227,6 +228,28 @@ type RecommenderFactory struct {
 	UpdateWorkerCount       int
 }
 
+func (r *recommender) loadVPAs(ctx context.Context) {
+	// Snapshot the currently tracked VPAs so removed or replaced objects can be
+	// identified after the cluster state is reconciled.
+	trackedVPAs := make(map[model.VpaID]*model.Vpa, len(r.clusterState.VPAs()))
+	for vpaID, vpa := range r.clusterState.VPAs() {
+		trackedVPAs[vpaID] = vpa
+	}
+
+	// Reconcile the cluster state with the latest VPA objects.
+	r.clusterStateFeeder.LoadVPAs(ctx)
+
+	currentVPAs := r.clusterState.VPAs()
+
+	// Release estimators for VPAs that were removed or recreated during reconciliation.
+	for vpaID, trackedVPA := range trackedVPAs {
+		currentVPA, found := currentVPAs[vpaID]
+		if !found || currentVPA != trackedVPA {
+			r.podResourceRecommender.Free(vpaID)
+		}
+	}
+}
+
 // Make creates a new recommender instance,
 // which can be run in order to provide continuous resource recommendations for containers.
 func (c RecommenderFactory) Make() Recommender {
@@ -248,12 +271,4 @@ func (c RecommenderFactory) Make() Recommender {
 	}
 	klog.V(3).InfoS("New Recommender created", "recommender", recommender)
 	return recommender
-}
-
-func parsePolicyRef(ref string) (string, string, bool) {
-	parts := strings.Split(ref, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return "", "", false
-	}
-	return parts[0], parts[1], true
 }
