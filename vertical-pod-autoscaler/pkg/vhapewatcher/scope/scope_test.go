@@ -13,7 +13,7 @@ import (
 )
 
 func TestNewScopeResolverFromListers(t *testing.T) {
-	_, _, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
+	_, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
 	watchedNamespaceLister := informers.VhapeWatchedNamespace.Lister()
 	ignoredWorkloadLister := informers.VhapeIgnoredWorkload.Lister()
 	watchedNamespaceRegexLister := informers.VhapeWatchedNamespaceRegex.Lister()
@@ -349,7 +349,7 @@ func newScope(
 ) *Scope {
 	t.Helper()
 
-	_, _, informers := testutil.NewInformers(
+	_, informers := testutil.NewInformers(
 		t,
 		nil,
 		namespaces,

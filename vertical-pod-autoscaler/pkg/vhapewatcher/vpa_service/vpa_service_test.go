@@ -16,7 +16,7 @@ import (
 )
 
 func TestNewVPAService(t *testing.T) {
-	_, client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
+	client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
 	informer := informers.VPA
 
 	if _, err := vpaservice.NewVPAService(informer, client); err != nil {
@@ -424,7 +424,7 @@ func TestIsDeploymentTarget(t *testing.T) {
 func newTestService(t *testing.T, vpas ...*vpav1.VerticalPodAutoscaler) (*vpaservice.VPAService, cache.SharedIndexInformer, *vpafake.Clientset) {
 	t.Helper()
 
-	_, client, informers := testutil.NewInformers(
+	client, informers := testutil.NewInformers(
 		t,
 		nil,
 		nil,

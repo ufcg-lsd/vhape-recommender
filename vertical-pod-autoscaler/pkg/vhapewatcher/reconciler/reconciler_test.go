@@ -15,7 +15,7 @@ import (
 )
 
 func TestNewReconciler(t *testing.T) {
-	_, client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
+	client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
 	deploymentLister := informers.Deployment.Lister()
 	scopeResolver := newScopeResolver(t, informers)
 	vpaService := newVPAService(t, informers, client)
@@ -420,7 +420,7 @@ func newTestReconcilerWithState(
 ) (*Reconciler, *vpafake.Clientset) {
 	t.Helper()
 
-	_, client, informers := testutil.NewInformers(
+	client, informers := testutil.NewInformers(
 		t,
 		deployments,
 		nil,
