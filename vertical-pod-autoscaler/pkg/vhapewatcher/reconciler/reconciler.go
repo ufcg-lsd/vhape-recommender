@@ -72,6 +72,22 @@ func (r *Reconciler) EnqueueDeployment(namespace, name string) {
 	r.queue.Add(key)
 }
 
+func (r *Reconciler) EnqueueDeploymentsMatchingNamespaceRegex(regexCode string) {
+	namespaces, err := r.scope.GetNamespacesMatchingRegex(regexCode)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("get Namespaces matching regex %q: %w", regexCode, err))
+		return
+	}
+
+	for _, namespace := range namespaces {
+		if namespace == nil {
+			continue
+		}
+
+		r.EnqueueDeploymentsInNamespace(namespace.Name)
+	}
+}
+
 func (r *Reconciler) EnqueueDeploymentsInNamespace(namespace string) {
 	if namespace == "" {
 		klog.V(4).InfoS("Ignoring namespace enqueue request with empty namespace")
