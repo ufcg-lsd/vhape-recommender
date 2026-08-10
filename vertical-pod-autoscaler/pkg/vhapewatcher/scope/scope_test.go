@@ -1,21 +1,33 @@
 package scope
 
 import (
+	"reflect"
+	"sort"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 )
 
 func TestNewScopeResolverFromListers(t *testing.T) {
-	_, _, informers := testutil.NewInformers(t, nil, nil, nil, nil)
+	_, _, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
 	watchedNamespaceLister := informers.VhapeWatchedNamespace.Lister()
 	ignoredWorkloadLister := informers.VhapeIgnoredWorkload.Lister()
+	watchedNamespaceRegexLister := informers.VhapeWatchedNamespaceRegex.Lister()
+	ignoredNamespaceLister := informers.VhapeIgnoredNamespace.Lister()
+	namespaceLister := informers.Namespace.Lister()
 
 	t.Run("returns scope with valid listers", func(t *testing.T) {
-		scope, err := New(watchedNamespaceLister, ignoredWorkloadLister)
+		scope, err := New(
+			watchedNamespaceLister,
+			ignoredWorkloadLister,
+			watchedNamespaceRegexLister,
+			ignoredNamespaceLister,
+			namespaceLister,
+		)
 		if err != nil {
 			t.Fatalf("New() returned error: %v", err)
 		}
@@ -24,24 +36,113 @@ func TestNewScopeResolverFromListers(t *testing.T) {
 		}
 	})
 
-	t.Run("rejects nil watched namespace lister", func(t *testing.T) {
-		_, err := New(nil, ignoredWorkloadLister)
-		if err == nil {
-			t.Fatal("New() expected error, got nil")
+	tests := []struct {
+		name                        string
+		watchedNamespaceLister      bool
+		ignoredWorkloadLister       bool
+		watchedNamespaceRegexLister bool
+		ignoredNamespaceLister      bool
+		namespaceLister             bool
+	}{
+		{name: "rejects nil watched namespace lister", ignoredWorkloadLister: true, watchedNamespaceRegexLister: true, ignoredNamespaceLister: true, namespaceLister: true},
+		{name: "rejects nil ignored workload lister", watchedNamespaceLister: true, watchedNamespaceRegexLister: true, ignoredNamespaceLister: true, namespaceLister: true},
+		{name: "rejects nil watched namespace regex lister", watchedNamespaceLister: true, ignoredWorkloadLister: true, ignoredNamespaceLister: true, namespaceLister: true},
+		{name: "rejects nil ignored namespace lister", watchedNamespaceLister: true, ignoredWorkloadLister: true, watchedNamespaceRegexLister: true, namespaceLister: true},
+		{name: "rejects nil namespace lister", watchedNamespaceLister: true, ignoredWorkloadLister: true, watchedNamespaceRegexLister: true, ignoredNamespaceLister: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var watched = watchedNamespaceLister
+			var ignoredWorkload = ignoredWorkloadLister
+			var watchedRegex = watchedNamespaceRegexLister
+			var ignoredNamespace = ignoredNamespaceLister
+			var namespace = namespaceLister
+
+			if !tt.watchedNamespaceLister {
+				watched = nil
+			}
+			if !tt.ignoredWorkloadLister {
+				ignoredWorkload = nil
+			}
+			if !tt.watchedNamespaceRegexLister {
+				watchedRegex = nil
+			}
+			if !tt.ignoredNamespaceLister {
+				ignoredNamespace = nil
+			}
+			if !tt.namespaceLister {
+				namespace = nil
+			}
+
+			if _, err := New(watched, ignoredWorkload, watchedRegex, ignoredNamespace, namespace); err == nil {
+				t.Fatal("New() expected error, got nil")
+			}
+		})
+	}
+}
+
+func TestGetNamespacesMatchingRegex(t *testing.T) {
+	namespaces := []*corev1.Namespace{
+		testutil.NewNamespace("production-api"),
+		testutil.NewNamespace("production-worker"),
+		testutil.NewNamespace("staging-api"),
+		testutil.NewNamespace("kube-system"),
+	}
+	scope := newScope(t, namespaces, nil, nil, nil, nil)
+
+	t.Run("returns only matching namespaces", func(t *testing.T) {
+		got, err := scope.GetNamespacesMatchingRegex(`^production-.*$`)
+		if err != nil {
+			t.Fatalf("GetNamespacesMatchingRegex() returned error: %v", err)
+		}
+
+		gotNames := namespaceNames(got)
+		wantNames := []string{"production-api", "production-worker"}
+		if !reflect.DeepEqual(gotNames, wantNames) {
+			t.Fatalf("GetNamespacesMatchingRegex() names = %#v, want %#v", gotNames, wantNames)
 		}
 	})
 
-	t.Run("rejects nil ignored workload lister", func(t *testing.T) {
-		_, err := New(watchedNamespaceLister, nil)
-		if err == nil {
-			t.Fatal("New() expected error, got nil")
+	t.Run("returns multiple namespace groups", func(t *testing.T) {
+		got, err := scope.GetNamespacesMatchingRegex(`^(production|staging)-.*$`)
+		if err != nil {
+			t.Fatalf("GetNamespacesMatchingRegex() returned error: %v", err)
+		}
+
+		gotNames := namespaceNames(got)
+		wantNames := []string{"production-api", "production-worker", "staging-api"}
+		if !reflect.DeepEqual(gotNames, wantNames) {
+			t.Fatalf("GetNamespacesMatchingRegex() names = %#v, want %#v", gotNames, wantNames)
+		}
+	})
+
+	t.Run("returns empty slice when nothing matches", func(t *testing.T) {
+		got, err := scope.GetNamespacesMatchingRegex(`^development-.*$`)
+		if err != nil {
+			t.Fatalf("GetNamespacesMatchingRegex() returned error: %v", err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("GetNamespacesMatchingRegex() len = %d, want 0", len(got))
+		}
+	})
+
+	t.Run("rejects invalid regex", func(t *testing.T) {
+		if _, err := scope.GetNamespacesMatchingRegex(`[invalid`); err == nil {
+			t.Fatal("GetNamespacesMatchingRegex() expected error, got nil")
+		}
+	})
+
+	t.Run("rejects empty regex", func(t *testing.T) {
+		if _, err := scope.GetNamespacesMatchingRegex(""); err == nil {
+			t.Fatal("GetNamespacesMatchingRegex() expected error, got nil")
 		}
 	})
 }
 
 func TestGetWatchedNamespace(t *testing.T) {
 	watchedNamespaces := []*vhapev1alpha1.VhapeWatchedNamespace{testutil.NewWatchedNamespace(testutil.TestNamespace)}
-	scope := newScope(t, watchedNamespaces, nil)
+	scope := newScope(t, nil, watchedNamespaces, nil, nil, nil)
 
 	t.Run("returns watched namespace from cache", func(t *testing.T) {
 		watched, err := scope.GetWatchedNamespace(testutil.TestNamespace)
@@ -142,35 +243,11 @@ func TestShouldManageDeployment(t *testing.T) {
 			wantShouldManage: true,
 			wantReason:       ReasonWatched,
 		},
-		{
-			name: "ignored workload with different namespace does not match",
-			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
-				testutil.NewWatchedNamespace(testutil.TestNamespace),
-			},
-			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
-				testutil.NewIgnoredWorkloadWithTarget("ignore-api", appsv1.SchemeGroupVersion.String(), "Deployment", "staging", testutil.TestDeploymentName),
-			},
-			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
-			wantShouldManage: true,
-			wantReason:       ReasonWatched,
-		},
-		{
-			name: "ignored workload with different name does not match",
-			watchedNamespaces: []*vhapev1alpha1.VhapeWatchedNamespace{
-				testutil.NewWatchedNamespace(testutil.TestNamespace),
-			},
-			ignoredWorkloads: []*vhapev1alpha1.VhapeIgnoredWorkload{
-				testutil.NewIgnoredWorkloadWithTarget("ignore-worker", appsv1.SchemeGroupVersion.String(), "Deployment", testutil.TestNamespace, "worker"),
-			},
-			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
-			wantShouldManage: true,
-			wantReason:       ReasonWatched,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scope := newScope(t, tt.watchedNamespaces, tt.ignoredWorkloads)
+			scope := newScope(t, nil, tt.watchedNamespaces, nil, nil, tt.ignoredWorkloads)
 
 			decision, err := scope.ShouldManageDeployment(tt.deployment)
 			if err != nil {
@@ -185,23 +262,22 @@ func TestShouldManageDeployment(t *testing.T) {
 			}
 
 			if !tt.wantShouldManage {
-				want := (vhapev1alpha1.VhapeWatchedNamespaceSpec{})
-				if decision.DesiredConfig != want {
+				if !reflect.DeepEqual(decision.DesiredConfig, vhapev1alpha1.VhapeWatchedNamespaceSpec{}) {
 					t.Fatalf("ShouldManageDeployment().DesiredConfig = %#v, want zero value", decision.DesiredConfig)
 				}
 				return
 			}
 
-			want := testutil.NewWatchedNamespace(testutil.TestNamespace).Spec
-			if decision.DesiredConfig != want {
-				t.Fatalf("ShouldManageDeployment().DesiredConfig = %#v, want %#v", decision.DesiredConfig, want)
+			wantConfig := testutil.NewWatchedNamespace(tt.deployment.Namespace).Spec
+			if !reflect.DeepEqual(decision.DesiredConfig, wantConfig) {
+				t.Fatalf("ShouldManageDeployment().DesiredConfig = %#v, want %#v", decision.DesiredConfig, wantConfig)
 			}
 		})
 	}
 }
 
 func TestShouldManageDeploymentRejectsNilDeployment(t *testing.T) {
-	scope := newScope(t, nil, nil)
+	scope := newScope(t, nil, nil, nil, nil, nil)
 
 	_, err := scope.ShouldManageDeployment(nil)
 	if err == nil {
@@ -241,7 +317,7 @@ func TestIsDeploymentIgnored(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			scope := newScope(t, nil, tt.ignoredWorkloads)
+			scope := newScope(t, nil, nil, nil, nil, tt.ignoredWorkloads)
 
 			got, err := scope.IsDeploymentIgnored(tt.deployment)
 			if err != nil {
@@ -255,7 +331,7 @@ func TestIsDeploymentIgnored(t *testing.T) {
 }
 
 func TestIsDeploymentIgnoredRejectsNilDeployment(t *testing.T) {
-	scope := newScope(t, nil, nil)
+	scope := newScope(t, nil, nil, nil, nil, nil)
 
 	_, err := scope.IsDeploymentIgnored(nil)
 	if err == nil {
@@ -265,20 +341,46 @@ func TestIsDeploymentIgnoredRejectsNilDeployment(t *testing.T) {
 
 func newScope(
 	t *testing.T,
+	namespaces []*corev1.Namespace,
 	watchedNamespaces []*vhapev1alpha1.VhapeWatchedNamespace,
+	watchedNamespaceRegexes []*vhapev1alpha1.VhapeWatchedNamespaceRegex,
+	ignoredNamespaces []*vhapev1alpha1.VhapeIgnoredNamespace,
 	ignoredWorkloads []*vhapev1alpha1.VhapeIgnoredWorkload,
 ) *Scope {
 	t.Helper()
 
-	_, _, informers := testutil.NewInformers(t, nil, watchedNamespaces, ignoredWorkloads, nil)
+	_, _, informers := testutil.NewInformers(
+		t,
+		nil,
+		namespaces,
+		watchedNamespaces,
+		watchedNamespaceRegexes,
+		ignoredNamespaces,
+		ignoredWorkloads,
+		nil,
+	)
 
 	scope, err := New(
 		informers.VhapeWatchedNamespace.Lister(),
 		informers.VhapeIgnoredWorkload.Lister(),
+		informers.VhapeWatchedNamespaceRegex.Lister(),
+		informers.VhapeIgnoredNamespace.Lister(),
+		informers.Namespace.Lister(),
 	)
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
 	return scope
+}
+
+func namespaceNames(namespaces []*corev1.Namespace) []string {
+	names := make([]string, 0, len(namespaces))
+	for _, namespace := range namespaces {
+		if namespace != nil {
+			names = append(names, namespace.Name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }

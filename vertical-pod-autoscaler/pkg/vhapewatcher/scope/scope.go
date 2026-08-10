@@ -2,11 +2,13 @@ package scope
 
 import (
 	"fmt"
+	"regexp"
 
-	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
+	corelisters "k8s.io/client-go/listers/core/v1"
 
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vhapelisters "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
@@ -20,9 +22,9 @@ const (
 
 // Decision describes whether VHAPE Watcher should manage a workload.
 type Decision struct {
-	ShouldManage     bool
-	Reason           string
-	DesiredConfig    vhapev1alpha1.VhapeWatchedNamespaceSpec
+	ShouldManage  bool
+	Reason        string
+	DesiredConfig vhapev1alpha1.VhapeWatchedNamespaceSpec
 }
 
 // Scope decides whether a Deployment is inside VHAPE Watcher's management scope.
@@ -30,14 +32,20 @@ type Decision struct {
 // It reads from informer-backed listers. These listers read local caches and do
 // not call the Kubernetes API Server directly.
 type Scope struct {
-	watchedNamespaceLister vhapelisters.VhapeWatchedNamespaceLister
-	ignoredWorkloadLister  vhapelisters.VhapeIgnoredWorkloadLister
+	watchedNamespaceLister      vhapelisters.VhapeWatchedNamespaceLister
+	ignoredWorkloadLister       vhapelisters.VhapeIgnoredWorkloadLister
+	watchedNamespaceRegexLister vhapelisters.VhapeWatchedNamespaceRegexLister
+	ignoredNamespaceLister      vhapelisters.VhapeIgnoredNamespaceLister
+	namespaceLister             corelisters.NamespaceLister
 }
 
 // New creates a Scope resolver.
 func New(
 	watchedNamespaceLister vhapelisters.VhapeWatchedNamespaceLister,
 	ignoredWorkloadLister vhapelisters.VhapeIgnoredWorkloadLister,
+	watchedNamespaceRegexLister vhapelisters.VhapeWatchedNamespaceRegexLister,
+	ignoredNamespaceLister vhapelisters.VhapeIgnoredNamespaceLister,
+	namespaceLister corelisters.NamespaceLister,
 ) (*Scope, error) {
 	if watchedNamespaceLister == nil {
 		return nil, fmt.Errorf("vhape watched namespace lister is nil")
@@ -45,11 +53,52 @@ func New(
 	if ignoredWorkloadLister == nil {
 		return nil, fmt.Errorf("vhape ignored workload lister is nil")
 	}
+	if watchedNamespaceRegexLister == nil {
+		return nil, fmt.Errorf("vhape watched namespace regex lister is nil")
+	}
+	if ignoredNamespaceLister == nil {
+		return nil, fmt.Errorf("vhape ignored namespace lister is nil")
+	}
+	if namespaceLister == nil {
+		return nil, fmt.Errorf("namespace lister is nil")
+	}
 
 	return &Scope{
-		watchedNamespaceLister: watchedNamespaceLister,
-		ignoredWorkloadLister:  ignoredWorkloadLister,
+		watchedNamespaceLister:      watchedNamespaceLister,
+		ignoredWorkloadLister:       ignoredWorkloadLister,
+		watchedNamespaceRegexLister: watchedNamespaceRegexLister,
+		ignoredNamespaceLister:      ignoredNamespaceLister,
+		namespaceLister:             namespaceLister,
 	}, nil
+}
+
+// GetNamespacesMatchingRegex returns namespaces currently present in the Namespace
+// informer cache whose names match regexCode.
+func (s *Scope) GetNamespacesMatchingRegex(regexCode string) ([]*corev1.Namespace, error) {
+	if regexCode == "" {
+		return nil, fmt.Errorf("namespace regex is empty")
+	}
+
+	compiledRegex, err := regexp.Compile(regexCode)
+	if err != nil {
+		return nil, fmt.Errorf("compile namespace regex %q: %w", regexCode, err)
+	}
+
+	namespaces, err := s.namespaceLister.List(labels.Everything())
+	if err != nil {
+		return nil, fmt.Errorf("list Namespaces from cache: %w", err)
+	}
+
+	matchingNamespaces := make([]*corev1.Namespace, 0)
+	for _, namespace := range namespaces {
+		if namespace == nil || !compiledRegex.MatchString(namespace.Name) {
+			continue
+		}
+
+		matchingNamespaces = append(matchingNamespaces, namespace)
+	}
+
+	return matchingNamespaces, nil
 }
 
 // ShouldManageDeployment returns whether the Deployment should be managed by
@@ -86,20 +135,20 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 
 	if ignored {
 		return Decision{
-			ShouldManage:     false,
-			Reason:           ReasonWorkloadIgnored,
+			ShouldManage: false,
+			Reason:       ReasonWorkloadIgnored,
 		}, nil
 	}
 
 	// Indicates workload should be reconciled with the desired spec
 	return Decision{
-		ShouldManage:     true,
-		Reason:           ReasonWatched,
-		DesiredConfig:    desiredConfig,
+		ShouldManage:  true,
+		Reason:        ReasonWatched,
+		DesiredConfig: desiredConfig,
 	}, nil
 }
 
-// IsNamespaceWatched returns a VhapeWatchedNamespace
+// GetWatchedNamespace returns a VhapeWatchedNamespace.
 func (s *Scope) GetWatchedNamespace(namespace string) (*vhapev1alpha1.VhapeWatchedNamespace, error) {
 	if namespace == "" {
 		return nil, fmt.Errorf("namespace is empty")
