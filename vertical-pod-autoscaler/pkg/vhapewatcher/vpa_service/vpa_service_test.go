@@ -16,7 +16,7 @@ import (
 )
 
 func TestNewVPAService(t *testing.T) {
-	_, client, informers := testutil.NewInformers(t, nil, nil, nil, nil)
+	_, client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
 	informer := informers.VPA
 
 	if _, err := vpaservice.NewVPAService(informer, client); err != nil {
@@ -219,9 +219,9 @@ func TestReplacesOutdatedGeneratedVPA(t *testing.T) {
 	oldOptions := vhapev1alpha1.VhapeWatchedNamespaceSpec{
 		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
 			Namespace: "old-system",
-			Name: "old-policy",
+			Name:      "old-policy",
 		},
-		VPAUpdateMode:        vpav1.UpdateModeRecreate,
+		VPAUpdateMode: vpav1.UpdateModeRecreate,
 	}
 
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
@@ -426,6 +426,9 @@ func newTestService(t *testing.T, vpas ...*vpav1.VerticalPodAutoscaler) (*vpaser
 
 	_, client, informers := testutil.NewInformers(
 		t,
+		nil,
+		nil,
+		nil,
 		nil,
 		nil,
 		nil,
