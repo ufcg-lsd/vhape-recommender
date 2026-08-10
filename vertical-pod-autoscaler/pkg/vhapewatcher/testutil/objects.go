@@ -11,6 +11,12 @@ import (
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 )
 
+func NewNamespace(name string) *corev1.Namespace {
+	return &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+	}
+}
+
 func NewDeployment(namespace, name string) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		TypeMeta: metav1.TypeMeta{
@@ -76,6 +82,28 @@ func NewWatchedNamespaceWithPolicy(
 			},
 			VPAUpdateMode: updateMode,
 		},
+	}
+}
+
+func NewWatchedNamespaceRegex(name, regexCode string) *vhapev1alpha1.VhapeWatchedNamespaceRegex {
+	return &vhapev1alpha1.VhapeWatchedNamespaceRegex{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: vhapev1alpha1.VhapeWatchedNamespaceRegexSpec{
+			VhapeWatchedNamespaceSpec: vhapev1alpha1.VhapeWatchedNamespaceSpec{
+				VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
+					Namespace: TestPolicyNamespace,
+					Name:      TestPolicyName,
+				},
+				VPAUpdateMode: TestVPAUpdateMode,
+			},
+			Regex: regexCode,
+		},
+	}
+}
+
+func NewIgnoredNamespace(name string) *vhapev1alpha1.VhapeIgnoredNamespace {
+	return &vhapev1alpha1.VhapeIgnoredNamespace{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 	}
 }
 
