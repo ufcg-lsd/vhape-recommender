@@ -25,11 +25,20 @@ func TestNew(t *testing.T) {
 	if informers.Deployment == nil {
 		t.Fatal("Deployment informer is nil")
 	}
+	if informers.Namespace == nil {
+		t.Fatal("Namespace informer is nil")
+	}
 	if informers.VPA == nil {
 		t.Fatal("VPA informer is nil")
 	}
 	if informers.VhapeWatchedNamespace == nil {
 		t.Fatal("VhapeWatchedNamespace informer is nil")
+	}
+	if informers.VhapeWatchedNamespaceRegex == nil {
+		t.Fatal("VhapeWatchedNamespaceRegex informer is nil")
+	}
+	if informers.VhapeIgnoredNamespace == nil {
+		t.Fatal("VhapeIgnoredNamespace informer is nil")
 	}
 	if informers.VhapeIgnoredWorkload == nil {
 		t.Fatal("VhapeIgnoredWorkload informer is nil")
