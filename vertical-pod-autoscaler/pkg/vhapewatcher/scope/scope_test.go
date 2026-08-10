@@ -90,7 +90,6 @@ func TestShouldManageDeployment(t *testing.T) {
 		deployment        *appsv1.Deployment
 		wantShouldManage  bool
 		wantReason        string
-		wantWatched       string
 	}{
 		{
 			name: "watched namespace manages deployment",
@@ -100,7 +99,6 @@ func TestShouldManageDeployment(t *testing.T) {
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
 			wantReason:       ReasonWatched,
-			wantWatched:      testutil.TestNamespace,
 		},
 		{
 			name:             "namespace not watched skips deployment",
@@ -119,7 +117,6 @@ func TestShouldManageDeployment(t *testing.T) {
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: false,
 			wantReason:       ReasonWorkloadIgnored,
-			wantWatched:      testutil.TestNamespace,
 		},
 		{
 			name: "ignored workload with different apiVersion does not match",
@@ -132,7 +129,6 @@ func TestShouldManageDeployment(t *testing.T) {
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
 			wantReason:       ReasonWatched,
-			wantWatched:      testutil.TestNamespace,
 		},
 		{
 			name: "ignored workload with different kind does not match",
@@ -145,7 +141,6 @@ func TestShouldManageDeployment(t *testing.T) {
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
 			wantReason:       ReasonWatched,
-			wantWatched:      testutil.TestNamespace,
 		},
 		{
 			name: "ignored workload with different namespace does not match",
@@ -158,7 +153,6 @@ func TestShouldManageDeployment(t *testing.T) {
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
 			wantReason:       ReasonWatched,
-			wantWatched:      testutil.TestNamespace,
 		},
 		{
 			name: "ignored workload with different name does not match",
@@ -171,7 +165,6 @@ func TestShouldManageDeployment(t *testing.T) {
 			deployment:       testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName),
 			wantShouldManage: true,
 			wantReason:       ReasonWatched,
-			wantWatched:      testutil.TestNamespace,
 		},
 	}
 
@@ -191,27 +184,18 @@ func TestShouldManageDeployment(t *testing.T) {
 				t.Fatalf("ShouldManageDeployment().Reason = %q, want %q", decision.Reason, tt.wantReason)
 			}
 
-			if tt.wantWatched == "" {
-				if decision.WatchedNamespace != nil {
-					t.Fatalf("ShouldManageDeployment().WatchedNamespace = %#v, want nil", decision.WatchedNamespace)
+			if !tt.wantShouldManage {
+				want := (vhapev1alpha1.VhapeWatchedNamespaceSpec{})
+				if decision.DesiredConfig != want {
+					t.Fatalf("ShouldManageDeployment().DesiredConfig = %#v, want zero value", decision.DesiredConfig)
 				}
 				return
 			}
 
-			if decision.WatchedNamespace == nil {
-				t.Fatalf("ShouldManageDeployment().WatchedNamespace = nil, want %q", tt.wantWatched)
+			want := testutil.NewWatchedNamespace(testutil.TestNamespace).Spec
+			if decision.DesiredConfig != want {
+				t.Fatalf("ShouldManageDeployment().DesiredConfig = %#v, want %#v", decision.DesiredConfig, want)
 			}
-			if decision.WatchedNamespace.Name != tt.wantWatched {
-				t.Fatalf("ShouldManageDeployment().WatchedNamespace.Name = %q, want %q", decision.WatchedNamespace.Name, tt.wantWatched)
-			}
-
-			testutil.AssertWatchedNamespaceSpec(
-				t,
-				decision.WatchedNamespace,
-				testutil.TestPolicyNamespace,
-				testutil.TestPolicyName,
-				testutil.TestVPAUpdateMode,
-			)
 		})
 	}
 }

@@ -3,6 +3,7 @@ package testutil
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -106,8 +107,8 @@ func NewIgnoredWorkloadWithTarget(
 	}
 }
 
-func NewTargetRef(apiVersion, kind, namespace, name string) vhapev1alpha1.TargetRef {
-	return vhapev1alpha1.TargetRef{
+func NewTargetRef(apiVersion, kind, namespace, name string) corev1.ObjectReference {
+	return corev1.ObjectReference{
 		APIVersion: apiVersion,
 		Kind:       kind,
 		Namespace:  namespace,

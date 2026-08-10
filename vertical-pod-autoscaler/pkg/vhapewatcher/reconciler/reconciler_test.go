@@ -110,9 +110,7 @@ func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyNamespace,
-		testutil.TestPolicyName,
-		testutil.TestVPAUpdateMode,
+		watched.Spec,
 	)
 	assertQueuedKeys(t, r, nil)
 }
@@ -251,9 +249,7 @@ func TestReconcileDeploymentCreatesGeneratedVPAForWatchedDeployment(t *testing.T
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyNamespace,
-		testutil.TestPolicyName,
-		testutil.TestVPAUpdateMode,
+		watched.Spec,
 	)
 }
 
@@ -316,9 +312,7 @@ func TestReconcileDeploymentKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(
 		current,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyNamespace,
-		testutil.TestPolicyName,
-		testutil.TestVPAUpdateMode,
+		watched.Spec,
 	)
 	testutil.AssertVPANotFound(t, client, extraGeneratedVPA.Namespace, extraGeneratedVPA.Name)
 }
@@ -352,9 +346,7 @@ func TestReconcileDeploymentReplacesOutdatedGeneratedVPA(t *testing.T) {
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		newOptions.VhapePolicyNamespace,
-		newOptions.VhapePolicyName,
-		newOptions.VPAUpdateMode,
+		newOptions,
 	)
 }
 
@@ -386,9 +378,7 @@ func TestReconcileDeploymentUsesWatchedNamespacePolicyAndUpdateMode(t *testing.T
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		"custom-policy-namespace",
-		"custom-policy",
-		vpav1.UpdateModeInitial,
+		watched.Spec,
 	)
 }
 
@@ -449,11 +439,13 @@ func newVPAService(
 	return service
 }
 
-func generationOptions(policyNamespace, policyName string, updateMode vpav1.UpdateMode) vpaservice.GenerationOptions {
-	return vpaservice.GenerationOptions{
-		VhapePolicyNamespace: policyNamespace,
-		VhapePolicyName:      policyName,
-		VPAUpdateMode:        updateMode,
+func generationOptions(policyNamespace, policyName string, updateMode vpav1.UpdateMode) vhapev1alpha1.VhapeWatchedNamespaceSpec {
+	return vhapev1alpha1.VhapeWatchedNamespaceSpec{
+		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
+			Namespace: policyNamespace,
+			Name:      policyName,
+		},
+		VPAUpdateMode: updateMode,
 	}
 }
 

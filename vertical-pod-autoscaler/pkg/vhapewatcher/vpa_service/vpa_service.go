@@ -11,6 +11,7 @@ import (
 	"k8s.io/klog/v2"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vpaclientset "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
 	vpaInformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
 )
@@ -59,7 +60,7 @@ func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
 	ctx context.Context,
 	dep *appsv1.Deployment,
 	vpas []*vpav1.VerticalPodAutoscaler,
-	options GenerationOptions,
+	options vhapev1alpha1.VhapeWatchedNamespaceSpec,
 ) error {
 	if dep == nil {
 		return fmt.Errorf("deployment is nil")

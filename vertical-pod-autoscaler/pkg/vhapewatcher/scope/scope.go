@@ -3,6 +3,7 @@ package scope
 import (
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -21,7 +22,7 @@ const (
 type Decision struct {
 	ShouldManage     bool
 	Reason           string
-	WatchedNamespace *vhapev1alpha1.VhapeWatchedNamespace
+	DesiredConfig    vhapev1alpha1.VhapeWatchedNamespaceSpec
 }
 
 // Scope decides whether a Deployment is inside VHAPE Watcher's management scope.
@@ -62,10 +63,12 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 		return Decision{}, fmt.Errorf("deployment is nil")
 	}
 
+	// Checks if namespace has specific configuration
 	watchedNamespace, err := s.GetWatchedNamespace(dep.Namespace)
 	if err != nil {
 		return Decision{}, err
 	}
+
 	if watchedNamespace == nil {
 		return Decision{
 			ShouldManage: false,
@@ -73,22 +76,26 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 		}, nil
 	}
 
+	desiredConfig := watchedNamespace.Spec
+
+	// Check if deployment is not ignored
 	ignored, err := s.IsDeploymentIgnored(dep)
 	if err != nil {
 		return Decision{}, err
 	}
+
 	if ignored {
 		return Decision{
 			ShouldManage:     false,
 			Reason:           ReasonWorkloadIgnored,
-			WatchedNamespace: watchedNamespace,
 		}, nil
 	}
 
+	// Indicates workload should be reconciled with the desired spec
 	return Decision{
 		ShouldManage:     true,
 		Reason:           ReasonWatched,
-		WatchedNamespace: watchedNamespace,
+		DesiredConfig:    desiredConfig,
 	}, nil
 }
 
@@ -133,7 +140,7 @@ func (s *Scope) IsDeploymentIgnored(dep *appsv1.Deployment) (bool, error) {
 	return false, nil
 }
 
-func targetsDeployment(ref vhapev1alpha1.TargetRef, dep *appsv1.Deployment) bool {
+func targetsDeployment(ref corev1.ObjectReference, dep *appsv1.Deployment) bool {
 	return ref.APIVersion == appsv1.SchemeGroupVersion.String() &&
 		ref.Kind == "Deployment" &&
 		ref.Namespace == dep.Namespace &&
