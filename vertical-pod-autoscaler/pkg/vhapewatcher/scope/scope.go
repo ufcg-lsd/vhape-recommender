@@ -16,8 +16,10 @@ import (
 
 const (
 	ReasonWatched             = "watched"
-	ReasonNamespaceNotWatched = "namespace-not-watched"
+	ReasonRegexWatched        = "regex-watched"
+	ReasonNotWatched          = "not-watched"
 	ReasonWorkloadIgnored     = "workload-ignored"
+	ReasonNamespaceIgnored    = "namespace-ignored"
 )
 
 // Decision describes whether VHAPE Watcher should manage a workload.
@@ -101,15 +103,80 @@ func (s *Scope) GetNamespacesMatchingRegex(regexCode string) ([]*corev1.Namespac
 	return matchingNamespaces, nil
 }
 
+// GetWatchedNamespaceRegexesMatchingNamespace returns VhapeWatchedNamespaceRegex
+// resources currently present in the informer cache whose regex matches namespace.
+func (s *Scope) GetWatchedNamespaceRegexesMatchingNamespace(namespace string) ([]*vhapev1alpha1.VhapeWatchedNamespaceRegex, error) {
+	if namespace == "" {
+		return nil, fmt.Errorf("namespace is empty")
+	}
+
+	watchedNamespaceRegexes, err := s.watchedNamespaceRegexLister.List(labels.Everything())
+	if err != nil {
+		return nil, fmt.Errorf("list VhapeWatchedNamespaceRegexes from cache: %w", err)
+	}
+
+	matchingRegexes := make([]*vhapev1alpha1.VhapeWatchedNamespaceRegex, 0)
+	for _, watchedNamespaceRegex := range watchedNamespaceRegexes {
+		if watchedNamespaceRegex == nil {
+			continue
+		}
+
+		compiledRegex, err := regexp.Compile(watchedNamespaceRegex.Spec.Regex)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"compile namespace regex %q from VhapeWatchedNamespaceRegex %q: %w",
+				watchedNamespaceRegex.Spec.Regex,
+				watchedNamespaceRegex.Name,
+				err,
+			)
+		}
+
+		if compiledRegex.MatchString(namespace) {
+			matchingRegexes = append(matchingRegexes, watchedNamespaceRegex)
+		}
+	}
+
+	return matchingRegexes, nil
+}
+
 // ShouldManageDeployment returns whether the Deployment should be managed by
-// VHAPE Watcher.
+// VHAPE Watcher and the configuration that should be applied.
 //
-// Rules:
-// - namespace must have a VhapeWatchedNamespace
+// Rules, in order of precedence:
 // - Deployment must not be targeted by a VhapeIgnoredWorkload
+// - namespace must not be marked by a VhapeIgnoredNamespace
+// - a VhapeWatchedNamespace provides the namespace-specific configuration
+// - otherwise, the oldest matching VhapeWatchedNamespaceRegex provides the configuration
+// - Deployment is not managed when no watched namespace configuration matches
 func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error) {
 	if dep == nil {
 		return Decision{}, fmt.Errorf("deployment is nil")
+	}
+
+	// Check if deployment is ignored.
+	ignoredWorkload, err := s.GetIgnoredWorkload(dep)
+	if err != nil {
+		return Decision{}, err
+	}
+
+	if ignoredWorkload != nil {
+		return Decision{
+			ShouldManage: false,
+			Reason:       ReasonWorkloadIgnored,
+		}, nil
+	}
+
+	// Check if namespace is ignored.
+	ignoredNamespace, err := s.GetIgnoredNamespace(dep.Namespace)
+	if err != nil {
+		return Decision{}, err
+	}
+
+	if ignoredNamespace != nil {
+		return Decision{
+			ShouldManage: false,
+			Reason:       ReasonNamespaceIgnored,
+		}, nil
 	}
 
 	// Checks if namespace has specific configuration
@@ -118,33 +185,32 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 		return Decision{}, err
 	}
 
-	if watchedNamespace == nil {
+	if watchedNamespace != nil {
 		return Decision{
-			ShouldManage: false,
-			Reason:       ReasonNamespaceNotWatched,
+			ShouldManage:  true,
+			Reason:        ReasonWatched,
+			DesiredConfig: watchedNamespace.Spec,
 		}, nil
 	}
 
-	desiredConfig := watchedNamespace.Spec
-
-	// Check if deployment is not ignored
-	ignored, err := s.IsDeploymentIgnored(dep)
+	// Checks if namespace has a regex-selected configuration.
+	// When multiple regex resources match, the oldest one wins.
+	regexes, err := s.GetWatchedNamespaceRegexesMatchingNamespace(dep.Namespace)
 	if err != nil {
 		return Decision{}, err
 	}
-
-	if ignored {
+	
+	if oldestRegex := oldestWatchedNamespaceRegex(regexes); oldestRegex != nil {
 		return Decision{
-			ShouldManage: false,
-			Reason:       ReasonWorkloadIgnored,
+			ShouldManage:  true,
+			Reason:        ReasonRegexWatched,
+			DesiredConfig: oldestRegex.Spec.VhapeWatchedNamespaceSpec,
 		}, nil
 	}
 
-	// Indicates workload should be reconciled with the desired spec
 	return Decision{
-		ShouldManage:  true,
-		Reason:        ReasonWatched,
-		DesiredConfig: desiredConfig,
+		ShouldManage:  false,
+		Reason:        ReasonNotWatched,
 	}, nil
 }
 
@@ -165,28 +231,48 @@ func (s *Scope) GetWatchedNamespace(namespace string) (*vhapev1alpha1.VhapeWatch
 	return watchedNamespace, nil
 }
 
-// IsDeploymentIgnored returns true when a VhapeIgnoredWorkload targets the given Deployment.
-func (s *Scope) IsDeploymentIgnored(dep *appsv1.Deployment) (bool, error) {
+// GetIgnoredNamespace returns the VhapeIgnoredNamespace for the given namespace,
+// if one exists in the informer cache.
+func (s *Scope) GetIgnoredNamespace(namespace string) (*vhapev1alpha1.VhapeIgnoredNamespace, error) {
+	if namespace == "" {
+		return nil, fmt.Errorf("namespace is empty")
+	}
+
+	ignoredNamespace, err := s.ignoredNamespaceLister.Get(namespace)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("get VhapeIgnoredNamespace %q from cache: %w", namespace, err)
+	}
+
+	return ignoredNamespace, nil
+}
+
+// GetIgnoredWorkload returns a VhapeIgnoredWorkload targeting the Deployment,
+// if one exists in the informer cache.
+func (s *Scope) GetIgnoredWorkload(dep *appsv1.Deployment) (*vhapev1alpha1.VhapeIgnoredWorkload, error) {
 	if dep == nil {
-		return false, fmt.Errorf("deployment is nil")
+		return nil, fmt.Errorf("deployment is nil")
 	}
 
 	ignoredWorkloads, err := s.ignoredWorkloadLister.List(labels.Everything())
 	if err != nil {
-		return false, fmt.Errorf("list VhapeIgnoredWorkloads from cache: %w", err)
+		return nil, fmt.Errorf("list VhapeIgnoredWorkloads from cache: %w", err)
 	}
 
-	for _, ignored := range ignoredWorkloads {
-		if ignored == nil {
+	for _, ignoredWorkload := range ignoredWorkloads {
+		if ignoredWorkload == nil {
 			continue
 		}
 
-		if targetsDeployment(ignored.Spec.TargetRef, dep) {
-			return true, nil
+		if targetsDeployment(ignoredWorkload.Spec.TargetRef, dep) {
+			return ignoredWorkload, nil
 		}
 	}
 
-	return false, nil
+	return nil, nil
 }
 
 func targetsDeployment(ref corev1.ObjectReference, dep *appsv1.Deployment) bool {
@@ -194,4 +280,20 @@ func targetsDeployment(ref corev1.ObjectReference, dep *appsv1.Deployment) bool 
 		ref.Kind == "Deployment" &&
 		ref.Namespace == dep.Namespace &&
 		ref.Name == dep.Name
+}
+
+func oldestWatchedNamespaceRegex(regexes []*vhapev1alpha1.VhapeWatchedNamespaceRegex) *vhapev1alpha1.VhapeWatchedNamespaceRegex {
+	if len(regexes) == 0 {
+		return nil
+	}
+
+	oldest := regexes[0]
+
+	for _, regex := range regexes[1:] {
+		if regex.CreationTimestamp.Before(&oldest.CreationTimestamp) {
+			oldest = regex
+		}
+	}
+
+	return oldest
 }
