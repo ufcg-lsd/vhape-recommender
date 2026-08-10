@@ -18,6 +18,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -70,19 +71,11 @@ type VhapeIgnoredWorkload struct {
 // VhapeIgnoredWorkloadSpec describes the workload ignored by VHAPE Watcher.
 type VhapeIgnoredWorkloadSpec struct {
 	// TargetRef identifies the workload that should not be managed by VHAPE Watcher.
-	TargetRef TargetRef `json:"targetRef"`
+	TargetRef corev1.ObjectReference `json:"targetRef"`
 
 	// Reason optionally explains why the workload is ignored.
 	// +optional
 	Reason string `json:"reason,omitempty"`
-}
-
-// TargetRef identifies a Kubernetes workload.
-type TargetRef struct {
-	APIVersion string `json:"apiVersion"`
-	Kind       string `json:"kind"`
-	Namespace  string `json:"namespace"`
-	Name       string `json:"name"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
