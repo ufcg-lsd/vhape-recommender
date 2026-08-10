@@ -14,6 +14,7 @@ import (
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vpaclientset "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
 	vpaInformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
+	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 )
 
 type VPAService struct {
@@ -128,7 +129,7 @@ func (s *VPAService) ListForDeployment(dep *appsv1.Deployment) ([]*vpav1.Vertica
 	items, err := s.informer.
 		Informer().
 		GetIndexer().
-		ByIndex(IndexName, NamespacedKey(dep.Namespace, dep.Name))
+		ByIndex(watcherinformers.VPAByDeploymentIndex, watcherinformers.NamespacedKey(dep.Namespace, dep.Name))
 
 	if err != nil {
 		return nil, fmt.Errorf("list VPAs indexed by Deployment %q/%q: %w", dep.Namespace, dep.Name, err)
@@ -197,7 +198,6 @@ func IsDesiredGeneratedVPA(current *vpav1.VerticalPodAutoscaler, desired *vpav1.
 	if current == nil || desired == nil {
 		return false
 	}
-
 
 	return current.Namespace == desired.Namespace &&
 		current.Name == desired.Name &&

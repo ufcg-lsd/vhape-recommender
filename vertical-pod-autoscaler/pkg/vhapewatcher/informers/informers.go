@@ -12,7 +12,6 @@ import (
 	coreinformers "k8s.io/client-go/informers/core/v1"
 
 	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
-	vhapevpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 
 	"k8s.io/client-go/tools/cache"
 )
@@ -61,7 +60,7 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1().
 		VerticalPodAutoscalers()
 
-	if err := vhapevpaservice.AddDeploymentToVPAsIndex(vpaInformer); err != nil {
+	if err := AddDeploymentToVPAsIndex(vpaInformer); err != nil {
 		return nil, fmt.Errorf("add Deployment to VPAs index: %w", err)
 	}
 
@@ -84,6 +83,10 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		VhapeAutoscaling().
 		V1alpha1().
 		VhapeIgnoredWorkloads()
+
+	if err := AddDeploymentToIgnoredWorkloadsIndex(ignoredWorkloadInformer); err != nil {
+		return nil, fmt.Errorf("add Deployment to VhapeIgnoredWorkloads index: %w", err)
+	}
 
 	return &Informers{
 		kubeFactory:                kubeFactory,

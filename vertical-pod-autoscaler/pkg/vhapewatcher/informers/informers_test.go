@@ -1,22 +1,24 @@
-package informers_test
+package informers
 
 import (
 	"testing"
 
-	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
-	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
-	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
-	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
-	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
+	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vhapefake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
+	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
 )
 
 func TestNew(t *testing.T) {
 	clients := newTestClients()
 
-	informers, err := watcherinformers.New(clients)
+	informers, err := New(clients)
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
@@ -71,43 +73,71 @@ func TestNewRejectsInvalidClients(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := watcherinformers.New(tt.clients); err == nil {
+			if _, err := New(tt.clients); err == nil {
 				t.Fatal("New() expected error, got nil")
 			}
 		})
 	}
 }
 
-func TestNewRegistersDeploymentToVPAsIndex(t *testing.T) {
-	informers, err := watcherinformers.New(newTestClients())
+func TestNewRegistersDeploymentIndexes(t *testing.T) {
+	const (
+		namespace           = "test-namespace"
+		deploymentName      = "test-deployment"
+		vpaName             = "test-vpa"
+		ignoredWorkloadName = "test-ignored-workload"
+	)
+
+	informers, err := New(newTestClients())
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
 
-	vpa := testutil.NewVPA(
-		testutil.TestVPAName,
-		testutil.TestNamespace,
-		testutil.TestDeploymentName,
-	)
-	testutil.AddToIndexer(t, informers.VPA.Informer().GetIndexer(), vpa)
+	vpa := &vpav1.VerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Name: vpaName, Namespace: namespace},
+		Spec: vpav1.VerticalPodAutoscalerSpec{
+			TargetRef: &autoscalingv1.CrossVersionObjectReference{
+				APIVersion: appsv1.SchemeGroupVersion.String(),
+				Kind:       "Deployment",
+				Name:       deploymentName,
+			},
+		},
+	}
+	if err := informers.VPA.Informer().GetIndexer().Add(vpa); err != nil {
+		t.Fatalf("add VPA to indexer: %v", err)
+	}
 
-	items, err := informers.VPA.Informer().GetIndexer().ByIndex(
-		vpaservice.IndexName,
-		testutil.TestNamespace+"/"+testutil.TestDeploymentName,
-	)
+	ignoredWorkload := &vhapev1alpha1.VhapeIgnoredWorkload{
+		ObjectMeta: metav1.ObjectMeta{Name: ignoredWorkloadName},
+		Spec: vhapev1alpha1.VhapeIgnoredWorkloadSpec{
+			TargetRef: corev1.ObjectReference{
+				APIVersion: appsv1.SchemeGroupVersion.String(),
+				Kind:       "Deployment",
+				Namespace:  namespace,
+				Name:       deploymentName,
+			},
+		},
+	}
+	if err := informers.VhapeIgnoredWorkload.Informer().GetIndexer().Add(ignoredWorkload); err != nil {
+		t.Fatalf("add VhapeIgnoredWorkload to indexer: %v", err)
+	}
+
+	key := NamespacedKey(namespace, deploymentName)
+
+	vpas, err := informers.VPA.Informer().GetIndexer().ByIndex(VPAByDeploymentIndex, key)
 	if err != nil {
-		t.Fatalf("ByIndex() returned error: %v", err)
+		t.Fatalf("list VPAs by index: %v", err)
 	}
-	if len(items) != 1 {
-		t.Fatalf("indexed VPAs = %d, want 1", len(items))
+	if len(vpas) != 1 || vpas[0] != vpa {
+		t.Fatalf("indexed VPAs = %#v, want [%p]", vpas, vpa)
 	}
 
-	indexedVPA, ok := items[0].(*vpav1.VerticalPodAutoscaler)
-	if !ok {
-		t.Fatalf("indexed object type = %T, want *VerticalPodAutoscaler", items[0])
+	ignoredWorkloads, err := informers.VhapeIgnoredWorkload.Informer().GetIndexer().ByIndex(IgnoredWorkloadByDeploymentIndex, key)
+	if err != nil {
+		t.Fatalf("list VhapeIgnoredWorkloads by index: %v", err)
 	}
-	if indexedVPA.Name != testutil.TestVPAName {
-		t.Fatalf("indexed VPA name = %q, want %q", indexedVPA.Name, testutil.TestVPAName)
+	if len(ignoredWorkloads) != 1 || ignoredWorkloads[0] != ignoredWorkload {
+		t.Fatalf("indexed VhapeIgnoredWorkloads = %#v, want [%p]", ignoredWorkloads, ignoredWorkload)
 	}
 }
 
