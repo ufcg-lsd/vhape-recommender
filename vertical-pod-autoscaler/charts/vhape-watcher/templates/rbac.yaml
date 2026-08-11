@@ -36,6 +36,8 @@ rules:
       - autoscaling.vhape.io
     resources:
       - vhapewatchednamespaces
+      - vhapewatchednamespaceregexes
+      - vhapeignorednamespaces
       - vhapeignoredworkloads
     verbs:
       - get
