@@ -16,6 +16,8 @@ You need:
 The Helm chart installs:
 
 * the `VhapeWatchedNamespace` CRD;
+* the `VhapeWatchedNamespaceRegex` CRD;
+* the `VhapeIgnoredNamespace` CRD;
 * the `VhapeIgnoredWorkload` CRD;
 * RBAC for the VHAPE Watcher;
 * the VHAPE Watcher Deployment.
@@ -47,9 +49,11 @@ Helm installs files from a chart's `crds/` directory on the first installation, 
 
 ```bash
 kubectl apply -f vertical-pod-autoscaler/charts/vhape-watcher/crds/vhapewatchednamespace-crd.yaml
+kubectl apply -f vertical-pod-autoscaler/charts/vhape-watcher/crds/vhapewatchednamespaceregex-crd.yaml
+kubectl apply -f vertical-pod-autoscaler/charts/vhape-watcher/crds/vhapeignorednamespace-crd.yaml
 kubectl apply -f vertical-pod-autoscaler/charts/vhape-watcher/crds/vhapeignoredworkload-crd.yaml
 ```
 
 ## Next steps
 
-See the [VHAPE Watcher guide](watcher-guide.md) to configure watched namespaces and workload exceptions.
+See the [VHAPE Watcher guide](watcher-guide.md) to configure namespace selection, regex-based defaults, and exceptions.
