@@ -60,10 +60,6 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1().
 		VerticalPodAutoscalers()
 
-	if err := AddDeploymentToVPAsIndex(vpaInformer); err != nil {
-		return nil, fmt.Errorf("add Deployment to VPAs index: %w", err)
-	}
-
 	watchedNamespaceInformer := vhapeFactory.
 		VhapeAutoscaling().
 		V1alpha1().
@@ -84,11 +80,7 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1alpha1().
 		VhapeIgnoredWorkloads()
 
-	if err := AddDeploymentToIgnoredWorkloadsIndex(ignoredWorkloadInformer); err != nil {
-		return nil, fmt.Errorf("add Deployment to VhapeIgnoredWorkloads index: %w", err)
-	}
-
-	return &Informers{
+	informerSet := &Informers{
 		kubeFactory:                kubeFactory,
 		vhapeFactory:               vhapeFactory,
 		Deployment:                 deploymentInformer,
@@ -98,7 +90,27 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		VhapeWatchedNamespaceRegex: watchedNamespaceRegexInformer,
 		VhapeIgnoredNamespace:      ignoredNamespaceInformer,
 		VhapeIgnoredWorkload:       ignoredWorkloadInformer,
-	}, nil
+	}
+
+	// Materialize all SharedIndexInformers
+	informerSet.Deployment.Informer()
+	informerSet.Namespace.Informer()
+	informerSet.VPA.Informer()
+	informerSet.VhapeWatchedNamespace.Informer()
+	informerSet.VhapeWatchedNamespaceRegex.Informer()
+	informerSet.VhapeIgnoredNamespace.Informer()
+	informerSet.VhapeIgnoredWorkload.Informer()
+
+	// Register custom indexes
+	if err := AddDeploymentToVPAsIndex(vpaInformer); err != nil {
+		return nil, fmt.Errorf("add Deployment to VPAs index: %w", err)
+	}
+
+	if err := AddDeploymentToIgnoredWorkloadsIndex(ignoredWorkloadInformer); err != nil {
+		return nil, fmt.Errorf("add Deployment to VhapeIgnoredWorkloads index: %w", err)
+	}
+
+	return informerSet, nil
 }
 
 // Start starts all informer factories.
