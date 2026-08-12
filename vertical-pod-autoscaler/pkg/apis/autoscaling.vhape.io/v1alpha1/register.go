@@ -49,12 +49,18 @@ func init() {
 
 // Adds the list of known types to api.Scheme.
 func addKnownTypes(scheme *runtime.Scheme) error {
-	scheme.AddKnownTypes(SchemeGroupVersion,
+	scheme.AddKnownTypes(
+		SchemeGroupVersion,
 		&VhapeWatchedNamespace{},
 		&VhapeWatchedNamespaceList{},
+		&VhapeWatchedNamespaceRegex{},
+		&VhapeWatchedNamespaceRegexList{},
+		&VhapeIgnoredNamespace{},
+		&VhapeIgnoredNamespaceList{},
 		&VhapeIgnoredWorkload{},
 		&VhapeIgnoredWorkloadList{},
 	)
+	
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)
 	return nil
 }

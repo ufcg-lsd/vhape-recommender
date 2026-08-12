@@ -73,10 +73,7 @@ func run(
 		return fmt.Errorf("create informers: %w", err)
 	}
 
-	scopeResolver, err := watcherscope.New(
-		informerSet.VhapeWatchedNamespace.Lister(),
-		informerSet.VhapeIgnoredWorkload.Lister(),
-	)
+	scopeResolver, err := watcherscope.New(informerSet)
 	if err != nil {
 		return fmt.Errorf("create scope resolver: %w", err)
 	}
@@ -103,12 +100,7 @@ func run(
 		return fmt.Errorf("create watchers: %w", err)
 	}
 
-	if err := handler.RegisterHandlerFunctionsOnInformers(
-		informerSet.Deployment,
-		informerSet.VPA,
-		informerSet.VhapeWatchedNamespace,
-		informerSet.VhapeIgnoredWorkload,
-	); err != nil {
+	if err := handler.RegisterHandlerFunctionsOnInformers(informerSet); err != nil {
 		return fmt.Errorf("register handlers: %w", err)
 	}
 

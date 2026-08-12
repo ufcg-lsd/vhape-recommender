@@ -75,10 +75,14 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Autoscaling().V1beta2().VerticalPodAutoscalerCheckpoints().Informer()}, nil
 
 		// Group=autoscaling.vhape.io, Version=v1alpha1
+	case v1alpha1.SchemeGroupVersion.WithResource("vhapeignorednamespaces"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapeIgnoredNamespaces().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vhapeignoredworkloads"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapeIgnoredWorkloads().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vhapewatchednamespaces"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapeWatchedNamespaces().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("vhapewatchednamespaceregexes"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapeWatchedNamespaceRegexes().Informer()}, nil
 
 		// Group=poc.autoscaling.k8s.io, Version=v1alpha1
 	case pocautoscalingk8siov1alpha1.SchemeGroupVersion.WithResource("verticalpodautoscalers"):

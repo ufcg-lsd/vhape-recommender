@@ -1,0 +1,4 @@
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapeIgnoredNamespace
+metadata:
+  name: kube-system

@@ -24,10 +24,14 @@ import (
 
 // Interface provides access to all the informers in this group version.
 type Interface interface {
+	// VhapeIgnoredNamespaces returns a VhapeIgnoredNamespaceInformer.
+	VhapeIgnoredNamespaces() VhapeIgnoredNamespaceInformer
 	// VhapeIgnoredWorkloads returns a VhapeIgnoredWorkloadInformer.
 	VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInformer
 	// VhapeWatchedNamespaces returns a VhapeWatchedNamespaceInformer.
 	VhapeWatchedNamespaces() VhapeWatchedNamespaceInformer
+	// VhapeWatchedNamespaceRegexes returns a VhapeWatchedNamespaceRegexInformer.
+	VhapeWatchedNamespaceRegexes() VhapeWatchedNamespaceRegexInformer
 }
 
 type version struct {
@@ -41,6 +45,11 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 	return &version{factory: f, namespace: namespace, tweakListOptions: tweakListOptions}
 }
 
+// VhapeIgnoredNamespaces returns a VhapeIgnoredNamespaceInformer.
+func (v *version) VhapeIgnoredNamespaces() VhapeIgnoredNamespaceInformer {
+	return &vhapeIgnoredNamespaceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
 // VhapeIgnoredWorkloads returns a VhapeIgnoredWorkloadInformer.
 func (v *version) VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInformer {
 	return &vhapeIgnoredWorkloadInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
@@ -49,4 +58,9 @@ func (v *version) VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInformer {
 // VhapeWatchedNamespaces returns a VhapeWatchedNamespaceInformer.
 func (v *version) VhapeWatchedNamespaces() VhapeWatchedNamespaceInformer {
 	return &vhapeWatchedNamespaceInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// VhapeWatchedNamespaceRegexes returns a VhapeWatchedNamespaceRegexInformer.
+func (v *version) VhapeWatchedNamespaceRegexes() VhapeWatchedNamespaceRegexInformer {
+	return &vhapeWatchedNamespaceRegexInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
