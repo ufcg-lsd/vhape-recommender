@@ -102,6 +102,15 @@ func (s *VPAService) EnsureOneGeneratedVPAForDeployment(
 
 	default:
 		_, ensureErr = s.PatchVPA(ctx, current, desired)
+		if ensureErr != nil {
+			if deleteErr := s.DeleteVPA(ctx, current, "outdated-vpa"); deleteErr != nil {
+				ensureErr = fmt.Errorf(
+					"patch generated VPA: %v; delete outdated VPA: %w",
+					ensureErr,
+					deleteErr,
+				)
+			}
+		}
 	}
 
 	// Remove every other generated VPA.
