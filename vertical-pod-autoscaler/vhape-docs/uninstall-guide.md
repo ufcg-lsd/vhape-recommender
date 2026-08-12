@@ -16,6 +16,8 @@ To remove the watcher CRDs as well:
 
 ```bash
 kubectl delete crd vhapewatchednamespaces.autoscaling.vhape.io
+kubectl delete crd vhapewatchednamespaceregexes.autoscaling.vhape.io
+kubectl delete crd vhapeignorednamespaces.autoscaling.vhape.io
 kubectl delete crd vhapeignoredworkloads.autoscaling.vhape.io
 ```
 

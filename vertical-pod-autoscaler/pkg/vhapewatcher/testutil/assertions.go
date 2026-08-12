@@ -294,15 +294,13 @@ func AssertGeneratedVPA(
 	vpa *vpav1.VerticalPodAutoscaler,
 	dep *appsv1.Deployment,
 	expectedName string,
-	policyNamespace string,
-	policyName string,
-	updateMode vpav1.UpdateMode,
+	desiredOptions vhapev1alpha1.VhapeWatchedNamespaceSpec,
 ) {
 	t.Helper()
 
-	AssertVPAMetadata(t, vpa, dep, expectedName, policyNamespace, policyName)
+	AssertVPAMetadata(t, vpa, dep, expectedName, desiredOptions.VhapePolicyRef.Namespace, desiredOptions.VhapePolicyRef.Name)
 	AssertVPATargetRef(t, vpa, dep)
 	AssertVPARecommender(t, vpa)
-	AssertVPAUpdateMode(t, vpa, updateMode)
+	AssertVPAUpdateMode(t, vpa, desiredOptions.VPAUpdateMode)
 	AssertVPAResourcePolicy(t, vpa)
 }

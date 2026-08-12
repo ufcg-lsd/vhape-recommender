@@ -1,0 +1,20 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: vhapeignorednamespaces.autoscaling.vhape.io
+spec:
+  group: autoscaling.vhape.io
+  scope: Cluster
+  names:
+    plural: vhapeignorednamespaces
+    singular: vhapeignorednamespace
+    kind: VhapeIgnoredNamespace
+    listKind: VhapeIgnoredNamespaceList
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          description: Marks a namespace that must be excluded from regex-based VHAPE Watcher management.

@@ -52,6 +52,12 @@ spec:
                     name:
                       type: string
                       example: api-legada
+                    uid:
+                      type: string
+                    resourceVersion:
+                      type: string
+                    fieldPath:
+                      type: string
                 reason:
                   type: string
       additionalPrinterColumns:
