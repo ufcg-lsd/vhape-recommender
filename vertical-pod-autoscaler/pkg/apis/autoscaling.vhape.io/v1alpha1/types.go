@@ -30,7 +30,7 @@ import (
 
 // VhapeWatchedNamespace marks a Kubernetes namespace as eligible for VHAPE Watcher management.
 type VhapeWatchedNamespace struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec VhapeWatchedNamespaceSpec `json:"spec,omitempty"`
