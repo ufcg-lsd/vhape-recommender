@@ -9,7 +9,7 @@ A policy can also define an optional scaling rule that constrains the recommenda
 This repository provides an example at:
 
 ```text
-vertical-pod-autoscaler/pkg/recommender/yamls/vhapepolicy-p93-default.yaml
+vertical-pod-autoscaler/charts/vhape-recommender/templates/vhapepolicy-p93-percentile-hysteresis.yaml
 ```
 
 ```yaml
@@ -17,7 +17,6 @@ apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapePolicy
 metadata:
   name: vhape-policy-p93-default
-  namespace: kube-system
 spec:
   resources:
     cpu:
