@@ -42,7 +42,7 @@ The installation guide creates default `VhapePolicy` resources that can be used 
 List available policies:
 
 ```bash
-kubectl get vhapepolicies -A
+kubectl get vhapepolicies
 ```
 
 This repository also provides an example at:

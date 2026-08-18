@@ -2,6 +2,8 @@
 
 A `VhapePolicy` defines how the VHAPE Recommender calculates CPU and memory recommendations for a VPA.
 
+`VhapePolicy` is a cluster-scoped resource. A policy is identified only by its name, which must be unique across the cluster.
+
 Each policy configures one heuristic for CPU and one heuristic for memory. CPU and memory can use different heuristic configurations.
 
 A policy can also define an optional scaling rule that constrains the recommendation after it is calculated.
