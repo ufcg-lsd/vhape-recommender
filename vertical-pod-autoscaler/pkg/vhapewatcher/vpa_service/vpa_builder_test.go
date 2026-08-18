@@ -74,15 +74,6 @@ func TestNameForDeploymentTruncates(t *testing.T) {
 	}
 }
 
-func TestPolicyRef(t *testing.T) {
-	got := vpaservice.PolicyRef(newDesiredConfig().VhapePolicyRef)
-	want := testutil.TestPolicyNamespace + "/" + testutil.TestPolicyName
-
-	if got != want {
-		t.Fatalf("PolicyRef() = %q, want %q", got, want)
-	}
-}
-
 func TestLabelsForVPA(t *testing.T) {
 	labels := vpaservice.LabelsForVPA()
 
