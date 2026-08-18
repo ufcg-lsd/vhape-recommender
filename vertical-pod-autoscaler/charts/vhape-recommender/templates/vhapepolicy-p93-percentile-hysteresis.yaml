@@ -1,8 +1,7 @@
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapePolicy
 metadata:
-  name: vhape-policy-p93-default
-  namespace: kube-system
+  name: p93-percentile-hysteresis
 spec:
   resources:
     cpu:
