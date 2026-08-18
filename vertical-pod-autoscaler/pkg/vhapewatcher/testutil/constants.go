@@ -8,7 +8,7 @@ const (
 	TestVPAName        = "vpa-api"
 
 	TestPolicyNamespace = "kube-system"
-	TestPolicyName      = "vhape-policy-p93-default"
+	TestPolicyName      = "p93-percentile-hysteresis"
 
 	TestVPAUpdateMode vpav1.UpdateMode = vpav1.UpdateModeInPlaceOrRecreate
 )
