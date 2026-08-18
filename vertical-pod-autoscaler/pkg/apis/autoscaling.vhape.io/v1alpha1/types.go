@@ -20,6 +20,7 @@ package v1alpha1
 import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 )
@@ -134,4 +135,49 @@ type VhapeIgnoredWorkloadList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 
 	Items []VhapeIgnoredWorkload `json:"items"`
+}
+
+// +genclient
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// VhapePolicy configures how the VHAPE recommender estimates container resources.
+type VhapePolicy struct {
+	metav1.TypeMeta   `json:",inline"`
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec VhapePolicySpec `json:"spec,omitempty"`
+}
+
+// VhapePolicySpec describes the recommendation behavior configured by a VhapePolicy.
+type VhapePolicySpec struct {
+	// Resources configures the heuristic used for each supported resource.
+	Resources VhapeResourcesSpec `json:"resources"`
+
+	// ScalingRule optionally restricts the direction of the recommendations.
+	// +optional
+	ScalingRule string `json:"scalingRule,omitempty"`
+}
+
+// VhapeResourcesSpec contains the heuristic configuration for each supported resource.
+type VhapeResourcesSpec struct {
+	CPU    ResourceHeuristics `json:"cpu"`
+	Memory ResourceHeuristics `json:"memory"`
+}
+
+// ResourceHeuristics maps a heuristic name to its parameters.
+//
+// Exactly one heuristic may be configured per resource. The parameters are kept
+// raw on purpose: each heuristic owns its own schema and decodes it itself, so
+// new heuristics can be added without touching this package. See
+// pkg/recommender/logic/estimators/heuristics.go.
+type ResourceHeuristics map[string]runtime.RawExtension
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// VhapePolicyList is a list of VhapePolicy objects.
+type VhapePolicyList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+
+	Items []VhapePolicy `json:"items"`
 }

@@ -30,6 +30,7 @@ type VhapeAutoscalingV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	VhapeIgnoredNamespacesGetter
 	VhapeIgnoredWorkloadsGetter
+	VhapePoliciesGetter
 	VhapeWatchedNamespacesGetter
 	VhapeWatchedNamespaceRegexesGetter
 }
@@ -45,6 +46,10 @@ func (c *VhapeAutoscalingV1alpha1Client) VhapeIgnoredNamespaces() VhapeIgnoredNa
 
 func (c *VhapeAutoscalingV1alpha1Client) VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInterface {
 	return newVhapeIgnoredWorkloads(c)
+}
+
+func (c *VhapeAutoscalingV1alpha1Client) VhapePolicies(namespace string) VhapePolicyInterface {
+	return newVhapePolicies(c, namespace)
 }
 
 func (c *VhapeAutoscalingV1alpha1Client) VhapeWatchedNamespaces() VhapeWatchedNamespaceInterface {
