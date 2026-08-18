@@ -220,10 +220,8 @@ func TestPatchesOutdatedGeneratedVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	newOptions := newDesiredConfig()
 	oldOptions := vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Name:      "old-policy",
-		},
-		VPAUpdateMode: vpav1.UpdateModeRecreate,
+		VhapePolicyName: "old-policy",
+		VPAUpdateMode:   vpav1.UpdateModeRecreate,
 	}
 
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
@@ -254,10 +252,8 @@ func TestDeletesOutdatedGeneratedVPAWhenPatchFails(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	oldOptions := vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Name:      "old-policy",
-		},
-		VPAUpdateMode: vpav1.UpdateModeRecreate,
+		VhapePolicyName: "old-policy",
+		VPAUpdateMode:   vpav1.UpdateModeRecreate,
 	}
 
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
@@ -299,10 +295,8 @@ func TestCleansUpExtraGeneratedVPAWhenPatchFails(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	oldOptions := vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Name:      "old-policy",
-		},
-		VPAUpdateMode: vpav1.UpdateModeRecreate,
+		VhapePolicyName: "old-policy",
+		VPAUpdateMode:   vpav1.UpdateModeRecreate,
 	}
 
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)

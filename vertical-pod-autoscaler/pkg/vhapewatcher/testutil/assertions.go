@@ -54,7 +54,6 @@ func AssertStringSlicesEqualIgnoringOrder(t *testing.T, got, want []string) {
 func AssertWatchedNamespaceSpec(
 	t *testing.T,
 	watched *vhapev1alpha1.VhapeWatchedNamespace,
-	policyNamespace string,
 	policyName string,
 	updateMode vpav1.UpdateMode,
 ) {
@@ -64,11 +63,8 @@ func AssertWatchedNamespaceSpec(
 		t.Fatal("watched namespace is nil")
 	}
 
-	if watched.Spec.VhapePolicyRef.Namespace != policyNamespace {
-		t.Fatalf("policy namespace = %q, want %q", watched.Spec.VhapePolicyRef.Namespace, policyNamespace)
-	}
-	if watched.Spec.VhapePolicyRef.Name != policyName {
-		t.Fatalf("policy name = %q, want %q", watched.Spec.VhapePolicyRef.Name, policyName)
+	if watched.Spec.VhapePolicyName != policyName {
+		t.Fatalf("policy name = %q, want %q", watched.Spec.VhapePolicyName, policyName)
 	}
 	if watched.Spec.VPAUpdateMode != updateMode {
 		t.Fatalf("VPA update mode = %q, want %q", watched.Spec.VPAUpdateMode, updateMode)
@@ -296,7 +292,7 @@ func AssertGeneratedVPA(
 ) {
 	t.Helper()
 
-	AssertVPAMetadata(t, vpa, dep, expectedName, desiredOptions.VhapePolicyRef.Name)
+	AssertVPAMetadata(t, vpa, dep, expectedName, desiredOptions.VhapePolicyName)
 	AssertVPATargetRef(t, vpa, dep)
 	AssertVPARecommender(t, vpa)
 	AssertVPAUpdateMode(t, vpa, desiredOptions.VPAUpdateMode)

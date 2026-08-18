@@ -5,8 +5,8 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
-	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 )
@@ -46,7 +46,7 @@ func GenerateVPAForDeployment(name string, dep *appsv1.Deployment, options vhape
 			Name:            name,
 			Namespace:       dep.Namespace,
 			Labels:          LabelsForVPA(),
-			Annotations:     map[string]string{VhapePolicyAnnotation: options.VhapePolicyRef.Name},
+			Annotations:     map[string]string{VhapePolicyAnnotation: options.VhapePolicyName},
 			OwnerReferences: OwnerReferencesForDeployment(dep),
 		},
 		Spec: vpav1.VerticalPodAutoscalerSpec{
@@ -88,7 +88,7 @@ func NameForDeployment(dep *appsv1.Deployment) string {
 func LabelsForVPA() map[string]string {
 	return map[string]string{
 		ManagedByLabel: ManagedByValue,
-		VhapeLabel: VhapeRecommenderName,
+		VhapeLabel:     VhapeRecommenderName,
 	}
 }
 

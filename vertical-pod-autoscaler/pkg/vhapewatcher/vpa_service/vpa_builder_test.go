@@ -95,9 +95,7 @@ func TestOwnerReferencesForDeployment(t *testing.T) {
 
 func newDesiredConfig() vhapev1alpha1.VhapeWatchedNamespaceSpec {
 	return vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Name:      testutil.TestPolicyName,
-		},
-		VPAUpdateMode:        testutil.TestVPAUpdateMode,
+		VhapePolicyName: testutil.TestPolicyName,
+		VPAUpdateMode:   testutil.TestVPAUpdateMode,
 	}
 }
