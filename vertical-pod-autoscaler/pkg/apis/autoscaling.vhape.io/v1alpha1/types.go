@@ -37,8 +37,8 @@ type VhapeWatchedNamespace struct {
 }
 
 type VhapeWatchedNamespaceSpec struct {
-	VhapePolicyRef VhapePolicyRef `json:"vhapePolicyRef"`
-	VPAUpdateMode vpav1.UpdateMode `json:"vpaUpdateMode"`
+	VhapePolicyName string           `json:"vhapePolicyName"`
+	VPAUpdateMode   vpav1.UpdateMode `json:"vpaUpdateMode"`
 }
 
 // +genclient
@@ -87,11 +87,6 @@ type VhapeIgnoredNamespaceList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 
 	Items []VhapeIgnoredNamespace `json:"items"`
-}
-
-type VhapePolicyRef struct {
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

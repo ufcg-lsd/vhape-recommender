@@ -57,10 +57,8 @@ spec:
   # Regular expression used to select namespaces.
   # This example matches namespaces starting with "prod-".
   regex: "^prod-.*$"
-  vhapePolicyRef: # Default policy used by VPAs created by the Watcher.
-    namespace: kube-system # Namespace where the VhapePolicy is defined.
-    name: vhape-policy-p93-default # Name of the VhapePolicy.
-  vpaUpdateMode: InPlaceOrRecreate # Update mode used by managed VPAs.
+  vhapePolicyName: vhape-policy-p93-default # cluster-scoped VhapePolicy used by managed VPAs
+  vpaUpdateMode: InPlaceOrRecreate # update mode used by managed VPAs
 ```
 
 ## Watch a specific namespace
@@ -75,10 +73,8 @@ kind: VhapeWatchedNamespace
 metadata:
   name: production # namespace to be managed by the VHAPE Watcher
 spec:
-  vhapePolicyRef: # default policy used by VPAs created by the Watcher
-    namespace: kube-system # namespace where the VhapePolicy is defined
-    name: vhape-policy-p93-default # name of the VhapePolicy
-  vpaUpdateMode: InPlaceOrRecreate # update mode used by managed VPAs
+  vhapePolicyName: p93-percentile-hysteresis # VhapePolicy used by watcher-managed VPAs in this namespace
+  vpaUpdateMode: InPlaceOrRecreate # update mode used by watcher-managed VPAs in this namespace
 ```
 
 A `VhapeWatchedNamespace` takes precedence over any `VhapeWatchedNamespaceRegex` matching the same namespace.
