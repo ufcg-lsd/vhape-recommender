@@ -247,7 +247,6 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 	}
 
 	options := vpaservice.GenerationOptions{
-		VhapePolicyNamespace: decision.WatchedNamespace.Spec.VhapePolicyRef.Namespace,
 		VhapePolicyName:      decision.WatchedNamespace.Spec.VhapePolicyRef.Name,
 		VPAUpdateMode:        decision.WatchedNamespace.Spec.VPAUpdateMode,
 	}

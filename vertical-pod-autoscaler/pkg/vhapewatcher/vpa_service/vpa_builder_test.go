@@ -22,7 +22,6 @@ func TestGenerateVPAForDeployment(t *testing.T) {
 		vpa,
 		dep,
 		testutil.TestVPAName,
-		options.VhapePolicyNamespace,
 		options.VhapePolicyName,
 		options.VPAUpdateMode,
 	)
@@ -75,15 +74,6 @@ func TestNameForDeploymentTruncates(t *testing.T) {
 	}
 }
 
-func TestPolicyRef(t *testing.T) {
-	got := vpaservice.PolicyRef(newGenerationOptions())
-	want := testutil.TestPolicyNamespace + "/" + testutil.TestPolicyName
-
-	if got != want {
-		t.Fatalf("PolicyRef() = %q, want %q", got, want)
-	}
-}
-
 func TestLabelsForVPA(t *testing.T) {
 	labels := vpaservice.LabelsForVPA()
 
@@ -105,7 +95,6 @@ func TestOwnerReferencesForDeployment(t *testing.T) {
 
 func newGenerationOptions() vpaservice.GenerationOptions {
 	return vpaservice.GenerationOptions{
-		VhapePolicyNamespace: testutil.TestPolicyNamespace,
 		VhapePolicyName:      testutil.TestPolicyName,
 		VPAUpdateMode:        testutil.TestVPAUpdateMode,
 	}

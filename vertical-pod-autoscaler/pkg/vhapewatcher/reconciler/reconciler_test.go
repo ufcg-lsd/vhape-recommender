@@ -110,7 +110,6 @@ func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyNamespace,
 		testutil.TestPolicyName,
 		testutil.TestVPAUpdateMode,
 	)
@@ -251,7 +250,6 @@ func TestReconcileDeploymentCreatesGeneratedVPAForWatchedDeployment(t *testing.T
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyNamespace,
 		testutil.TestPolicyName,
 		testutil.TestVPAUpdateMode,
 	)
@@ -316,7 +314,6 @@ func TestReconcileDeploymentKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(
 		current,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyNamespace,
 		testutil.TestPolicyName,
 		testutil.TestVPAUpdateMode,
 	)
@@ -352,7 +349,6 @@ func TestReconcileDeploymentReplacesOutdatedGeneratedVPA(t *testing.T) {
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		newOptions.VhapePolicyNamespace,
 		newOptions.VhapePolicyName,
 		newOptions.VPAUpdateMode,
 	)
@@ -386,7 +382,6 @@ func TestReconcileDeploymentUsesWatchedNamespacePolicyAndUpdateMode(t *testing.T
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		"custom-policy-namespace",
 		"custom-policy",
 		vpav1.UpdateModeInitial,
 	)
@@ -451,7 +446,6 @@ func newVPAService(
 
 func generationOptions(policyNamespace, policyName string, updateMode vpav1.UpdateMode) vpaservice.GenerationOptions {
 	return vpaservice.GenerationOptions{
-		VhapePolicyNamespace: policyNamespace,
 		VhapePolicyName:      policyName,
 		VPAUpdateMode:        updateMode,
 	}

@@ -120,7 +120,6 @@ func AssertVPAMetadata(
 	vpa *vpav1.VerticalPodAutoscaler,
 	dep *appsv1.Deployment,
 	expectedName string,
-	policyNamespace string,
 	policyName string,
 ) {
 	t.Helper()
@@ -144,9 +143,8 @@ func AssertVPAMetadata(
 	AssertManagedByWatcherLabel(t, vpa)
 	AssertVhapeLabel(t, vpa)
 
-	wantPolicyRef := policyNamespace + "/" + policyName
-	if got := vpa.Annotations[vpaservice.VhapePolicyAnnotation]; got != wantPolicyRef {
-		t.Fatalf("policy annotation = %q, want %q", got, wantPolicyRef)
+	if got := vpa.Annotations[vpaservice.VhapePolicyAnnotation]; got != policyName {
+		t.Fatalf("policy annotation = %q, want %q", got, policyName)
 	}
 
 	AssertVPAOwnerReference(t, vpa, dep)
@@ -294,13 +292,12 @@ func AssertGeneratedVPA(
 	vpa *vpav1.VerticalPodAutoscaler,
 	dep *appsv1.Deployment,
 	expectedName string,
-	policyNamespace string,
 	policyName string,
 	updateMode vpav1.UpdateMode,
 ) {
 	t.Helper()
 
-	AssertVPAMetadata(t, vpa, dep, expectedName, policyNamespace, policyName)
+	AssertVPAMetadata(t, vpa, dep, expectedName, policyName)
 	AssertVPATargetRef(t, vpa, dep)
 	AssertVPARecommender(t, vpa)
 	AssertVPAUpdateMode(t, vpa, updateMode)

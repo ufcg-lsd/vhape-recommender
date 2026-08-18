@@ -136,10 +136,10 @@ func TestApplyVPACreatesVPA(t *testing.T) {
 		t.Fatalf("ApplyVPA returned error: %v", err)
 	}
 
-	testutil.AssertGeneratedVPA(t, appliedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
+	testutil.AssertGeneratedVPA(t, appliedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyName, options.VPAUpdateMode)
 
 	storedVPA := testutil.GetVPA(t, client, testutil.TestNamespace, vpaservice.NameForDeployment(dep))
-	testutil.AssertGeneratedVPA(t, storedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
+	testutil.AssertGeneratedVPA(t, storedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyName, options.VPAUpdateMode)
 }
 
 func TestApplyVPARejectsNilVPA(t *testing.T) {
@@ -180,7 +180,7 @@ func TestCreatesVPAWhenNoneExistsForManagedDeployment(t *testing.T) {
 	}
 
 	storedVPA := testutil.GetVPA(t, client, testutil.TestNamespace, vpaservice.NameForDeployment(dep))
-	testutil.AssertGeneratedVPA(t, storedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyNamespace, options.VhapePolicyName, options.VPAUpdateMode)
+	testutil.AssertGeneratedVPA(t, storedVPA, dep, vpaservice.NameForDeployment(dep), options.VhapePolicyName, options.VPAUpdateMode)
 }
 
 func TestKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(t *testing.T) {
@@ -216,7 +216,6 @@ func TestReplacesOutdatedGeneratedVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	newOptions := newGenerationOptions()
 	oldOptions := vpaservice.GenerationOptions{
-		VhapePolicyNamespace: "old-system",
 		VhapePolicyName:      "old-policy",
 		VPAUpdateMode:        vpav1.UpdateModeRecreate,
 	}
@@ -233,7 +232,7 @@ func TestReplacesOutdatedGeneratedVPA(t *testing.T) {
 	}
 
 	createdVPA := testutil.GetVPA(t, client, testutil.TestNamespace, vpaservice.NameForDeployment(dep))
-	testutil.AssertGeneratedVPA(t, createdVPA, dep, vpaservice.NameForDeployment(dep), newOptions.VhapePolicyNamespace, newOptions.VhapePolicyName, newOptions.VPAUpdateMode)
+	testutil.AssertGeneratedVPA(t, createdVPA, dep, vpaservice.NameForDeployment(dep), newOptions.VhapePolicyName, newOptions.VPAUpdateMode)
 }
 
 func TestEnsureOneGeneratedVPAForDeploymentRejectsNilDeployment(t *testing.T) {

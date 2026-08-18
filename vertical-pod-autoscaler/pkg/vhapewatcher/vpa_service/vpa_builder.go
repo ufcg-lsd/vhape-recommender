@@ -24,7 +24,6 @@ const (
 )
 
 type GenerationOptions struct {
-	VhapePolicyNamespace string
 	VhapePolicyName      string
 	VPAUpdateMode        vpav1.UpdateMode
 }
@@ -51,7 +50,7 @@ func GenerateVPAForDeployment(name string, dep *appsv1.Deployment, options Gener
 			Name:            name,
 			Namespace:       dep.Namespace,
 			Labels:          LabelsForVPA(),
-			Annotations:     map[string]string{VhapePolicyAnnotation: PolicyRef(options)},
+			Annotations:     map[string]string{VhapePolicyAnnotation: options.VhapePolicyName},
 			OwnerReferences: OwnerReferencesForDeployment(dep),
 		},
 		Spec: vpav1.VerticalPodAutoscalerSpec{
@@ -88,10 +87,6 @@ func NameForDeployment(dep *appsv1.Deployment) string {
 	}
 
 	return name
-}
-
-func PolicyRef(options GenerationOptions) string {
-	return options.VhapePolicyNamespace + "/" + options.VhapePolicyName
 }
 
 func LabelsForVPA() map[string]string {
