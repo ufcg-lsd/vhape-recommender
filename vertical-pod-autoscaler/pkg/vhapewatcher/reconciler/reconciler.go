@@ -72,6 +72,22 @@ func (r *Reconciler) EnqueueDeployment(namespace, name string) {
 	r.queue.Add(key)
 }
 
+func (r *Reconciler) EnqueueDeploymentsMatchingNamespaceRegex(regexCode string) {
+	namespaces, err := r.scope.GetNamespacesMatchingRegex(regexCode)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("get Namespaces matching regex %q: %w", regexCode, err))
+		return
+	}
+
+	for _, namespace := range namespaces {
+		if namespace == nil {
+			continue
+		}
+
+		r.EnqueueDeploymentsInNamespace(namespace.Name)
+	}
+}
+
 func (r *Reconciler) EnqueueDeploymentsInNamespace(namespace string) {
 	if namespace == "" {
 		klog.V(4).InfoS("Ignoring namespace enqueue request with empty namespace")
@@ -242,22 +258,13 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		return r.vpaService.EnsureNoGeneratedVPAForDeployment(ctx, vpas, reasonNotManagedVPAPresent)
 	}
 
-	if decision.WatchedNamespace == nil {
-		return fmt.Errorf("watched namespace is nil for managed Deployment %q/%q", dep.Namespace, dep.Name)
-	}
-
-	options := vpaservice.GenerationOptions{
-		VhapePolicyName:      decision.WatchedNamespace.Spec.VhapePolicyRef.Name,
-		VPAUpdateMode:        decision.WatchedNamespace.Spec.VPAUpdateMode,
-	}
-
 	klog.V(3).InfoS(
 		"Ensuring exactly one generated VPA for Deployment",
 		"deployment", klog.KObj(dep),
 		"generatedVPAs", managedCount,
 	)
 
-	return r.vpaService.EnsureOneGeneratedVPAForDeployment(ctx, dep, vpas, options)
+	return r.vpaService.EnsureOneGeneratedVPAForDeployment(ctx, dep, vpas, decision.DesiredConfig)
 }
 
 func namespacedKey(namespace, name string) string {

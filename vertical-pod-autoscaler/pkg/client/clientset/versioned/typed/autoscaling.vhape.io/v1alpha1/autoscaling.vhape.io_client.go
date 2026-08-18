@@ -28,13 +28,19 @@ import (
 
 type VhapeAutoscalingV1alpha1Interface interface {
 	RESTClient() rest.Interface
+	VhapeIgnoredNamespacesGetter
 	VhapeIgnoredWorkloadsGetter
 	VhapeWatchedNamespacesGetter
+	VhapeWatchedNamespaceRegexesGetter
 }
 
 // VhapeAutoscalingV1alpha1Client is used to interact with features provided by the autoscaling.vhape.io group.
 type VhapeAutoscalingV1alpha1Client struct {
 	restClient rest.Interface
+}
+
+func (c *VhapeAutoscalingV1alpha1Client) VhapeIgnoredNamespaces() VhapeIgnoredNamespaceInterface {
+	return newVhapeIgnoredNamespaces(c)
 }
 
 func (c *VhapeAutoscalingV1alpha1Client) VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInterface {
@@ -43,6 +49,10 @@ func (c *VhapeAutoscalingV1alpha1Client) VhapeIgnoredWorkloads() VhapeIgnoredWor
 
 func (c *VhapeAutoscalingV1alpha1Client) VhapeWatchedNamespaces() VhapeWatchedNamespaceInterface {
 	return newVhapeWatchedNamespaces(c)
+}
+
+func (c *VhapeAutoscalingV1alpha1Client) VhapeWatchedNamespaceRegexes() VhapeWatchedNamespaceRegexInterface {
+	return newVhapeWatchedNamespaceRegexes(c)
 }
 
 // NewForConfig creates a new VhapeAutoscalingV1alpha1Client for the given config.

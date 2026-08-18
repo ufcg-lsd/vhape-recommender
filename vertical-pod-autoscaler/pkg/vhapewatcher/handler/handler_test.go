@@ -1,19 +1,18 @@
 package handler
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 
 	"k8s.io/client-go/tools/cache"
 )
 
-// defines a fake type to allow for testing
 type fakeEventHandlerReceiver struct {
 	handler cache.ResourceEventHandler
 	err     error
 }
 
-// implements required interface
 func (r *fakeEventHandlerReceiver) AddEventHandler(handler cache.ResourceEventHandler) (cache.ResourceEventHandlerRegistration, error) {
 	if r.err != nil {
 		return nil, r.err
@@ -33,43 +32,53 @@ func TestNewRejectsNilSink(t *testing.T) {
 	}
 }
 
-func TestRegisterHandlersOnReceivers(t *testing.T) {
-	deploymentInformer := &fakeEventHandlerReceiver{}
-	vpaInformer := &fakeEventHandlerReceiver{}
-	watchedNamespaceInformer := &fakeEventHandlerReceiver{}
-	ignoredWorkloadInformer := &fakeEventHandlerReceiver{}
+func TestRegisterHandlerFunctionsOnInformersRejectsNilInformers(t *testing.T) {
+	handler := &Handler{}
 
-	var calls []string
+	if err := handler.RegisterHandlerFunctionsOnInformers(nil); err == nil {
+		t.Fatal("RegisterHandlerFunctionsOnInformers() expected error, got nil")
+	}
+}
 
-	err := registerHandlersOnReceivers(
-		deploymentInformer,
-		vpaInformer,
-		watchedNamespaceInformer,
-		ignoredWorkloadInformer,
-		testInformerHandlerFuncs(&calls),
-	)
-	if err != nil {
-		t.Fatalf("registerHandlersOnReceivers() returned error: %v", err)
+func TestRegisterHandlers(t *testing.T) {
+	resourceNames := []string{
+		"deployment",
+		"vpa",
+		"watched-namespace",
+		"watched-namespace-regex",
+		"ignored-namespace",
+		"ignored-workload",
 	}
 
-	fireAllHandlerFuncs(t, deploymentInformer)
-	fireAllHandlerFuncs(t, vpaInformer)
-	fireAllHandlerFuncs(t, watchedNamespaceInformer)
-	fireAllHandlerFuncs(t, ignoredWorkloadInformer)
+	var calls []string
+	receivers := make([]*fakeEventHandlerReceiver, 0, len(resourceNames))
+	registrations := make([]handlerRegistration, 0, len(resourceNames))
 
-	want := []string{
-		"deployment/add",
-		"deployment/update",
-		"deployment/delete",
-		"vpa/add",
-		"vpa/update",
-		"vpa/delete",
-		"watched-namespace/add",
-		"watched-namespace/update",
-		"watched-namespace/delete",
-		"ignored-workload/add",
-		"ignored-workload/update",
-		"ignored-workload/delete",
+	for _, name := range resourceNames {
+		receiver := &fakeEventHandlerReceiver{}
+		receivers = append(receivers, receiver)
+		registrations = append(registrations, handlerRegistration{
+			name:     name,
+			receiver: receiver,
+			handler:  testEventHandlerFuncs(name, &calls),
+		})
+	}
+
+	if err := registerHandlers(registrations); err != nil {
+		t.Fatalf("registerHandlers() returned error: %v", err)
+	}
+
+	for _, receiver := range receivers {
+		fireAllHandlerFuncs(t, receiver)
+	}
+
+	want := make([]string, 0, len(resourceNames)*3)
+	for _, name := range resourceNames {
+		want = append(want,
+			name+"/add",
+			name+"/update",
+			name+"/delete",
+		)
 	}
 
 	if !reflect.DeepEqual(calls, want) {
@@ -77,69 +86,39 @@ func TestRegisterHandlersOnReceivers(t *testing.T) {
 	}
 }
 
-func TestRegisterHandlersOnReceiversRejectsNilInformer(t *testing.T) {
-	validInformer := &fakeEventHandlerReceiver{}
-	handlers := testInformerHandlerFuncs(nil)
-
-	tests := []struct {
-		name                     string
-		deploymentInformer       eventHandlerReceiver
-		vpaInformer              eventHandlerReceiver
-		watchedNamespaceInformer eventHandlerReceiver
-		ignoredWorkloadInformer  eventHandlerReceiver
-	}{
+func TestRegisterHandlersRejectsNilInformer(t *testing.T) {
+	err := registerHandlers([]handlerRegistration{
 		{
-			name:                     "deployment informer nil",
-			deploymentInformer:       nil,
-			vpaInformer:              validInformer,
-			watchedNamespaceInformer: validInformer,
-			ignoredWorkloadInformer:  validInformer,
+			name:     "deployment",
+			receiver: &fakeEventHandlerReceiver{},
+			handler:  testEventHandlerFuncs("deployment", nil),
 		},
 		{
-			name:                     "vpa informer nil",
-			deploymentInformer:       validInformer,
-			vpaInformer:              nil,
-			watchedNamespaceInformer: validInformer,
-			ignoredWorkloadInformer:  validInformer,
+			name:     "vpa",
+			receiver: nil,
+			handler:  testEventHandlerFuncs("vpa", nil),
 		},
-		{
-			name:                     "watched namespace informer nil",
-			deploymentInformer:       validInformer,
-			vpaInformer:              validInformer,
-			watchedNamespaceInformer: nil,
-			ignoredWorkloadInformer:  validInformer,
-		},
-		{
-			name:                     "ignored workload informer nil",
-			deploymentInformer:       validInformer,
-			vpaInformer:              validInformer,
-			watchedNamespaceInformer: validInformer,
-			ignoredWorkloadInformer:  nil,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := registerHandlersOnReceivers(
-				tt.deploymentInformer,
-				tt.vpaInformer,
-				tt.watchedNamespaceInformer,
-				tt.ignoredWorkloadInformer,
-				handlers,
-			)
-			if err == nil {
-				t.Fatal("registerHandlersOnReceivers() expected error, got nil")
-			}
-		})
+	})
+	if err == nil {
+		t.Fatal("registerHandlers() expected error, got nil")
 	}
 }
 
-func testInformerHandlerFuncs(calls *[]string) informerHandlerFuncs {
-	return informerHandlerFuncs{
-		deployment:       testEventHandlerFuncs("deployment", calls),
-		vpa:              testEventHandlerFuncs("vpa", calls),
-		watchedNamespace: testEventHandlerFuncs("watched-namespace", calls),
-		ignoredWorkload:  testEventHandlerFuncs("ignored-workload", calls),
+func TestRegisterHandlersReturnsRegistrationError(t *testing.T) {
+	wantErr := errors.New("registration failed")
+
+	err := registerHandlers([]handlerRegistration{
+		{
+			name:     "deployment",
+			receiver: &fakeEventHandlerReceiver{err: wantErr},
+			handler:  testEventHandlerFuncs("deployment", nil),
+		},
+	})
+	if err == nil {
+		t.Fatal("registerHandlers() expected error, got nil")
+	}
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("registerHandlers() error = %v, want wrapped %v", err, wantErr)
 	}
 }
 
@@ -166,6 +145,10 @@ func testEventHandlerFuncs(name string, calls *[]string) cache.ResourceEventHand
 
 func fireAllHandlerFuncs(t *testing.T, receiver *fakeEventHandlerReceiver) {
 	t.Helper()
+
+	if receiver.handler == nil {
+		t.Fatal("handler was not registered")
+	}
 
 	receiver.handler.OnAdd(nil, true)
 	receiver.handler.OnUpdate(nil, nil)

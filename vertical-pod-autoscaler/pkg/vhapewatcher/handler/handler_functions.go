@@ -126,6 +126,87 @@ func (h *Handler) onWatchedNamespaceDelete(obj interface{}) {
 	h.sink.EnqueueDeploymentsInNamespace(watched.Name)
 }
 
+// When a namespace regex starts watching namespaces, all Deployments in the
+// namespaces matched by that regex may need reconciliation.
+func (h *Handler) onWatchedNamespaceRegexAdd(obj interface{}) {
+	watchedRegex, ok := watchedNamespaceRegexFromObject(obj)
+	if !ok {
+		klog.V(4).InfoS("Ignoring VhapeWatchedNamespaceRegex add event with unexpected object type")
+		return
+	}
+
+	klog.InfoS("Watched namespace regex added; enqueuing Deployments in matching namespaces", "regex", watchedRegex.Spec.Regex)
+	h.sink.EnqueueDeploymentsMatchingNamespaceRegex(watchedRegex.Spec.Regex)
+}
+
+// A regex update may change either the matched namespace set or the desired
+// configuration. Reconcile namespaces matched by the old regex and the new regex.
+func (h *Handler) onWatchedNamespaceRegexUpdate(oldObj, newObj interface{}) {
+	klog.V(4).InfoS("VhapeWatchedNamespaceRegex update event")
+
+	oldWatchedRegex, oldOK := watchedNamespaceRegexFromObject(oldObj)
+	if oldOK {
+		h.sink.EnqueueDeploymentsMatchingNamespaceRegex(oldWatchedRegex.Spec.Regex)
+	} else {
+		klog.V(4).InfoS("Ignoring old object from VhapeWatchedNamespaceRegex update event with unexpected object type")
+	}
+
+	newWatchedRegex, newOK := watchedNamespaceRegexFromObject(newObj)
+	if !newOK {
+		klog.V(4).InfoS("Ignoring new object from VhapeWatchedNamespaceRegex update event with unexpected object type")
+		return
+	}
+
+	if !oldOK || oldWatchedRegex.Spec.Regex != newWatchedRegex.Spec.Regex {
+		h.sink.EnqueueDeploymentsMatchingNamespaceRegex(newWatchedRegex.Spec.Regex)
+	}
+}
+
+// When a namespace regex is deleted, Deployments in namespaces matched by the
+// deleted regex are reconciled so generated VPAs can be cleaned up if needed.
+func (h *Handler) onWatchedNamespaceRegexDelete(obj interface{}) {
+	watchedRegex, ok := watchedNamespaceRegexFromObject(obj)
+	if !ok {
+		klog.V(4).InfoS("Ignoring VhapeWatchedNamespaceRegex delete event with unexpected object type")
+		return
+	}
+
+	klog.InfoS("Watched namespace regex deleted; enqueuing Deployments in matching namespaces", "regex", watchedRegex.Spec.Regex)
+	h.sink.EnqueueDeploymentsMatchingNamespaceRegex(watchedRegex.Spec.Regex)
+}
+
+// When a namespace becomes explicitly ignored, every Deployment in that
+// namespace may need reconciliation.
+func (h *Handler) onIgnoredNamespaceAdd(obj interface{}) {
+	ignoredNamespace, ok := ignoredNamespaceFromObject(obj)
+	if !ok {
+		klog.V(4).InfoS("Ignoring VhapeIgnoredNamespace add event with unexpected object type")
+		return
+	}
+
+	klog.InfoS("Ignored namespace added; enqueuing Deployments in namespace", "namespace", ignoredNamespace.Name)
+	h.sink.EnqueueDeploymentsInNamespace(ignoredNamespace.Name)
+}
+
+// VhapeIgnoredNamespace updates are ignored because the resource is a marker
+// whose semantics depend only on metadata.name, which is immutable.
+func (h *Handler) onIgnoredNamespaceUpdate(_, _ interface{}) {
+	klog.V(4).InfoS("Ignoring VhapeIgnoredNamespace update event")
+}
+
+// When a namespace stops being explicitly ignored, its Deployments may become
+// eligible through a regex rule and must be reconciled.
+func (h *Handler) onIgnoredNamespaceDelete(obj interface{}) {
+	ignoredNamespace, ok := ignoredNamespaceFromObject(obj)
+	if !ok {
+		klog.V(4).InfoS("Ignoring VhapeIgnoredNamespace delete event with unexpected object type")
+		return
+	}
+
+	klog.InfoS("Ignored namespace deleted; enqueuing Deployments in namespace", "namespace", ignoredNamespace.Name)
+	h.sink.EnqueueDeploymentsInNamespace(ignoredNamespace.Name)
+}
+
 // When a workload becomes ignored, the associated Deployment must be reconciled
 // so any generated VPA can be cleaned up according to the watcher policy.
 func (h *Handler) onIgnoredWorkloadAdd(obj interface{}) {
@@ -255,6 +336,34 @@ func watchedNamespaceFromObject(obj interface{}) (*vhapev1alpha1.VhapeWatchedNam
 
 	watched, ok := tombstone.Obj.(*vhapev1alpha1.VhapeWatchedNamespace)
 	return watched, ok
+}
+
+func watchedNamespaceRegexFromObject(obj interface{}) (*vhapev1alpha1.VhapeWatchedNamespaceRegex, bool) {
+	if watchedRegex, ok := obj.(*vhapev1alpha1.VhapeWatchedNamespaceRegex); ok {
+		return watchedRegex, true
+	}
+
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return nil, false
+	}
+
+	watchedRegex, ok := tombstone.Obj.(*vhapev1alpha1.VhapeWatchedNamespaceRegex)
+	return watchedRegex, ok
+}
+
+func ignoredNamespaceFromObject(obj interface{}) (*vhapev1alpha1.VhapeIgnoredNamespace, bool) {
+	if ignoredNamespace, ok := obj.(*vhapev1alpha1.VhapeIgnoredNamespace); ok {
+		return ignoredNamespace, true
+	}
+
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return nil, false
+	}
+
+	ignoredNamespace, ok := tombstone.Obj.(*vhapev1alpha1.VhapeIgnoredNamespace)
+	return ignoredNamespace, ok
 }
 
 func ignoredWorkloadFromObject(obj interface{}) (*vhapev1alpha1.VhapeIgnoredWorkload, bool) {

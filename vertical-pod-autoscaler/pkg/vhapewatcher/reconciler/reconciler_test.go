@@ -8,13 +8,14 @@ import (
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
+	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 )
 
 func TestNewReconciler(t *testing.T) {
-	_, client, informers := testutil.NewInformers(t, nil, nil, nil, nil)
+	client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
 	deploymentLister := informers.Deployment.Lister()
 	scopeResolver := newScopeResolver(t, informers)
 	vpaService := newVPAService(t, informers, client)
@@ -85,6 +86,34 @@ func TestEnqueueDeploymentsInNamespaceIgnoresEmptyNamespace(t *testing.T) {
 	assertQueuedKeys(t, r, nil)
 }
 
+func TestEnqueueDeploymentsMatchingNamespaceRegex(t *testing.T) {
+	deployments := []*appsv1.Deployment{
+		testutil.NewDeployment("prod-api", "api"),
+		testutil.NewDeployment("prod-api", "worker"),
+		testutil.NewDeployment("prod-jobs", "jobs"),
+		testutil.NewDeployment("staging-api", "api"),
+	}
+	r, _ := newTestReconcilerWithState(t, deployments, nil, nil, nil)
+
+	r.EnqueueDeploymentsMatchingNamespaceRegex(`^prod-.*$`)
+
+	assertQueuedKeys(t, r, []string{"prod-api/api", "prod-api/worker", "prod-jobs/jobs"})
+}
+
+func TestEnqueueDeploymentsMatchingNamespaceRegexIgnoresInvalidRegex(t *testing.T) {
+	r, _ := newTestReconcilerWithState(
+		t,
+		[]*appsv1.Deployment{testutil.NewDeployment("prod-api", "api")},
+		nil,
+		nil,
+		nil,
+	)
+
+	r.EnqueueDeploymentsMatchingNamespaceRegex(`[invalid`)
+
+	assertQueuedKeys(t, r, nil)
+}
+
 func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
@@ -110,8 +139,7 @@ func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyName,
-		testutil.TestVPAUpdateMode,
+		watched.Spec,
 	)
 	assertQueuedKeys(t, r, nil)
 }
@@ -250,8 +278,7 @@ func TestReconcileDeploymentCreatesGeneratedVPAForWatchedDeployment(t *testing.T
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyName,
-		testutil.TestVPAUpdateMode,
+		watched.Spec,
 	)
 }
 
@@ -314,8 +341,7 @@ func TestReconcileDeploymentKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(
 		current,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		testutil.TestPolicyName,
-		testutil.TestVPAUpdateMode,
+		watched.Spec,
 	)
 	testutil.AssertVPANotFound(t, client, extraGeneratedVPA.Namespace, extraGeneratedVPA.Name)
 }
@@ -349,8 +375,7 @@ func TestReconcileDeploymentReplacesOutdatedGeneratedVPA(t *testing.T) {
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		newOptions.VhapePolicyName,
-		newOptions.VPAUpdateMode,
+		newOptions,
 	)
 }
 
@@ -382,8 +407,7 @@ func TestReconcileDeploymentUsesWatchedNamespacePolicyAndUpdateMode(t *testing.T
 		createdVPA,
 		dep,
 		vpaservice.NameForDeployment(dep),
-		"custom-policy",
-		vpav1.UpdateModeInitial,
+		watched.Spec,
 	)
 }
 
@@ -396,10 +420,13 @@ func newTestReconcilerWithState(
 ) (*Reconciler, *vpafake.Clientset) {
 	t.Helper()
 
-	_, client, informers := testutil.NewInformers(
+	client, informers := testutil.NewInformers(
 		t,
 		deployments,
+		nil,
 		watchedNamespaces,
+		nil,
+		nil,
 		ignoredWorkloads,
 		vpas,
 	)
@@ -415,13 +442,10 @@ func newTestReconcilerWithState(
 	return r, client
 }
 
-func newScopeResolver(t *testing.T, informers *testutil.Informers) *watcherscope.Scope {
+func newScopeResolver(t *testing.T, informers *watcherinformers.Informers) *watcherscope.Scope {
 	t.Helper()
 
-	scopeResolver, err := watcherscope.New(
-		informers.VhapeWatchedNamespace.Lister(),
-		informers.VhapeIgnoredWorkload.Lister(),
-	)
+	scopeResolver, err := watcherscope.New(informers)
 	if err != nil {
 		t.Fatalf("scope.New() returned error: %v", err)
 	}
@@ -431,7 +455,7 @@ func newScopeResolver(t *testing.T, informers *testutil.Informers) *watcherscope
 
 func newVPAService(
 	t *testing.T,
-	informers *testutil.Informers,
+	informers *watcherinformers.Informers,
 	client *vpafake.Clientset,
 ) *vpaservice.VPAService {
 	t.Helper()
@@ -444,10 +468,13 @@ func newVPAService(
 	return service
 }
 
-func generationOptions(policyNamespace, policyName string, updateMode vpav1.UpdateMode) vpaservice.GenerationOptions {
-	return vpaservice.GenerationOptions{
-		VhapePolicyName:      policyName,
-		VPAUpdateMode:        updateMode,
+func generationOptions(policyNamespace, policyName string, updateMode vpav1.UpdateMode) vhapev1alpha1.VhapeWatchedNamespaceSpec {
+	return vhapev1alpha1.VhapeWatchedNamespaceSpec{
+		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
+			Namespace: policyNamespace,
+			Name:      policyName,
+		},
+		VPAUpdateMode: updateMode,
 	}
 }
 

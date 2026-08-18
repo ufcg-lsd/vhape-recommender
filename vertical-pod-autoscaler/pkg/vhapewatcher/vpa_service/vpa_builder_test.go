@@ -4,13 +4,14 @@ import (
 	"strings"
 	"testing"
 
+	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 )
 
 func TestGenerateVPAForDeployment(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
-	options := newGenerationOptions()
+	options := newDesiredConfig()
 
 	vpa, err := vpaservice.GenerateVPAForDeployment(testutil.TestVPAName, dep, options)
 	if err != nil {
@@ -22,13 +23,12 @@ func TestGenerateVPAForDeployment(t *testing.T) {
 		vpa,
 		dep,
 		testutil.TestVPAName,
-		options.VhapePolicyName,
-		options.VPAUpdateMode,
+		options,
 	)
 }
 
 func TestGenerateVPAForDeploymentRejectsNilDeployment(t *testing.T) {
-	vpa, err := vpaservice.GenerateVPAForDeployment(testutil.TestVPAName, nil, newGenerationOptions())
+	vpa, err := vpaservice.GenerateVPAForDeployment(testutil.TestVPAName, nil, newDesiredConfig())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -40,7 +40,7 @@ func TestGenerateVPAForDeploymentRejectsNilDeployment(t *testing.T) {
 func TestGenerateVPAForDeploymentRejectsEmptyName(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 
-	vpa, err := vpaservice.GenerateVPAForDeployment("", dep, newGenerationOptions())
+	vpa, err := vpaservice.GenerateVPAForDeployment("", dep, newDesiredConfig())
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -74,6 +74,15 @@ func TestNameForDeploymentTruncates(t *testing.T) {
 	}
 }
 
+func TestPolicyRef(t *testing.T) {
+	got := vpaservice.PolicyRef(newDesiredConfig().VhapePolicyRef)
+	want := testutil.TestPolicyNamespace + "/" + testutil.TestPolicyName
+
+	if got != want {
+		t.Fatalf("PolicyRef() = %q, want %q", got, want)
+	}
+}
+
 func TestLabelsForVPA(t *testing.T) {
 	labels := vpaservice.LabelsForVPA()
 
@@ -93,9 +102,11 @@ func TestOwnerReferencesForDeployment(t *testing.T) {
 	testutil.AssertOwnerReferenceForDeployment(t, refs, dep)
 }
 
-func newGenerationOptions() vpaservice.GenerationOptions {
-	return vpaservice.GenerationOptions{
-		VhapePolicyName:      testutil.TestPolicyName,
+func newDesiredConfig() vhapev1alpha1.VhapeWatchedNamespaceSpec {
+	return vhapev1alpha1.VhapeWatchedNamespaceSpec{
+		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
+			Name:      testutil.TestPolicyName,
+		},
 		VPAUpdateMode:        testutil.TestVPAUpdateMode,
 	}
 }

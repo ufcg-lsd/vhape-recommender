@@ -1,20 +1,23 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: vhapewatchednamespaces.autoscaling.vhape.io
+  name: vhapewatchednamespaceregexes.autoscaling.vhape.io
 spec:
   group: autoscaling.vhape.io
   scope: Cluster
   names:
-    plural: vhapewatchednamespaces
-    singular: vhapewatchednamespace
-    kind: VhapeWatchedNamespace
-    listKind: VhapeWatchedNamespaceList
+    plural: vhapewatchednamespaceregexes
+    singular: vhapewatchednamespaceregex
+    kind: VhapeWatchedNamespaceRegex
+    listKind: VhapeWatchedNamespaceRegexList
   versions:
     - name: v1alpha1
       served: true
       storage: true
       additionalPrinterColumns:
+        - jsonPath: .spec.regex
+          name: Regex
+          type: string
         - jsonPath: .spec.vhapePolicyRef.namespace
           name: PolicyNamespace
           type: string
@@ -27,16 +30,20 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          description: Marks a Kubernetes namespace as eligible for VHAPE Watcher management.
+          description: Marks namespaces matching a regular expression as eligible for VHAPE Watcher management.
           required:
             - spec
           properties:
             spec:
               type: object
               required:
+                - regex
                 - vhapePolicyRef
                 - vpaUpdateMode
               properties:
+                regex:
+                  type: string
+                  minLength: 1
                 vhapePolicyRef:
                   type: object
                   required:

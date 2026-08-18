@@ -9,9 +9,9 @@ import (
 	autoscalinginformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
 	vhapev1alpha1informers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.vhape.io/v1alpha1"
 	appsinformers "k8s.io/client-go/informers/apps/v1"
+	coreinformers "k8s.io/client-go/informers/core/v1"
 
 	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
-	vhapevpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 
 	"k8s.io/client-go/tools/cache"
 )
@@ -21,10 +21,13 @@ type Informers struct {
 	kubeFactory  kubeinformerfactory.SharedInformerFactory
 	vhapeFactory vhapeinformerfactory.SharedInformerFactory
 
-	Deployment            appsinformers.DeploymentInformer
-	VPA                   autoscalinginformers.VerticalPodAutoscalerInformer
-	VhapeWatchedNamespace vhapev1alpha1informers.VhapeWatchedNamespaceInformer
-	VhapeIgnoredWorkload  vhapev1alpha1informers.VhapeIgnoredWorkloadInformer
+	Deployment                 appsinformers.DeploymentInformer
+	Namespace                  coreinformers.NamespaceInformer
+	VPA                        autoscalinginformers.VerticalPodAutoscalerInformer
+	VhapeWatchedNamespace      vhapev1alpha1informers.VhapeWatchedNamespaceInformer
+	VhapeWatchedNamespaceRegex vhapev1alpha1informers.VhapeWatchedNamespaceRegexInformer
+	VhapeIgnoredNamespace      vhapev1alpha1informers.VhapeIgnoredNamespaceInformer
+	VhapeIgnoredWorkload       vhapev1alpha1informers.VhapeIgnoredWorkloadInformer
 }
 
 // New creates informers for native Kubernetes resources, VPA resources and VHAPE resources.
@@ -47,33 +50,67 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1().
 		Deployments()
 
+	namespaceInformer := kubeFactory.
+		Core().
+		V1().
+		Namespaces()
+
 	vpaInformer := vhapeFactory.
 		Autoscaling().
 		V1().
 		VerticalPodAutoscalers()
-
-	if err := vhapevpaservice.AddDeploymentToVPAsIndex(vpaInformer); err != nil {
-		return nil, fmt.Errorf("add Deployment to VPAs index: %w", err)
-	}
 
 	watchedNamespaceInformer := vhapeFactory.
 		VhapeAutoscaling().
 		V1alpha1().
 		VhapeWatchedNamespaces()
 
+	watchedNamespaceRegexInformer := vhapeFactory.
+		VhapeAutoscaling().
+		V1alpha1().
+		VhapeWatchedNamespaceRegexes()
+
+	ignoredNamespaceInformer := vhapeFactory.
+		VhapeAutoscaling().
+		V1alpha1().
+		VhapeIgnoredNamespaces()
+
 	ignoredWorkloadInformer := vhapeFactory.
 		VhapeAutoscaling().
 		V1alpha1().
 		VhapeIgnoredWorkloads()
 
-	return &Informers{
-		kubeFactory:           kubeFactory,
-		vhapeFactory:          vhapeFactory,
-		Deployment:            deploymentInformer,
-		VPA:                   vpaInformer,
-		VhapeWatchedNamespace: watchedNamespaceInformer,
-		VhapeIgnoredWorkload:  ignoredWorkloadInformer,
-	}, nil
+	informerSet := &Informers{
+		kubeFactory:                kubeFactory,
+		vhapeFactory:               vhapeFactory,
+		Deployment:                 deploymentInformer,
+		Namespace:                  namespaceInformer,
+		VPA:                        vpaInformer,
+		VhapeWatchedNamespace:      watchedNamespaceInformer,
+		VhapeWatchedNamespaceRegex: watchedNamespaceRegexInformer,
+		VhapeIgnoredNamespace:      ignoredNamespaceInformer,
+		VhapeIgnoredWorkload:       ignoredWorkloadInformer,
+	}
+
+	// Materialize all SharedIndexInformers
+	informerSet.Deployment.Informer()
+	informerSet.Namespace.Informer()
+	informerSet.VPA.Informer()
+	informerSet.VhapeWatchedNamespace.Informer()
+	informerSet.VhapeWatchedNamespaceRegex.Informer()
+	informerSet.VhapeIgnoredNamespace.Informer()
+	informerSet.VhapeIgnoredWorkload.Informer()
+
+	// Register custom indexes
+	if err := AddDeploymentToVPAsIndex(vpaInformer); err != nil {
+		return nil, fmt.Errorf("add Deployment to VPAs index: %w", err)
+	}
+
+	if err := AddDeploymentToIgnoredWorkloadsIndex(ignoredWorkloadInformer); err != nil {
+		return nil, fmt.Errorf("add Deployment to VhapeIgnoredWorkloads index: %w", err)
+	}
+
+	return informerSet, nil
 }
 
 // Start starts all informer factories.
@@ -87,8 +124,11 @@ func (i *Informers) WaitForCacheSync(stopCh <-chan struct{}) error {
 		"vhape-watcher",
 		stopCh,
 		i.Deployment.Informer().HasSynced,
+		i.Namespace.Informer().HasSynced,
 		i.VPA.Informer().HasSynced,
 		i.VhapeWatchedNamespace.Informer().HasSynced,
+		i.VhapeWatchedNamespaceRegex.Informer().HasSynced,
+		i.VhapeIgnoredNamespace.Informer().HasSynced,
 		i.VhapeIgnoredWorkload.Informer().HasSynced,
 	); !ok {
 		return fmt.Errorf("failed to sync informer caches")
