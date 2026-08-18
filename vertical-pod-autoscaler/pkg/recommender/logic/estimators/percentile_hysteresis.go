@@ -1,15 +1,50 @@
 package estimators
 
 import (
+	"encoding/json"
+	"fmt"
 	"math"
 	"sort"
 	"sync"
 	"time"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/klog/v2"
 )
+
+// PercentileHysteresis is the name used to select this heuristic in a VhapePolicy.
+const PercentileHysteresis = "percentile-hysteresis"
+
+func init() {
+	RegisterHeuristic(PercentileHysteresis, func(config []byte) (HeuristicSpec, error) {
+		spec := &PercentileHysteresisSpec{}
+		if err := json.Unmarshal(config, spec); err != nil {
+			return nil, fmt.Errorf("invalid parameters: %w", err)
+		}
+
+		return spec, nil
+	})
+}
+
+// PercentileHysteresisSpec contains the configuration for the percentile
+// hysteresis heuristic.
+type PercentileHysteresisSpec struct {
+	Percentile    float64         `json:"percentile"`
+	Headroom      float64         `json:"headroom"`
+	SlidingWindow metav1.Duration `json:"slidingWindow"`
+}
+
+// NewEstimator creates a percentile hysteresis estimator for the given resource.
+func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName) ResourceEstimator {
+	return NewPercentileHysteresisEstimator(
+		resourceName,
+		s.Percentile,
+		s.Headroom,
+		s.SlidingWindow.Duration,
+	)
+}
 
 // TimedSample represents a resource usage sample associated with the time at
 // which it was collected.
