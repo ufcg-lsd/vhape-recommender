@@ -55,8 +55,8 @@ type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 // Each estimator is resource-specific. This allows CPU and memory to use
 // different heuristic implementations or different heuristic configurations.
 type ResourceEstimators struct {
-	CPU    estimators.ResourceEstimator
-	Memory estimators.ResourceEstimator
+	CPU       estimators.ResourceEstimator
+	Memory    estimators.ResourceEstimator
 	policyUID types.UID
 }
 
@@ -226,7 +226,7 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 		klog.V(4).InfoS(
 			"Cached estimators found",
 			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
-			"policy", klog.KRef(policy.Namespace, policy.Name),
+			"policy", klog.KObj(policy),
 			"policyUID", policy.UID,
 		)
 		return cached, nil
@@ -235,16 +235,16 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 	cpuHeuristic, cpuHeuristicName, err := estimators.BuildHeuristic(policy.Spec.Resources.CPU)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"VhapePolicy %q/%q: invalid spec.resources.cpu: %w",
-			policy.Namespace, policy.Name, err,
+			"VhapePolicy %q: invalid spec.resources.cpu: %w",
+			policy.Name, err,
 		)
 	}
 
 	memoryHeuristic, memHeuristicName, err := estimators.BuildHeuristic(policy.Spec.Resources.Memory)
 	if err != nil {
 		return nil, fmt.Errorf(
-			"VhapePolicy %q/%q: invalid spec.resources.memory: %w",
-			policy.Namespace, policy.Name, err,
+			"VhapePolicy %q: invalid spec.resources.memory: %w",
+			policy.Name, err,
 		)
 	}
 
@@ -253,7 +253,7 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 			"VPA policy changed; estimators discarded",
 			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
 			"oldPolicyUID", cached.policyUID,
-			"newPolicy", klog.KRef(policy.Namespace, policy.Name),
+			"newPolicy", klog.KObj(policy),
 			"newPolicyUID", policy.UID,
 		)
 	}
@@ -267,7 +267,7 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 	klog.V(4).InfoS(
 		"Estimators created from VhapePolicy",
 		"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
-		"policy", klog.KRef(policy.Namespace, policy.Name),
+		"policy", klog.KObj(policy),
 		"policyUID", policy.UID,
 		"cpuHeuristic", cpuHeuristicName,
 		"memHeuristic", memHeuristicName,
@@ -445,4 +445,3 @@ func MapToListOfRecommendedContainerResources(resources RecommendedPodResources,
 		ContainerRecommendations: containerResources,
 	}
 }
-

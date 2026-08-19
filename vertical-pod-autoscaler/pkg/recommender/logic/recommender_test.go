@@ -805,7 +805,7 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 					Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
 				},
 			},
-			wantErr: "invalid spec.resources.cpu: resource spec must define exactly one heuristic",
+			wantErr: `VhapePolicy "policy": invalid spec.resources.cpu: resource spec must define exactly one heuristic`,
 		},
 		{
 			name: "unsupported memory heuristic",
@@ -817,7 +817,7 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 					},
 				},
 			},
-			wantErr: `invalid spec.resources.memory: unsupported heuristic "unknown"`,
+			wantErr: `VhapePolicy "policy": invalid spec.resources.memory: unsupported heuristic "unknown"`,
 		},
 		{
 			name: "malformed cpu parameters",
@@ -831,7 +831,7 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 					Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
 				},
 			},
-			wantErr: "invalid spec.resources.cpu: heuristic \"percentile-hysteresis\": invalid parameters",
+			wantErr: `VhapePolicy "policy": invalid spec.resources.cpu: heuristic "percentile-hysteresis": invalid parameters`,
 		},
 	}
 
