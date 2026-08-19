@@ -48,8 +48,8 @@ func (c *VhapeAutoscalingV1alpha1Client) VhapeIgnoredWorkloads() VhapeIgnoredWor
 	return newVhapeIgnoredWorkloads(c)
 }
 
-func (c *VhapeAutoscalingV1alpha1Client) VhapePolicies(namespace string) VhapePolicyInterface {
-	return newVhapePolicies(c, namespace)
+func (c *VhapeAutoscalingV1alpha1Client) VhapePolicies() VhapePolicyInterface {
+	return newVhapePolicies(c)
 }
 
 func (c *VhapeAutoscalingV1alpha1Client) VhapeWatchedNamespaces() VhapeWatchedNamespaceInterface {

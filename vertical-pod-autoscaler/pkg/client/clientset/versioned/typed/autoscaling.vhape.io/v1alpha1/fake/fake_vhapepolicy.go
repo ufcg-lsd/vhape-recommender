@@ -30,11 +30,11 @@ type fakeVhapePolicies struct {
 	Fake *FakeVhapeAutoscalingV1alpha1
 }
 
-func newFakeVhapePolicies(fake *FakeVhapeAutoscalingV1alpha1, namespace string) autoscalingvhapeiov1alpha1.VhapePolicyInterface {
+func newFakeVhapePolicies(fake *FakeVhapeAutoscalingV1alpha1) autoscalingvhapeiov1alpha1.VhapePolicyInterface {
 	return &fakeVhapePolicies{
 		gentype.NewFakeClientWithList[*v1alpha1.VhapePolicy, *v1alpha1.VhapePolicyList](
 			fake.Fake,
-			namespace,
+			"",
 			v1alpha1.SchemeGroupVersion.WithResource("vhapepolicies"),
 			v1alpha1.SchemeGroupVersion.WithKind("VhapePolicy"),
 			func() *v1alpha1.VhapePolicy { return &v1alpha1.VhapePolicy{} },

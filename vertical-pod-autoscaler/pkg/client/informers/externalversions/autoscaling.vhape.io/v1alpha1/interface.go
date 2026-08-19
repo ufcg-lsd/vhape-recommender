@@ -59,7 +59,7 @@ func (v *version) VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInformer {
 
 // VhapePolicies returns a VhapePolicyInformer.
 func (v *version) VhapePolicies() VhapePolicyInformer {
-	return &vhapePolicyInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+	return &vhapePolicyInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
 }
 
 // VhapeWatchedNamespaces returns a VhapeWatchedNamespaceInformer.

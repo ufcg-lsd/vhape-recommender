@@ -42,45 +42,44 @@ type VhapePolicyInformer interface {
 type vhapePolicyInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
 	tweakListOptions internalinterfaces.TweakListOptionsFunc
-	namespace        string
 }
 
 // NewVhapePolicyInformer constructs a new informer for VhapePolicy type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewVhapePolicyInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredVhapePolicyInformer(client, namespace, resyncPeriod, indexers, nil)
+func NewVhapePolicyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
+	return NewFilteredVhapePolicyInformer(client, resyncPeriod, indexers, nil)
 }
 
 // NewFilteredVhapePolicyInformer constructs a new informer for VhapePolicy type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
-func NewFilteredVhapePolicyInformer(client versioned.Interface, namespace string, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
+func NewFilteredVhapePolicyInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.VhapeAutoscalingV1alpha1().VhapePolicies(namespace).List(context.Background(), options)
+				return client.VhapeAutoscalingV1alpha1().VhapePolicies().List(context.Background(), options)
 			},
 			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.VhapeAutoscalingV1alpha1().VhapePolicies(namespace).Watch(context.Background(), options)
+				return client.VhapeAutoscalingV1alpha1().VhapePolicies().Watch(context.Background(), options)
 			},
 			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.VhapeAutoscalingV1alpha1().VhapePolicies(namespace).List(ctx, options)
+				return client.VhapeAutoscalingV1alpha1().VhapePolicies().List(ctx, options)
 			},
 			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.VhapeAutoscalingV1alpha1().VhapePolicies(namespace).Watch(ctx, options)
+				return client.VhapeAutoscalingV1alpha1().VhapePolicies().Watch(ctx, options)
 			},
 		}, client),
 		&apisautoscalingvhapeiov1alpha1.VhapePolicy{},
@@ -90,7 +89,7 @@ func NewFilteredVhapePolicyInformer(client versioned.Interface, namespace string
 }
 
 func (f *vhapePolicyInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredVhapePolicyInformer(client, f.namespace, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewFilteredVhapePolicyInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
 }
 
 func (f *vhapePolicyInformer) Informer() cache.SharedIndexInformer {

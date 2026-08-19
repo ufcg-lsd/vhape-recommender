@@ -31,8 +31,9 @@ type VhapePolicyLister interface {
 	// List lists all VhapePolicies in the indexer.
 	// Objects returned here must be treated as read-only.
 	List(selector labels.Selector) (ret []*autoscalingvhapeiov1alpha1.VhapePolicy, err error)
-	// VhapePolicies returns an object that can list and get VhapePolicies.
-	VhapePolicies(namespace string) VhapePolicyNamespaceLister
+	// Get retrieves the VhapePolicy from the index for a given name.
+	// Objects returned here must be treated as read-only.
+	Get(name string) (*autoscalingvhapeiov1alpha1.VhapePolicy, error)
 	VhapePolicyListerExpansion
 }
 
@@ -44,27 +45,4 @@ type vhapePolicyLister struct {
 // NewVhapePolicyLister returns a new VhapePolicyLister.
 func NewVhapePolicyLister(indexer cache.Indexer) VhapePolicyLister {
 	return &vhapePolicyLister{listers.New[*autoscalingvhapeiov1alpha1.VhapePolicy](indexer, autoscalingvhapeiov1alpha1.Resource("vhapepolicy"))}
-}
-
-// VhapePolicies returns an object that can list and get VhapePolicies.
-func (s *vhapePolicyLister) VhapePolicies(namespace string) VhapePolicyNamespaceLister {
-	return vhapePolicyNamespaceLister{listers.NewNamespaced[*autoscalingvhapeiov1alpha1.VhapePolicy](s.ResourceIndexer, namespace)}
-}
-
-// VhapePolicyNamespaceLister helps list and get VhapePolicies.
-// All objects returned here must be treated as read-only.
-type VhapePolicyNamespaceLister interface {
-	// List lists all VhapePolicies in the indexer for a given namespace.
-	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*autoscalingvhapeiov1alpha1.VhapePolicy, err error)
-	// Get retrieves the VhapePolicy from the indexer for a given namespace and name.
-	// Objects returned here must be treated as read-only.
-	Get(name string) (*autoscalingvhapeiov1alpha1.VhapePolicy, error)
-	VhapePolicyNamespaceListerExpansion
-}
-
-// vhapePolicyNamespaceLister implements the VhapePolicyNamespaceLister
-// interface.
-type vhapePolicyNamespaceLister struct {
-	listers.ResourceIndexer[*autoscalingvhapeiov1alpha1.VhapePolicy]
 }
