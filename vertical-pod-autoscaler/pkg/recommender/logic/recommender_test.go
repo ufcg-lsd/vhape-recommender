@@ -489,10 +489,10 @@ func TestFetchPolicyReturnsValidPolicy(t *testing.T) {
 func TestFetchPolicyReturnsErrorForInvalidAnnotation(t *testing.T) {
 	r := &podResourceRecommender{}
 
-	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "invalid"))
+	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", ""))
 
 	assert.Nil(t, policy)
-	assert.ErrorContains(t, err, "invalid or missing vhape/policy annotation")
+	assert.ErrorContains(t, err, "missing vhape/policy annotation")
 }
 
 func TestFetchPolicyReturnsErrorWhenPolicyDoesNotExist(t *testing.T) {

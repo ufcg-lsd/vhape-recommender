@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -150,24 +149,23 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 //
 // The policy comes from the informer cache and must be treated as read-only.
 func (r *podResourceRecommender) fetchPolicy(vpa *model.Vpa) (*vhape_types.VhapePolicy, error) {
-	policyRef := vpa.Annotations[vhapePolicyAnnotation]
-	parts := strings.Split(policyRef, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	policyName, ok := vpa.Annotations[vhapePolicyAnnotation]
+	if !ok {
 		return nil, fmt.Errorf(
-			"VPA %q/%q: invalid or missing %s annotation; expected <namespace>/<name>",
+			"VPA %q/%q: missing %s annotation",
 			vpa.ID.Namespace,
 			vpa.ID.VpaName,
 			vhapePolicyAnnotation,
 		)
 	}
 
-	policy, err := r.policyLister.VhapePolicies(parts[0]).Get(parts[1])
+	policy, err := r.policyLister.Get(policyName)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"VPA %q/%q: fetch policy %q: %w",
 			vpa.ID.Namespace,
 			vpa.ID.VpaName,
-			policyRef,
+			policyName,
 			err,
 		)
 	}
