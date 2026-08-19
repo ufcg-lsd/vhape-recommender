@@ -62,12 +62,11 @@ func NewVPAWithTarget(name, namespace, targetAPIVersion, targetKind, targetName 
 }
 
 func NewWatchedNamespace(name string) *vhapev1alpha1.VhapeWatchedNamespace {
-	return NewWatchedNamespaceWithPolicy(name, TestPolicyNamespace, TestPolicyName, TestVPAUpdateMode)
+	return NewWatchedNamespaceWithPolicy(name, TestPolicyName, TestVPAUpdateMode)
 }
 
 func NewWatchedNamespaceWithPolicy(
 	namespace string,
-	policyNamespace string,
 	policyName string,
 	updateMode vpav1.UpdateMode,
 ) *vhapev1alpha1.VhapeWatchedNamespace {
@@ -76,11 +75,8 @@ func NewWatchedNamespaceWithPolicy(
 			Name: namespace,
 		},
 		Spec: vhapev1alpha1.VhapeWatchedNamespaceSpec{
-			VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-				Namespace: policyNamespace,
-				Name:      policyName,
-			},
-			VPAUpdateMode: updateMode,
+			VhapePolicyName: policyName,
+			VPAUpdateMode:   updateMode,
 		},
 	}
 }
@@ -90,11 +86,8 @@ func NewWatchedNamespaceRegex(name, regexCode string) *vhapev1alpha1.VhapeWatche
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: vhapev1alpha1.VhapeWatchedNamespaceRegexSpec{
 			VhapeWatchedNamespaceSpec: vhapev1alpha1.VhapeWatchedNamespaceSpec{
-				VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-					Namespace: TestPolicyNamespace,
-					Name:      TestPolicyName,
-				},
-				VPAUpdateMode: TestVPAUpdateMode,
+				VhapePolicyName: TestPolicyName,
+				VPAUpdateMode:   TestVPAUpdateMode,
 			},
 			Regex: regexCode,
 		},

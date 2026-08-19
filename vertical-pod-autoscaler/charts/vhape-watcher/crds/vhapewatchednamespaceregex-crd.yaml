@@ -18,10 +18,7 @@ spec:
         - jsonPath: .spec.regex
           name: Regex
           type: string
-        - jsonPath: .spec.vhapePolicyRef.namespace
-          name: PolicyNamespace
-          type: string
-        - jsonPath: .spec.vhapePolicyRef.name
+        - jsonPath: .spec.vhapePolicyName
           name: PolicyName
           type: string
         - jsonPath: .spec.vpaUpdateMode
@@ -38,22 +35,15 @@ spec:
               type: object
               required:
                 - regex
-                - vhapePolicyRef
+                - vhapePolicyName
                 - vpaUpdateMode
               properties:
                 regex:
                   type: string
                   minLength: 1
-                vhapePolicyRef:
-                  type: object
-                  required:
-                    - namespace
-                    - name
-                  properties:
-                    namespace:
-                      type: string
-                    name:
-                      type: string
+                vhapePolicyName:
+                  type: string
+                  minLength: 1
                 vpaUpdateMode:
                   type: string
                   enum:

@@ -74,15 +74,6 @@ func TestNameForDeploymentTruncates(t *testing.T) {
 	}
 }
 
-func TestPolicyRef(t *testing.T) {
-	got := vpaservice.PolicyRef(newDesiredConfig().VhapePolicyRef)
-	want := testutil.TestPolicyNamespace + "/" + testutil.TestPolicyName
-
-	if got != want {
-		t.Fatalf("PolicyRef() = %q, want %q", got, want)
-	}
-}
-
 func TestLabelsForVPA(t *testing.T) {
 	labels := vpaservice.LabelsForVPA()
 
@@ -104,10 +95,7 @@ func TestOwnerReferencesForDeployment(t *testing.T) {
 
 func newDesiredConfig() vhapev1alpha1.VhapeWatchedNamespaceSpec {
 	return vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Namespace: testutil.TestPolicyNamespace,
-			Name:      testutil.TestPolicyName,
-		},
-		VPAUpdateMode:        testutil.TestVPAUpdateMode,
+		VhapePolicyName: testutil.TestPolicyName,
+		VPAUpdateMode:   testutil.TestVPAUpdateMode,
 	}
 }

@@ -2,6 +2,8 @@
 
 A `VhapePolicy` defines how the VHAPE Recommender calculates CPU and memory recommendations for a VPA.
 
+`VhapePolicy` is a cluster-scoped resource. A policy is identified only by its name, which must be unique across the cluster.
+
 Each policy configures one heuristic for CPU and one heuristic for memory. CPU and memory can use different heuristic configurations.
 
 A policy can also define an optional scaling rule that constrains the recommendation after it is calculated.
@@ -9,15 +11,14 @@ A policy can also define an optional scaling rule that constrains the recommenda
 This repository provides an example at:
 
 ```text
-vertical-pod-autoscaler/pkg/recommender/yamls/vhapepolicy-p93-default.yaml
+vertical-pod-autoscaler/charts/vhape-recommender/templates/vhapepolicy-p93-percentile-hysteresis.yaml
 ```
 
 ```yaml
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapePolicy
 metadata:
-  name: vhape-policy-p93-default
-  namespace: kube-system
+  name: p93-percentile-hysteresis
 spec:
   resources:
     cpu:

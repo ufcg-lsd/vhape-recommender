@@ -31,15 +31,15 @@ import (
 
 // VhapeWatchedNamespace marks a Kubernetes namespace as eligible for VHAPE Watcher management.
 type VhapeWatchedNamespace struct {
-	metav1.TypeMeta `json:",inline"`
+	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
 	Spec VhapeWatchedNamespaceSpec `json:"spec,omitempty"`
 }
 
 type VhapeWatchedNamespaceSpec struct {
-	VhapePolicyRef VhapePolicyRef `json:"vhapePolicyRef"`
-	VPAUpdateMode vpav1.UpdateMode `json:"vpaUpdateMode"`
+	VhapePolicyName string           `json:"vhapePolicyName"`
+	VPAUpdateMode   vpav1.UpdateMode `json:"vpaUpdateMode"`
 }
 
 // +genclient
@@ -90,11 +90,6 @@ type VhapeIgnoredNamespaceList struct {
 	Items []VhapeIgnoredNamespace `json:"items"`
 }
 
-type VhapePolicyRef struct {
-	Namespace string `json:"namespace"`
-	Name      string `json:"name"`
-}
-
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // VhapeWatchedNamespaceList is a list of VhapeWatchedNamespace objects.
@@ -138,6 +133,7 @@ type VhapeIgnoredWorkloadList struct {
 }
 
 // +genclient
+// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // VhapePolicy configures how the VHAPE recommender estimates container resources.

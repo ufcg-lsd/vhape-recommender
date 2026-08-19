@@ -32,7 +32,7 @@ import (
 // VhapePoliciesGetter has a method to return a VhapePolicyInterface.
 // A group's client should implement this interface.
 type VhapePoliciesGetter interface {
-	VhapePolicies(namespace string) VhapePolicyInterface
+	VhapePolicies() VhapePolicyInterface
 }
 
 // VhapePolicyInterface has methods to work with VhapePolicy resources.
@@ -54,13 +54,13 @@ type vhapePolicies struct {
 }
 
 // newVhapePolicies returns a VhapePolicies
-func newVhapePolicies(c *VhapeAutoscalingV1alpha1Client, namespace string) *vhapePolicies {
+func newVhapePolicies(c *VhapeAutoscalingV1alpha1Client) *vhapePolicies {
 	return &vhapePolicies{
 		gentype.NewClientWithList[*autoscalingvhapeiov1alpha1.VhapePolicy, *autoscalingvhapeiov1alpha1.VhapePolicyList](
 			"vhapepolicies",
 			c.RESTClient(),
 			scheme.ParameterCodec,
-			namespace,
+			"",
 			func() *autoscalingvhapeiov1alpha1.VhapePolicy { return &autoscalingvhapeiov1alpha1.VhapePolicy{} },
 			func() *autoscalingvhapeiov1alpha1.VhapePolicyList {
 				return &autoscalingvhapeiov1alpha1.VhapePolicyList{}

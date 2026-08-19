@@ -6,7 +6,5 @@ spec:
   # Regular expression used to select namespaces.
   # This example matches namespaces starting with "prod-".
   regex: "^prod-.*$"
-  vhapePolicyRef: # default policy used by VPAs created by the Watcher
-    namespace: kube-system # namespace where the VhapePolicy is defined
-    name: vhape-policy-p93-default # name of the VhapePolicy
+  vhapePolicyName: vhape-policy-p93-default # cluster-scoped VhapePolicy used by managed VPAs
   vpaUpdateMode: InPlaceOrRecreate # update mode used by managed VPAs
