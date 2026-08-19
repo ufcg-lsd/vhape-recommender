@@ -5,17 +5,20 @@ import (
 	"testing"
 	"time"
 
+	"fmt"
+
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/tools/cache"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
+	vhape_listers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
@@ -52,38 +55,22 @@ func (m *mockResourceEstimator) GetSingleResourceRecommendation(containerName st
 	return recommendation.SingleResourceRecommendation{}
 }
 
-func newTestPolicyObject(namespace, name string, spec map[string]interface{}) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": "autoscaling.vhape.io/v1alpha1",
-			"kind":       "VhapePolicy",
-			"metadata": map[string]interface{}{
-				"namespace": namespace,
-				"name":      name,
-				"uid":       "uid-" + namespace + "-" + name,
-			},
-			"spec": spec,
+func newTestPolicyObject(namespace, name string, spec vhape_types.VhapePolicySpec) *vhape_types.VhapePolicy {
+	return &vhape_types.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: namespace,
+			Name:      name,
+			UID:       types.UID("uid-" + namespace + "-" + name),
 		},
+		Spec: spec,
 	}
 }
 
-func newTestPolicySpec() map[string]interface{} {
-	return map[string]interface{}{
-		"resources": map[string]interface{}{
-			"cpu": map[string]interface{}{
-				PercentileHysteresis: map[string]interface{}{
-					"percentile":    0.9,
-					"headroom":      0.1,
-					"slidingWindow": "1h",
-				},
-			},
-			"memory": map[string]interface{}{
-				PercentileHysteresis: map[string]interface{}{
-					"percentile":    0.9,
-					"headroom":      0.1,
-					"slidingWindow": "1h",
-				},
-			},
+func newTestPolicySpec() vhape_types.VhapePolicySpec {
+	return vhape_types.VhapePolicySpec{
+		Resources: vhape_types.VhapeResourcesSpec{
+			CPU:    newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
+			Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
 		},
 	}
 }
@@ -100,24 +87,30 @@ func newTestVPA(namespace, name, policyRef string) *model.Vpa {
 	return vpa
 }
 
-func newEstimatorPolicy(namespace, name string) *VhapePolicy {
-	return &VhapePolicy{
-		UID:       types.UID("uid-" + namespace + "-" + name),
-		Namespace: namespace,
-		Name:      name,
-		Spec: VhapePolicySpec{
-			Resources: VhapeResourcesSpec{
-				CPU: VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{
-					Percentile:    0.9,
-					Headroom:      0.1,
-					SlidingWindow: time.Hour,
-				}},
-				Memory: VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{
-					Percentile:    0.9,
-					Headroom:      0.1,
-					SlidingWindow: time.Hour,
-				}},
-			},
+// newVhapePolicyLister builds a lister backed by an indexer holding the given
+// policies, which is what the informer cache provides at runtime.
+func newVhapePolicyLister(policies ...*vhape_types.VhapePolicy) vhape_listers.VhapePolicyLister {
+	indexer := cache.NewIndexer(
+		cache.MetaNamespaceKeyFunc,
+		cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc},
+	)
+
+	for _, policy := range policies {
+		if err := indexer.Add(policy); err != nil {
+			panic(err)
+		}
+	}
+
+	return vhape_listers.NewVhapePolicyLister(indexer)
+}
+
+func newPercentileHysteresisHeuristic(percentile, headroom float64, slidingWindow string) vhape_types.ResourceHeuristics {
+	return vhape_types.ResourceHeuristics{
+		estimators.PercentileHysteresis: runtime.RawExtension{
+			Raw: []byte(fmt.Sprintf(
+				`{"percentile":%v,"headroom":%v,"slidingWindow":%q}`,
+				percentile, headroom, slidingWindow,
+			)),
 		},
 	}
 }
@@ -341,8 +334,8 @@ func TestApplyScalingRule(t *testing.T) {
 	recommender := &podResourceRecommender{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := recommender.applyScalingRule(tt.input, &VhapePolicy{
-				Spec: VhapePolicySpec{
+			got := recommender.applyScalingRule(tt.input, &vhape_types.VhapePolicy{
+				Spec: vhape_types.VhapePolicySpec{
 					ScalingRule: tt.scalingRule,
 				},
 			}, "app", model.ResourceCPU, tt.currentRequest)
@@ -420,11 +413,12 @@ func TestCollectCurrentUsageReturnsErrorWithoutEmptyPoints(t *testing.T) {
 
 func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
-	policy := newEstimatorPolicy("default", "policy-a")
+	policy := newTestPolicyObject("default", "policy-a", newTestPolicySpec())
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	est := r.getOrCreateEstimators(vpa, policy)
+	est, err := r.getOrCreateEstimators(vpa, policy)
 
+	assert.NoError(t, err)
 	assert.NotNil(t, est.CPU)
 	assert.NotNil(t, est.Memory)
 
@@ -437,12 +431,14 @@ func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 
 func TestGetOrCreateEstimatorsReturnsCachedForSamePolicy(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
-	policy := newEstimatorPolicy("default", "policy-a")
+	policy := newTestPolicyObject("default", "policy-a", newTestPolicySpec())
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	first := r.getOrCreateEstimators(vpa, policy)
-	second := r.getOrCreateEstimators(vpa, policy)
+	first, firstErr := r.getOrCreateEstimators(vpa, policy)
+	second, secondErr := r.getOrCreateEstimators(vpa, policy)
 
+	assert.NoError(t, firstErr)
+	assert.NoError(t, secondErr)
 	assert.Same(t, first, second)
 }
 
@@ -450,9 +446,11 @@ func TestGetOrCreateEstimatorsRecreatesWhenPolicyChanges(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	first := r.getOrCreateEstimators(vpa, newEstimatorPolicy("default", "policy-a"))
-	second := r.getOrCreateEstimators(vpa, newEstimatorPolicy("default", "policy-b"))
+	first, firstErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("default", "policy-a", newTestPolicySpec()))
+	second, secondErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("default", "policy-b", newTestPolicySpec()))
 
+	assert.NoError(t, firstErr)
+	assert.NoError(t, secondErr)
 	assert.NotSame(t, first, second)
 	assert.Equal(
 		t,
@@ -463,32 +461,29 @@ func TestGetOrCreateEstimatorsRecreatesWhenPolicyChanges(t *testing.T) {
 }
 
 func TestGetOrCreateEstimatorsSeparatesByVPA(t *testing.T) {
-	policy := newEstimatorPolicy("default", "policy-a")
+	policy := newTestPolicyObject("default", "policy-a", newTestPolicySpec())
 	vpaA := newTestVPA("default", "vpa-a", "default/policy-a")
 	vpaB := newTestVPA("default", "vpa-b", "default/policy-a")
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	first := r.getOrCreateEstimators(vpaA, policy)
-	second := r.getOrCreateEstimators(vpaB, policy)
+	first, firstErr := r.getOrCreateEstimators(vpaA, policy)
+	second, secondErr := r.getOrCreateEstimators(vpaB, policy)
 
+	assert.NoError(t, firstErr)
+	assert.NoError(t, secondErr)
 	assert.NotSame(t, first, second)
 }
 
 func TestFetchPolicyReturnsValidPolicy(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			VhapePolicyGVR: "VhapePolicyList",
-		},
-		newTestPolicyObject("default", "my-policy", newTestPolicySpec()),
-	)
+	lister := newVhapePolicyLister(newTestPolicyObject("default", "my-policy", newTestPolicySpec()))
 
-	r := &podResourceRecommender{dynamicClient: client}
+	r := &podResourceRecommender{policyLister: lister}
 	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "default/my-policy"))
 
 	assert.NoError(t, err)
 	assert.NotNil(t, policy)
 	assert.Equal(t, "my-policy", policy.Name)
+	assert.Contains(t, policy.Spec.Resources.CPU, estimators.PercentileHysteresis)
 }
 
 func TestFetchPolicyReturnsErrorForInvalidAnnotation(t *testing.T) {
@@ -501,14 +496,9 @@ func TestFetchPolicyReturnsErrorForInvalidAnnotation(t *testing.T) {
 }
 
 func TestFetchPolicyReturnsErrorWhenPolicyDoesNotExist(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			VhapePolicyGVR: "VhapePolicyList",
-		},
-	)
+	lister := newVhapePolicyLister()
 
-	r := &podResourceRecommender{dynamicClient: client}
+	r := &podResourceRecommender{policyLister: lister}
 	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "default/missing"))
 
 	assert.Nil(t, policy)
@@ -538,10 +528,8 @@ func TestRecommendContainerResourcesComputesFullRecommendation(t *testing.T) {
 		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
 	}
 
-	policy := &VhapePolicy{Spec: VhapePolicySpec{Resources: VhapeResourcesSpec{
-		CPU:    VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{Percentile: 0.9, Headroom: 0.1, SlidingWindow: time.Hour}},
-		Memory: VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{Percentile: 0.9, Headroom: 0.1, SlidingWindow: time.Hour}},
-	}}}
+	// recommendContainerResources only reads the scaling rule from the policy.
+	policy := newTestPolicyObject("default", "policy", newTestPolicySpec())
 
 	r := &podResourceRecommender{config: PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100}}
 	rec := r.recommendContainerResources("app", state, policy, est, 1)
@@ -572,10 +560,8 @@ func TestRecommendContainerResourcesFiltersControlledResources(t *testing.T) {
 		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
 	}
 
-	policy := &VhapePolicy{Spec: VhapePolicySpec{Resources: VhapeResourcesSpec{
-		CPU:    VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{Percentile: 0.9, Headroom: 0.1, SlidingWindow: time.Hour}},
-		Memory: VhapeResourceSpec{Heuristic: &PercentileHysteresisSpec{Percentile: 0.9, Headroom: 0.1, SlidingWindow: time.Hour}},
-	}}}
+	// recommendContainerResources only reads the scaling rule from the policy.
+	policy := newTestPolicyObject("default", "policy", newTestPolicySpec())
 
 	r := &podResourceRecommender{config: PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100}}
 	rec := r.recommendContainerResources("app", state, policy, est, 1)
@@ -594,14 +580,10 @@ func TestGetRecommendedPodResourcesReturnsErrorForNilVPA(t *testing.T) {
 }
 
 func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
-		newTestPolicyObject("default", "policy", newTestPolicySpec()),
-	)
+	lister := newVhapePolicyLister(newTestPolicyObject("default", "policy", newTestPolicySpec()))
 	r := &podResourceRecommender{
-		dynamicClient: client,
-		estimators:    make(map[model.VpaID]*ResourceEstimators),
+		policyLister: lister,
+		estimators:   make(map[model.VpaID]*ResourceEstimators),
 	}
 	vpa := newTestVPA("default", "vpa", "default/policy")
 
@@ -613,13 +595,10 @@ func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
 }
 
 func TestGetRecommendedPodResourcesReturnsPolicyError(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
-	)
+	lister := newVhapePolicyLister()
 	r := &podResourceRecommender{
-		dynamicClient: client,
-		estimators:    make(map[model.VpaID]*ResourceEstimators),
+		policyLister: lister,
+		estimators:   make(map[model.VpaID]*ResourceEstimators),
 	}
 	containerStates := model.ContainerNameToAggregateStateMap{
 		"app": model.NewAggregateContainerState(),
@@ -636,21 +615,17 @@ func TestGetRecommendedPodResourcesReturnsPolicyError(t *testing.T) {
 }
 
 func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
-		newTestPolicyObject("default", "policy", newTestPolicySpec()),
-	)
+	lister := newVhapePolicyLister(newTestPolicyObject("default", "policy", newTestPolicySpec()))
 	vpa := newTestVPA("default", "vpa", "default/policy")
 	cpuEstimator := &mockResourceEstimator{}
 	memoryEstimator := &mockResourceEstimator{}
 	r := &podResourceRecommender{
-		dynamicClient: client,
+		policyLister:  lister,
 		metricsClient: &mockMetricsClient{err: assert.AnError},
 		estimators: map[model.VpaID]*ResourceEstimators{
 			vpa.ID: {
-				CPU:             cpuEstimator,
-				Memory:          memoryEstimator,
+				CPU:       cpuEstimator,
+				Memory:    memoryEstimator,
 				policyUID: types.UID("uid-default-policy"),
 			},
 		},
@@ -672,16 +647,13 @@ func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testi
 }
 
 func TestGetRecommendedPodResourcesRecreatesEstimatorsAfterPolicyAnnotationChange(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{VhapePolicyGVR: "VhapePolicyList"},
-		newTestPolicyObject("default", "policy-a", newTestPolicySpec()),
+	lister := newVhapePolicyLister(newTestPolicyObject("default", "policy-a", newTestPolicySpec()),
 		newTestPolicyObject("default", "policy-b", newTestPolicySpec()),
 	)
 	vpa := newTestVPA("default", "vpa", "default/policy-a")
 	r := &podResourceRecommender{
-		dynamicClient: client,
-		estimators:    make(map[model.VpaID]*ResourceEstimators),
+		policyLister: lister,
+		estimators:   make(map[model.VpaID]*ResourceEstimators),
 	}
 
 	_, err := r.GetRecommendedPodResources(nil, vpa, nil)
@@ -707,32 +679,28 @@ func TestGetOrCreateEstimatorsRecreatesWhenPolicyUIDChanges(t *testing.T) {
 		estimators: make(map[model.VpaID]*ResourceEstimators),
 	}
 
-	firstPolicy := newEstimatorPolicy("default", "policy-a")
+	firstPolicy := newTestPolicyObject("default", "policy-a", newTestPolicySpec())
 	firstPolicy.UID = types.UID("policy-uid-1")
 
-	secondPolicy := newEstimatorPolicy("default", "policy-a")
+	secondPolicy := newTestPolicyObject("default", "policy-a", newTestPolicySpec())
 	secondPolicy.UID = types.UID("policy-uid-2")
 
-	first := r.getOrCreateEstimators(vpa, firstPolicy)
-	second := r.getOrCreateEstimators(vpa, secondPolicy)
+	first, firstErr := r.getOrCreateEstimators(vpa, firstPolicy)
+	second, secondErr := r.getOrCreateEstimators(vpa, secondPolicy)
 
+	assert.NoError(t, firstErr)
+	assert.NoError(t, secondErr)
 	assert.NotSame(t, first, second)
 	assert.Equal(t, types.UID("policy-uid-2"), second.policyUID)
 	assert.Same(t, second, r.estimators[vpa.ID])
 }
 
 func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			VhapePolicyGVR: "VhapePolicyList",
-		},
-		newTestPolicyObject("default", "my-policy", newTestPolicySpec()),
-	)
+	lister := newVhapePolicyLister(newTestPolicyObject("default", "my-policy", newTestPolicySpec()))
 
 	now := time.Now()
 	podID := model.PodID{Namespace: "default", PodName: "pod-1"}
-	
+
 	mc := &mockMetricsClient{
 		snapshots: []*input_metrics.ContainerMetricsSnapshot{
 			{
@@ -745,7 +713,7 @@ func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {
 	}
 	r := &podResourceRecommender{
 		config:        PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100},
-		dynamicClient: client,
+		policyLister:  lister,
 		metricsClient: mc,
 		estimators:    make(map[model.VpaID]*ResourceEstimators),
 	}
@@ -772,15 +740,10 @@ func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {
 }
 
 func TestCreatePodResourceRecommender(t *testing.T) {
-	client := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(
-		runtime.NewScheme(),
-		map[schema.GroupVersionResource]string{
-			VhapePolicyGVR: "VhapePolicyList",
-		},
-	)
+	lister := newVhapePolicyLister()
 	mc := &mockMetricsClient{}
 
-	rec := CreatePodResourceRecommender(PodRecommendationLimits{}, client, mc)
+	rec := CreatePodResourceRecommender(PodRecommendationLimits{}, lister, mc)
 	assert.NotNil(t, rec)
 }
 
@@ -817,4 +780,88 @@ func TestFreeDoesNothingWhenEstimatorsDoNotExist(t *testing.T) {
 	})
 
 	assert.Empty(t, r.estimators)
+}
+
+func TestGetOrCreateEstimatorsBuildsEstimatorsFromPolicyHeuristics(t *testing.T) {
+	vpa := newTestVPA("default", "my-vpa", "default/policy-a")
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+
+	est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("default", "policy-a", newTestPolicySpec()))
+
+	assert.NoError(t, err)
+	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.CPU)
+	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.Memory)
+}
+
+func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
+	tests := []struct {
+		name    string
+		spec    vhape_types.VhapePolicySpec
+		wantErr string
+	}{
+		{
+			name: "cpu without heuristic",
+			spec: vhape_types.VhapePolicySpec{
+				Resources: vhape_types.VhapeResourcesSpec{
+					Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
+				},
+			},
+			wantErr: "invalid spec.resources.cpu: resource spec must define exactly one heuristic",
+		},
+		{
+			name: "unsupported memory heuristic",
+			spec: vhape_types.VhapePolicySpec{
+				Resources: vhape_types.VhapeResourcesSpec{
+					CPU: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
+					Memory: vhape_types.ResourceHeuristics{
+						"unknown": runtime.RawExtension{Raw: []byte(`{}`)},
+					},
+				},
+			},
+			wantErr: `invalid spec.resources.memory: unsupported heuristic "unknown"`,
+		},
+		{
+			name: "malformed cpu parameters",
+			spec: vhape_types.VhapePolicySpec{
+				Resources: vhape_types.VhapeResourcesSpec{
+					CPU: vhape_types.ResourceHeuristics{
+						estimators.PercentileHysteresis: runtime.RawExtension{
+							Raw: []byte(`{"slidingWindow":"soon"}`),
+						},
+					},
+					Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
+				},
+			},
+			wantErr: "invalid spec.resources.cpu: heuristic \"percentile-hysteresis\": invalid parameters",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vpa := newTestVPA("default", "my-vpa", "default/policy")
+			r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+
+			est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("default", "policy", tt.spec))
+
+			assert.Nil(t, est)
+			assert.ErrorContains(t, err, tt.wantErr)
+			assert.NotContains(t, r.estimators, vpa.ID)
+		})
+	}
+}
+
+// A cache hit must return before the heuristics are resolved, so a policy that
+// could not be resolved at all still serves the cached estimators.
+func TestGetOrCreateEstimatorsSkipsHeuristicResolutionOnCacheHit(t *testing.T) {
+	vpa := newTestVPA("default", "my-vpa", "default/policy")
+	policy := newTestPolicyObject("default", "policy", vhape_types.VhapePolicySpec{})
+	cached := &ResourceEstimators{policyUID: policy.UID}
+	r := &podResourceRecommender{
+		estimators: map[model.VpaID]*ResourceEstimators{vpa.ID: cached},
+	}
+
+	est, err := r.getOrCreateEstimators(vpa, policy)
+
+	assert.NoError(t, err)
+	assert.Same(t, cached, est)
 }

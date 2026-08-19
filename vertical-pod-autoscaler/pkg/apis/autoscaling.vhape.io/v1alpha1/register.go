@@ -59,6 +59,8 @@ func addKnownTypes(scheme *runtime.Scheme) error {
 		&VhapeIgnoredNamespaceList{},
 		&VhapeIgnoredWorkload{},
 		&VhapeIgnoredWorkloadList{},
+		&VhapePolicy{},
+		&VhapePolicyList{},
 	)
 	
 	metav1.AddToGroupVersion(scheme, SchemeGroupVersion)

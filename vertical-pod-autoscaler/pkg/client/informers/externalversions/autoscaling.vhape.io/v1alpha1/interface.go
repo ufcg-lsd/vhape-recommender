@@ -28,6 +28,8 @@ type Interface interface {
 	VhapeIgnoredNamespaces() VhapeIgnoredNamespaceInformer
 	// VhapeIgnoredWorkloads returns a VhapeIgnoredWorkloadInformer.
 	VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInformer
+	// VhapePolicies returns a VhapePolicyInformer.
+	VhapePolicies() VhapePolicyInformer
 	// VhapeWatchedNamespaces returns a VhapeWatchedNamespaceInformer.
 	VhapeWatchedNamespaces() VhapeWatchedNamespaceInformer
 	// VhapeWatchedNamespaceRegexes returns a VhapeWatchedNamespaceRegexInformer.
@@ -53,6 +55,11 @@ func (v *version) VhapeIgnoredNamespaces() VhapeIgnoredNamespaceInformer {
 // VhapeIgnoredWorkloads returns a VhapeIgnoredWorkloadInformer.
 func (v *version) VhapeIgnoredWorkloads() VhapeIgnoredWorkloadInformer {
 	return &vhapeIgnoredWorkloadInformer{factory: v.factory, tweakListOptions: v.tweakListOptions}
+}
+
+// VhapePolicies returns a VhapePolicyInformer.
+func (v *version) VhapePolicies() VhapePolicyInformer {
+	return &vhapePolicyInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // VhapeWatchedNamespaces returns a VhapeWatchedNamespaceInformer.

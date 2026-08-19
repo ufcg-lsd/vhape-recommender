@@ -79,6 +79,8 @@ func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource
 		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapeIgnoredNamespaces().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vhapeignoredworkloads"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapeIgnoredWorkloads().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("vhapepolicies"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapePolicies().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vhapewatchednamespaces"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.VhapeAutoscaling().V1alpha1().VhapeWatchedNamespaces().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("vhapewatchednamespaceregexes"):

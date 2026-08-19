@@ -29,9 +29,9 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/uuid"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/informers"
 	kube_client "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	kube_flag "k8s.io/component-base/cli/flag"
@@ -42,6 +42,7 @@ import (
 
 	"k8s.io/autoscaler/vertical-pod-autoscaler/common"
 	vpa_clientset "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned"
+	vhape_informers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/features"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/checkpoint"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input"
@@ -252,9 +253,19 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 	defer close(stopCh)
 	config := common.CreateKubeConfigOrDie(commonFlag.KubeConfig, float32(commonFlag.KubeApiQps), int(commonFlag.KubeApiBurst))
 	kubeClient := kube_client.NewForConfigOrDie(config)
-	dynamicClient := dynamic.NewForConfigOrDie(config)
 	clusterState := model.NewClusterState(aggregateContainerStateGCInterval)
 	factory := informers.NewSharedInformerFactoryWithOptions(kubeClient, defaultResyncPeriod, informers.WithNamespace(commonFlag.VpaObjectNamespace))
+
+	// VhapePolicies are referenced by VPAs from any namespace, so this factory is
+	// not restricted to VpaObjectNamespace.
+	vhapeFactory := vhape_informers.NewSharedInformerFactory(vpa_clientset.NewForConfigOrDie(config), defaultResyncPeriod)
+	vhapePolicyInformer := vhapeFactory.VhapeAutoscaling().V1alpha1().VhapePolicies()
+
+	// Requesting the lister is what registers the informer in the factory, and it
+	// must happen before vhapeFactory.Start: an informer requested after Start is
+	// never started, so its cache never syncs and WaitForNamedCacheSync below
+	// would block forever.
+	vhapePolicyLister := vhapePolicyInformer.Lister()
 	controllerFetcher := controllerfetcher.NewControllerFetcher(config, kubeClient, factory, scaleCacheEntryFreshnessTime, scaleCacheEntryLifetime, scaleCacheEntryJitterFactor)
 	podLister, oomObserver := input.NewPodListerAndOOMObserver(ctx, kubeClient, commonFlag.VpaObjectNamespace, stopCh)
 
@@ -265,6 +276,12 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 			klog.ErrorS(nil, fmt.Sprintf("Could not sync cache for the %s informer", kind.String()))
 			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 		}
+	}
+
+	vhapeFactory.Start(stopCh)
+	if !cache.WaitForNamedCacheSync("vhape-recommender", stopCh, vhapePolicyInformer.Informer().HasSynced) {
+		klog.ErrorS(nil, "Could not sync cache for the VhapePolicy informer")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
 	model.InitializeAggregationsConfig(model.NewAggregationsConfig(*memoryAggregationInterval, *memoryAggregationIntervalCount, *memoryHistogramDecayHalfLife, *cpuHistogramDecayHalfLife, *oomBumpUpRatio, *oomMinBumpUp))
@@ -329,7 +346,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 				PodMinCPUMillicores: *podMinCPUMillicores,
 				PodMinMemoryMb:      *podMinMemoryMb,
 			},
-			dynamicClient,
+			vhapePolicyLister,
 			metricsClient,
 		),
 		RecommendationFormat: logic.RecommendationFormat{

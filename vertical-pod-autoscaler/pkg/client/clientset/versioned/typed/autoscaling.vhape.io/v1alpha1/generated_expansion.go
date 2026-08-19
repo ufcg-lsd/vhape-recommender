@@ -22,6 +22,8 @@ type VhapeIgnoredNamespaceExpansion interface{}
 
 type VhapeIgnoredWorkloadExpansion interface{}
 
+type VhapePolicyExpansion interface{}
+
 type VhapeWatchedNamespaceExpansion interface{}
 
 type VhapeWatchedNamespaceRegexExpansion interface{}

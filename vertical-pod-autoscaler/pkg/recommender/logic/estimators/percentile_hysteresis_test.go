@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
@@ -192,4 +194,61 @@ func TestPercentileHysteresisFeedsMultipleContainers(t *testing.T) {
 	assert.Equal(t, model.ResourceAmount(400), gotB.Target)
 	// Verify they're tracked independently
 	assert.NotEqual(t, gotA.Target, gotB.Target)
+}
+
+func TestPercentileHysteresisSpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
+	spec, name, err := BuildHeuristic(map[string]runtime.RawExtension{
+		PercentileHysteresis: {Raw: []byte(`{"percentile":0.9,"headroom":0.15,"slidingWindow":"5m"}`)},
+	})
+
+	assert.NoError(t, err)
+	assert.Equal(t, PercentileHysteresis, name)
+	assert.Equal(t, &PercentileHysteresisSpec{
+		Percentile:    0.9,
+		Headroom:      0.15,
+		SlidingWindow: metav1.Duration{Duration: 5 * time.Minute},
+	}, spec)
+
+	estimator, ok := spec.NewEstimator(model.ResourceMemory).(*PercentileHysteresisEstimator)
+
+	assert.True(t, ok)
+	assert.Equal(t, model.ResourceMemory, estimator.resourceName)
+	assert.Equal(t, 0.9, estimator.percentile)
+	assert.Equal(t, 0.15, estimator.headroom)
+	assert.Equal(t, 5*time.Minute, estimator.slidingWindow)
+}
+
+func TestPercentileHysteresisSpecRejectsMalformedParameters(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		wantErr string
+	}{
+		{
+			name:    "no parameters",
+			config:  ``,
+			wantErr: "unexpected end of JSON input",
+		},
+		{
+			name:    "parameters are not an object",
+			config:  `"bad"`,
+			wantErr: "cannot unmarshal string",
+		},
+		{
+			name:    "sliding window is not a duration",
+			config:  `{"percentile":0.9,"headroom":0.15,"slidingWindow":"soon"}`,
+			wantErr: `invalid duration "soon"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := BuildHeuristic(map[string]runtime.RawExtension{
+				PercentileHysteresis: {Raw: []byte(tt.config)},
+			})
+
+			assert.ErrorContains(t, err, "invalid parameters")
+			assert.ErrorContains(t, err, tt.wantErr)
+		})
+	}
 }
