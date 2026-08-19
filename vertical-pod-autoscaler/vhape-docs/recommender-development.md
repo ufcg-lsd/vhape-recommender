@@ -113,7 +113,6 @@ apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapePolicy
 metadata:
   name: my-heuristic-policy
-  namespace: kube-system
 spec:
   resources:
     cpu:
