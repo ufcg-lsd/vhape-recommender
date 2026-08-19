@@ -367,7 +367,7 @@ func TestPatchVPAPreservesAdditionalMetadata(t *testing.T) {
 	oldMode := vpav1.UpdateModeRecreate
 	current.Spec.UpdatePolicy.UpdateMode = &oldMode
 	current.Labels[vpaservice.VhapeLabel] = "old-recommender"
-	current.Annotations[vpaservice.VhapePolicyAnnotation] = "old-system/old-policy"
+	current.Annotations[vpaservice.VhapePolicyAnnotation] = "old-policy"
 	current.OwnerReferences[0].UID = "old-uid"
 
 	current.Labels["example.com/custom"] = "label-value"
@@ -542,7 +542,7 @@ func TestIsDesiredGeneratedVPA(t *testing.T) {
 	}
 
 	generatedVPAWithDifferentPolicy := desiredGeneratedVPA.DeepCopy()
-	generatedVPAWithDifferentPolicy.Annotations[vpaservice.VhapePolicyAnnotation] = "other/policy"
+	generatedVPAWithDifferentPolicy.Annotations[vpaservice.VhapePolicyAnnotation] = "other-policy"
 	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentPolicy, desiredGeneratedVPA) {
 		t.Fatal("VPA with different VHAPE policy annotation should not be desired")
 	}
