@@ -18,7 +18,7 @@ vertical-pod-autoscaler/charts/vhape-recommender/templates/vhapepolicy-p93-perce
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapePolicy
 metadata:
-  name: vhape-policy-p93-default
+  name: p93-percentile-hysteresis
 spec:
   resources:
     cpu:

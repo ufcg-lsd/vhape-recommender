@@ -57,7 +57,7 @@ spec:
   # Regular expression used to select namespaces.
   # This example matches namespaces starting with "prod-".
   regex: "^prod-.*$"
-  vhapePolicyName: vhape-policy-p93-default # cluster-scoped VhapePolicy used by managed VPAs
+  vhapePolicyName: p93-percentile-hysteresis # VhapePolicy used by managed VPAs
   vpaUpdateMode: InPlaceOrRecreate # update mode used by managed VPAs
 ```
 
