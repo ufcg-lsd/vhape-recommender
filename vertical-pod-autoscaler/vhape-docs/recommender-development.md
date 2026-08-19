@@ -8,12 +8,11 @@ For image builds and Helm chart publishing, see the [release guide](release-guid
 
 ## Adding a new heuristic
 
-A heuristic has two parts:
+A heuristic is self-contained in a single file under `logic/estimators`, holding three things:
 
-1. an estimator implementation in `logic/estimators`;
-2. a policy parser in `logic/vhape_policy.go`.
-
-The estimator performs the runtime recommendation logic. The policy parser converts the `VhapePolicy` YAML into a typed estimator configuration.
+1. the estimator, which performs the runtime recommendation logic;
+2. a config struct, which decodes the parameters written in the `VhapePolicy`;
+3. an `init` function registering it, so no shared file needs to be edited.
 
 ### Step 1. Create the estimator
 
@@ -42,62 +41,57 @@ The estimator is responsible for deciding:
 - how it calculates `Target`, `LowerBound`, `UpperBound`, and `UncappedTarget`;
 - how it applies `constraints.Min`, `constraints.Max`, and `constraints.CurrentRequest`, when relevant.
 
-### Step 2. Create a heuristic config struct
+### Step 2. Create the config struct
 
-In `logic/vhape_policy.go`, add a config struct:
+In the same file, add a struct with the parameters as they appear in the `VhapePolicy`, using JSON tags. It must implement `HeuristicSpec`:
 
 ```go
+type HeuristicSpec interface {
+	NewEstimator(resourceName model.ResourceName) ResourceEstimator
+}
+```
+
+For example:
+
+```go
+// MyHeuristic is the name used to select this heuristic in a VhapePolicy.
+// This string is the YAML key used under spec.resources.cpu and spec.resources.memory.
+const MyHeuristic = "my-heuristic"
+
 type MyHeuristicSpec struct {
-	SomeParameter float64
+	SomeParameter float64         `json:"someParameter"`
+	SomeWindow    metav1.Duration `json:"someWindow"`
+}
+
+func (s *MyHeuristicSpec) NewEstimator(resourceName model.ResourceName) ResourceEstimator {
+	return NewMyHeuristicEstimator(resourceName, s.SomeParameter, s.SomeWindow.Duration)
 }
 ```
 
-Make it implement `ResourceHeuristicSpec`, defining a constructor:
+Use `metav1.Duration` for durations: it decodes strings such as `24h` directly.
+
+### Step 3. Register the heuristic
+
+Still in the same file, register it from an `init` function. This is the only wiring needed — there is no central switch to update:
 
 ```go
-type ResourceHeuristicSpec interface {
-	NewEstimator(resourceName model.ResourceName) estimators.ResourceEstimator
+func init() {
+	RegisterHeuristic(MyHeuristic, func(config []byte) (HeuristicSpec, error) {
+		spec := &MyHeuristicSpec{}
+		if err := json.Unmarshal(config, spec); err != nil {
+			return nil, fmt.Errorf("invalid parameters: %w", err)
+		}
+
+		return spec, nil
+	})
 }
 ```
 
-Add a constant for the heuristic name:
+`BuildHeuristic` in `logic/estimators/heuristics.go` looks the name up in the registry and calls this factory. Registering the same name twice panics at startup.
 
-```go
-const (
-	PercentileHysteresis = "percentile-hysteresis"
-	MyHeuristic          = "my-heuristic"
-)
-```
+### Step 4. Update the CRD schema
 
-This string is the YAML key used in `VhapePolicy`.
-
-### Step 3. Add a parser
-
-Add a parser function in `logic/vhape_policy.go`:
-
-```go
-func parseMyHeuristicSpec(raw map[string]interface{}) (*MyHeuristicSpec, error) {
-	// Parse and validate fields from the VhapePolicy YAML.
-}
-```
-
-### Step 4. Register it in `parseResourceSpec`
-
-Update the heuristic switch in `parseResourceSpec`:
-
-```go
-switch name {
-case PercentileHysteresis:
-	// PercentileHysteresis parsing.
-
-case MyHeuristic:
-	// MyHeuristic parsing.
-}
-```
-
-### Step 5. Update the CRD schema
-
-Update `charts/vhape-recommender/crds/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic.
+Update `charts/vhape-recommender/crds/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic. This step is not optional: the schema is structural, so parameters the CRD does not declare are pruned by the API server before the recommender sees them, and the policy then fails with `must define exactly one heuristic`.
 
 Example:
 
@@ -112,7 +106,7 @@ my-heuristic:
       minimum: 0
 ```
 
-### Step 6. Create a policy using the new heuristic
+### Step 5. Create a policy using the new heuristic
 
 ```yaml
 apiVersion: autoscaling.vhape.io/v1alpha1
