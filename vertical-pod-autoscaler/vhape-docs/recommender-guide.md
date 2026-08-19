@@ -48,7 +48,7 @@ kubectl get vhapepolicies
 This repository also provides an example at:
 
 ```text
-vertical-pod-autoscaler/pkg/recommender/yamls/vhapepolicy-p93-default.yaml
+vertical-pod-autoscaler/charts/vhape-recommender/templates/vhapepolicy-p93-percentile-hysteresis.yaml
 ```
 
 Apply an additional policy with:
