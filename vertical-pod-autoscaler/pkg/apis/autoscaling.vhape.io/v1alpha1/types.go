@@ -133,6 +133,7 @@ type VhapeIgnoredWorkloadList struct {
 }
 
 // +genclient
+// +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
 // VhapePolicy configures how the VHAPE recommender estimates container resources.
