@@ -24,3 +24,13 @@ spec:
             - --recommender-name=vhape-recommender
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          
+          volumeMounts:
+            - name: samples-warm-up-csv
+              mountPath: /var/lib/vhape-recommender/samples-warm-up.csv
+
+      volumes:
+        - name: samples-warm-up-csv
+          hostPath:
+            path: /data/vhape-recommender/samples-warm-up.csv
+            type: File
