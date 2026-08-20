@@ -10,7 +10,7 @@ Implementations should provide the following methods:
     taking the current resource constraints and history into account.
 
 This architecture differs from the original VPA recommender design by allowing
-each estimator to define how usage samples are stored and processed. Moreover, 
+each estimator to define how usage samples are stored and processed. Moreover,
 since GetSingleResourceRecommendation returns a recommendation for a single resource,
 different resources may also be handled by different estimator implementations.
 */
@@ -18,6 +18,8 @@ different resources may also be handled by different estimator implementations.
 package estimators
 
 import (
+	"time"
+
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
@@ -33,7 +35,19 @@ type ContainerResourceConstraints struct {
 	Max 		   model.ResourceAmount
 }
 
+
+// TimedSample represents a resource usage sample associated with the time at
+// which it was collected.
+//
+// The timestamp is used to keep only samples that fall within the estimator's
+// sliding window.
+type TimedSample struct {
+	Value     model.ResourceAmount
+	Timestamp time.Time
+}
+
 type ResourceEstimator interface {
 	FeedSamples(containerName string, samples []model.ResourceAmount)
+	WarmUpSamples(containerName string, samples []TimedSample)
 	GetSingleResourceRecommendation(containerName string, constraints ContainerResourceConstraints) recommendation.SingleResourceRecommendation
 }

@@ -1,9 +1,11 @@
 package estimators
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -44,16 +46,6 @@ func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName)
 		s.Headroom,
 		s.SlidingWindow.Duration,
 	)
-}
-
-// TimedSample represents a resource usage sample associated with the time at
-// which it was collected.
-//
-// The timestamp is used to keep only samples that fall within the estimator's
-// sliding window.
-type TimedSample struct {
-	Value     model.ResourceAmount
-	Timestamp time.Time
 }
 
 // PercentileHysteresisEstimator estimates resource recommendations using a
@@ -194,6 +186,41 @@ func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, sample
 		"containerName", containerName,
 		"received", len(samples),
 		"inserted", inserted,
+		"totalCurrentSamples", len(e.samples[containerName]),
+	)
+
+	e.purgeSamples(containerName)
+}
+
+// FeedSamples stores temporal usage samples for the given container.
+// After insertion, expired samples are purged according to the configured sliding window.
+func (e *PercentileHysteresisEstimator) WarmUpSamples(containerName string, samples []TimedSample) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+
+	orderedSamples := make([]TimedSample, 0, len(samples))
+	for _, sample := range samples {
+		if sample.Value >= 0 {
+			orderedSamples = append(orderedSamples, sample)
+		}
+	}
+
+	slices.SortFunc(orderedSamples, func(a, b TimedSample) int {
+		return b.Timestamp.Compare(a.Timestamp)
+	})
+
+	e.samples[containerName] = append(
+		e.samples[containerName],
+		orderedSamples...,
+	)
+
+	klog.V(4).InfoS(
+		"Hysteresis: samples warmed-up",
+		"resource", e.resourceName,
+		"containerName", containerName,
+		"received", len(samples),
+		"inserted", len(orderedSamples),
 		"totalCurrentSamples", len(e.samples[containerName]),
 	)
 
