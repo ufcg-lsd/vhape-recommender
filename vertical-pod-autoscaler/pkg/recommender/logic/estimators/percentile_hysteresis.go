@@ -1,7 +1,6 @@
 package estimators
 
 import (
-	"cmp"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -207,7 +206,7 @@ func (e *PercentileHysteresisEstimator) WarmUpSamples(containerName string, samp
 	}
 
 	slices.SortFunc(orderedSamples, func(a, b TimedSample) int {
-		return b.Timestamp.Compare(a.Timestamp)
+		return a.Timestamp.Compare(b.Timestamp)
 	})
 
 	e.samples[containerName] = append(
