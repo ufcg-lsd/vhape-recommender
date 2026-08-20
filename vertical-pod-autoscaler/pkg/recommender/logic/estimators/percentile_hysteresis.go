@@ -51,18 +51,18 @@ func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName)
 // percentile of recent usage samples plus a configurable headroom.
 //
 // Samples are stored per container and are periodically purged according to a
-// sliding window expiration. A recommendation is produced only when the available 
+// sliding window expiration. A recommendation is produced only when the available
 // samples cover a minimum portion of that window. Until enough coverage is available,
 // the estimator falls back to the current request, or to the minimum allowed
 // value when the current request is not set.
 type PercentileHysteresisEstimator struct {
-	mu            sync.Mutex
-	resourceName  model.ResourceName
-	samples       map[string][]TimedSample
-	percentile    float64
-	headroom      float64
-	slidingWindow time.Duration
-	percentileBuf []model.ResourceAmount
+	mu                     sync.Mutex
+	resourceName           model.ResourceName
+	samples                map[string][]TimedSample
+	percentile             float64
+	headroom               float64
+	slidingWindow          time.Duration
+	percentileBuf          []model.ResourceAmount
 	minWindowCoverageRatio float64
 }
 
@@ -74,12 +74,12 @@ func NewPercentileHysteresisEstimator(
 ) *PercentileHysteresisEstimator {
 
 	return &PercentileHysteresisEstimator{
-		resourceName:  resourceName,
-		samples:       make(map[string][]TimedSample),
-		percentile:    percentile,
-		headroom:      headroom,
-		slidingWindow: slidingWindow,
-		percentileBuf: make([]model.ResourceAmount, 0),
+		resourceName:           resourceName,
+		samples:                make(map[string][]TimedSample),
+		percentile:             percentile,
+		headroom:               headroom,
+		slidingWindow:          slidingWindow,
+		percentileBuf:          make([]model.ResourceAmount, 0),
 		minWindowCoverageRatio: 0.02,
 	}
 }
@@ -197,7 +197,6 @@ func (e *PercentileHysteresisEstimator) WarmUpSamples(containerName string, samp
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-
 	orderedSamples := make([]TimedSample, 0, len(samples))
 	for _, sample := range samples {
 		if sample.Value >= 0 {
@@ -225,7 +224,6 @@ func (e *PercentileHysteresisEstimator) WarmUpSamples(containerName string, samp
 
 	e.purgeSamples(containerName)
 }
-
 
 // GetSingleResourceRecommendation returns a recommendation for the configured
 // resource and the given container.
