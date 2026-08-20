@@ -413,7 +413,7 @@ func TestCollectCurrentUsageReturnsErrorWithoutEmptyPoints(t *testing.T) {
 func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
 	policy := newTestPolicyObject("policy-a", newTestPolicySpec())
-	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*estimators.ResourceEstimators)}
 
 	est, err := r.getOrCreateEstimators(vpa, policy)
 
@@ -431,7 +431,7 @@ func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 func TestGetOrCreateEstimatorsReturnsCachedForSamePolicy(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
 	policy := newTestPolicyObject("policy-a", newTestPolicySpec())
-	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*estimators.ResourceEstimators)}
 
 	first, firstErr := r.getOrCreateEstimators(vpa, policy)
 	second, secondErr := r.getOrCreateEstimators(vpa, policy)
@@ -443,7 +443,7 @@ func TestGetOrCreateEstimatorsReturnsCachedForSamePolicy(t *testing.T) {
 
 func TestGetOrCreateEstimatorsRecreatesWhenPolicyChanges(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
-	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*estimators.ResourceEstimators)}
 
 	first, firstErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
 	second, secondErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-b", newTestPolicySpec()))
@@ -463,7 +463,7 @@ func TestGetOrCreateEstimatorsSeparatesByVPA(t *testing.T) {
 	policy := newTestPolicyObject("policy-a", newTestPolicySpec())
 	vpaA := newTestVPA("default", "vpa-a", "policy-a")
 	vpaB := newTestVPA("default", "vpa-b", "policy-a")
-	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*estimators.ResourceEstimators)}
 
 	first, firstErr := r.getOrCreateEstimators(vpaA, policy)
 	second, secondErr := r.getOrCreateEstimators(vpaB, policy)
@@ -522,7 +522,7 @@ func TestRecommendContainerResourcesComputesFullRecommendation(t *testing.T) {
 		Target: 512, LowerBound: 460, UpperBound: 564, UncappedTarget: 512,
 	}
 
-	est := &ResourceEstimators{
+	est := &estimators.ResourceEstimators{
 		CPU:    &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}},
 		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
 	}
@@ -554,7 +554,7 @@ func TestRecommendContainerResourcesFiltersControlledResources(t *testing.T) {
 		Target: 512, LowerBound: 460, UpperBound: 564, UncappedTarget: 512,
 	}
 
-	est := &ResourceEstimators{
+	est := &estimators.ResourceEstimators{
 		CPU:    &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}},
 		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
 	}
@@ -582,7 +582,7 @@ func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
 	lister := newVhapePolicyLister(newTestPolicyObject("policy", newTestPolicySpec()))
 	r := &podResourceRecommender{
 		policyLister: lister,
-		estimators:   make(map[model.VpaID]*ResourceEstimators),
+		estimators:   make(map[model.VpaID]*estimators.ResourceEstimators),
 	}
 	vpa := newTestVPA("default", "vpa", "policy")
 
@@ -597,7 +597,7 @@ func TestGetRecommendedPodResourcesReturnsPolicyError(t *testing.T) {
 	lister := newVhapePolicyLister()
 	r := &podResourceRecommender{
 		policyLister: lister,
-		estimators:   make(map[model.VpaID]*ResourceEstimators),
+		estimators:   make(map[model.VpaID]*estimators.ResourceEstimators),
 	}
 	containerStates := model.ContainerNameToAggregateStateMap{
 		"app": model.NewAggregateContainerState(),
@@ -621,7 +621,7 @@ func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testi
 	r := &podResourceRecommender{
 		policyLister:  lister,
 		metricsClient: &mockMetricsClient{err: assert.AnError},
-		estimators: map[model.VpaID]*ResourceEstimators{
+		estimators: map[model.VpaID]*estimators.ResourceEstimators{
 			vpa.ID: {
 				CPU:       cpuEstimator,
 				Memory:    memoryEstimator,
@@ -652,7 +652,7 @@ func TestGetRecommendedPodResourcesRecreatesEstimatorsAfterPolicyAnnotationChang
 	vpa := newTestVPA("default", "vpa", "policy-a")
 	r := &podResourceRecommender{
 		policyLister: lister,
-		estimators:   make(map[model.VpaID]*ResourceEstimators),
+		estimators:   make(map[model.VpaID]*estimators.ResourceEstimators),
 	}
 
 	_, err := r.GetRecommendedPodResources(nil, vpa, nil)
@@ -675,7 +675,7 @@ func TestGetRecommendedPodResourcesRecreatesEstimatorsAfterPolicyAnnotationChang
 func TestGetOrCreateEstimatorsRecreatesWhenPolicyUIDChanges(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
 	r := &podResourceRecommender{
-		estimators: make(map[model.VpaID]*ResourceEstimators),
+		estimators: make(map[model.VpaID]*estimators.ResourceEstimators),
 	}
 
 	firstPolicy := newTestPolicyObject("policy-a", newTestPolicySpec())
@@ -714,7 +714,7 @@ func TestGetRecommendedPodResourcesFullPipeline(t *testing.T) {
 		config:        PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100},
 		policyLister:  lister,
 		metricsClient: mc,
-		estimators:    make(map[model.VpaID]*ResourceEstimators),
+		estimators:    make(map[model.VpaID]*estimators.ResourceEstimators),
 	}
 	state := model.NewAggregateContainerState()
 	state.ObserveRequest(model.Resources{
@@ -751,9 +751,9 @@ func TestFreeRemovesOnlyRequestedVPAEstimators(t *testing.T) {
 	vpaB := newTestVPA("default", "vpa-b", "policy")
 
 	r := &podResourceRecommender{
-		estimators: map[model.VpaID]*ResourceEstimators{
-			vpaA.ID: &ResourceEstimators{},
-			vpaB.ID: &ResourceEstimators{},
+		estimators: map[model.VpaID]*estimators.ResourceEstimators{
+			vpaA.ID: &estimators.ResourceEstimators{},
+			vpaB.ID: &estimators.ResourceEstimators{},
 		},
 	}
 
@@ -770,7 +770,7 @@ func TestFreeDoesNothingWhenEstimatorsDoNotExist(t *testing.T) {
 	}
 
 	r := &podResourceRecommender{
-		estimators: make(map[model.VpaID]*ResourceEstimators),
+		estimators: make(map[model.VpaID]*estimators.ResourceEstimators),
 	}
 
 	assert.NotPanics(t, func() {
@@ -783,7 +783,7 @@ func TestFreeDoesNothingWhenEstimatorsDoNotExist(t *testing.T) {
 
 func TestGetOrCreateEstimatorsBuildsEstimatorsFromPolicyHeuristics(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
-	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+	r := &podResourceRecommender{estimators: make(map[model.VpaID]*estimators.ResourceEstimators)}
 
 	est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
 
@@ -838,7 +838,7 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			vpa := newTestVPA("default", "my-vpa", "policy")
-			r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
+			r := &podResourceRecommender{estimators: make(map[model.VpaID]*estimators.ResourceEstimators)}
 
 			est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy", tt.spec))
 
@@ -854,9 +854,9 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 func TestGetOrCreateEstimatorsSkipsHeuristicResolutionOnCacheHit(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy")
 	policy := newTestPolicyObject("policy", vhape_types.VhapePolicySpec{})
-	cached := &ResourceEstimators{policyUID: policy.UID}
+	cached := &estimators.ResourceEstimators{policyUID: policy.UID}
 	r := &podResourceRecommender{
-		estimators: map[model.VpaID]*ResourceEstimators{vpa.ID: cached},
+		estimators: map[model.VpaID]*estimators.ResourceEstimators{vpa.ID: cached},
 	}
 
 	est, err := r.getOrCreateEstimators(vpa, policy)
