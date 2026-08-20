@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
-	"k8s.io/apimachinery/pkg/types"
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vhape_listers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
+	samplewarmer "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/samplewarmer"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/scalingrules"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/klog/v2"
@@ -50,16 +51,6 @@ type RecommendationFormat struct {
 // RecommendedPodResources maps container names to their resource recommendations.
 type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 
-// ResourceEstimators contains the estimators used for each supported resource.
-//
-// Each estimator is resource-specific. This allows CPU and memory to use
-// different heuristic implementations or different heuristic configurations.
-type ResourceEstimators struct {
-	CPU       estimators.ResourceEstimator
-	Memory    estimators.ResourceEstimator
-	policyUID types.UID
-}
-
 // podResourceRecommender is the default PodResourceRecommender implementation.
 //
 // It fetches VhapePolicy objects, collects current usage metrics, feeds
@@ -74,7 +65,9 @@ type podResourceRecommender struct {
 	// estimators caches resource estimators by VPA.
 	// Estimators keep usage history in memory, so they must be reused across
 	// recommendation cycles for the same VPA.
-	estimators map[model.VpaID]*ResourceEstimators
+	estimators map[model.VpaID]*estimators.ResourceEstimators
+
+	sampleWarmer samplewarmer.SampleWarmer
 }
 
 // containerUsage stores current resource usage samples grouped by container name.
@@ -85,11 +78,15 @@ type containerUsage struct {
 
 // CreatePodResourceRecommender returns the primary recommender.
 func CreatePodResourceRecommender(config PodRecommendationLimits, policyLister vhape_listers.VhapePolicyLister, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
+	sampleWarmer := samplewarmer.CreateSampleWarmer(time.Now())
+	sampleWarmer.InitWarmer()
+
 	return &podResourceRecommender{
 		config:        config,
 		policyLister:  policyLister,
 		metricsClient: metricsClient,
-		estimators:    make(map[model.VpaID]*ResourceEstimators),
+		estimators:    make(map[model.VpaID]*estimators.ResourceEstimators),
+		sampleWarmer:  sampleWarmer,
 	}
 }
 
@@ -217,12 +214,12 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 func (r *podResourceRecommender) getOrCreateEstimators(
 	vpa *model.Vpa,
 	policy *vhape_types.VhapePolicy,
-) (*ResourceEstimators, error) {
+) (*estimators.ResourceEstimators, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	cached, isCached := r.estimators[vpa.ID]
-	if isCached && cached.policyUID == policy.UID {
+	if isCached && cached.PolicyUID == policy.UID {
 		klog.V(4).InfoS(
 			"Cached estimators found",
 			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
@@ -252,16 +249,16 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 		klog.InfoS(
 			"VPA policy changed; estimators discarded",
 			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
-			"oldPolicyUID", cached.policyUID,
+			"oldPolicyUID", cached.PolicyUID,
 			"newPolicy", klog.KObj(policy),
 			"newPolicyUID", policy.UID,
 		)
 	}
 
-	created := &ResourceEstimators{
+	created := &estimators.ResourceEstimators{
 		CPU:       cpuHeuristic.NewEstimator(model.ResourceCPU),
 		Memory:    memoryHeuristic.NewEstimator(model.ResourceMemory),
-		policyUID: policy.UID,
+		PolicyUID: policy.UID,
 	}
 
 	klog.V(4).InfoS(
@@ -274,6 +271,14 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 		"scalingRule", policy.Spec.ScalingRule,
 	)
 
+	if !isCached && r.sampleWarmer != nil {
+		klog.InfoS(
+			"Estimators were just created. Inserting predefined samples for warm-up.",
+			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+		)
+		r.sampleWarmer.WarmUpEstimators(created, vpa)
+	}
+
 	r.estimators[vpa.ID] = created
 	return created, nil
 }
@@ -283,7 +288,7 @@ func (r *podResourceRecommender) recommendContainerResources(
 	containerName string,
 	state *model.AggregateContainerState,
 	policy *vhape_types.VhapePolicy,
-	est *ResourceEstimators,
+	est *estimators.ResourceEstimators,
 	containerCount int,
 ) recommendation.ResourceRecommendation {
 	controlledResources := state.GetControlledResources()
