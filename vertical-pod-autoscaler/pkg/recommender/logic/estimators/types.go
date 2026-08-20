@@ -19,6 +19,7 @@ package estimators
 
 import (
 	"time"
+	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
@@ -44,6 +45,16 @@ type ContainerResourceConstraints struct {
 type TimedSample struct {
 	Value     model.ResourceAmount
 	Timestamp time.Time
+}
+
+// ResourceEstimators contains the estimators used for each supported resource.
+//
+// Each estimator is resource-specific. This allows CPU and memory to use
+// different heuristic implementations or different heuristic configurations.
+type ResourceEstimators struct {
+	CPU       ResourceEstimator
+	Memory    ResourceEstimator
+	policyUID types.UID
 }
 
 type ResourceEstimator interface {
