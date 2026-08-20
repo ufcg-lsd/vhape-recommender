@@ -19,8 +19,8 @@ package estimators
 
 import (
 	"time"
-	"k8s.io/apimachinery/pkg/types"
 
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
@@ -32,10 +32,9 @@ import (
 // they cannot produce a recommendation from usage history.
 type ContainerResourceConstraints struct {
 	CurrentRequest model.ResourceAmount
-	Min   		   model.ResourceAmount
-	Max 		   model.ResourceAmount
+	Min            model.ResourceAmount
+	Max            model.ResourceAmount
 }
-
 
 // TimedSample represents a resource usage sample associated with the time at
 // which it was collected.
@@ -54,7 +53,7 @@ type TimedSample struct {
 type ResourceEstimators struct {
 	CPU       ResourceEstimator
 	Memory    ResourceEstimator
-	policyUID types.UID
+	PolicyUID types.UID
 }
 
 type ResourceEstimator interface {

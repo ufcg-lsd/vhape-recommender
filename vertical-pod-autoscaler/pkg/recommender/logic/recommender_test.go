@@ -48,6 +48,8 @@ func (m *mockResourceEstimator) FeedSamples(containerName string, samples []mode
 	m.feedCalls[containerName] = append(m.feedCalls[containerName], copied)
 }
 
+func (m *mockResourceEstimator) WarmUpSamples(_ string, _ []estimators.TimedSample) {}
+
 func (m *mockResourceEstimator) GetSingleResourceRecommendation(containerName string, _ estimators.ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
 	if r, ok := m.recommendations[containerName]; ok {
 		return r
@@ -424,7 +426,7 @@ func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 	assert.Equal(
 		t,
 		types.UID("uid-policy-a"),
-		est.policyUID,
+		est.PolicyUID,
 	)
 }
 
@@ -454,7 +456,7 @@ func TestGetOrCreateEstimatorsRecreatesWhenPolicyChanges(t *testing.T) {
 	assert.Equal(
 		t,
 		types.UID("uid-policy-b"),
-		second.policyUID,
+		second.PolicyUID,
 	)
 	assert.Same(t, second, r.estimators[vpa.ID])
 }
@@ -625,7 +627,7 @@ func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testi
 			vpa.ID: {
 				CPU:       cpuEstimator,
 				Memory:    memoryEstimator,
-				policyUID: types.UID("uid-policy"),
+				PolicyUID: types.UID("uid-policy"),
 			},
 		},
 	}
@@ -668,7 +670,7 @@ func TestGetRecommendedPodResourcesRecreatesEstimatorsAfterPolicyAnnotationChang
 	assert.Equal(
 		t,
 		types.UID("uid-policy-b"),
-		second.policyUID,
+		second.PolicyUID,
 	)
 }
 
@@ -690,7 +692,7 @@ func TestGetOrCreateEstimatorsRecreatesWhenPolicyUIDChanges(t *testing.T) {
 	assert.NoError(t, firstErr)
 	assert.NoError(t, secondErr)
 	assert.NotSame(t, first, second)
-	assert.Equal(t, types.UID("policy-uid-2"), second.policyUID)
+	assert.Equal(t, types.UID("policy-uid-2"), second.PolicyUID)
 	assert.Same(t, second, r.estimators[vpa.ID])
 }
 
@@ -854,7 +856,7 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 func TestGetOrCreateEstimatorsSkipsHeuristicResolutionOnCacheHit(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy")
 	policy := newTestPolicyObject("policy", vhape_types.VhapePolicySpec{})
-	cached := &estimators.ResourceEstimators{policyUID: policy.UID}
+	cached := &estimators.ResourceEstimators{PolicyUID: policy.UID}
 	r := &podResourceRecommender{
 		estimators: map[model.VpaID]*estimators.ResourceEstimators{vpa.ID: cached},
 	}
