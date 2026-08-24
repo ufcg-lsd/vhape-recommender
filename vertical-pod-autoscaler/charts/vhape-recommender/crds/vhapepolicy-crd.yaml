@@ -59,6 +59,13 @@ spec:
                               minimum: 0
                             slidingWindow:
                               type: string
+                        adaptive-percentile:
+                          type: object
+                          required:
+                            - slidingWindow
+                          properties:
+                            slidingWindow:
+                              type: string
                     memory:
                       type: object
                       minProperties: 1
@@ -78,6 +85,13 @@ spec:
                             headroom:
                               type: number
                               minimum: 0
+                            slidingWindow:
+                              type: string
+                        adaptive-percentile:
+                          type: object
+                          required:
+                            - slidingWindow
+                          properties:
                             slidingWindow:
                               type: string
                 scalingRule:
