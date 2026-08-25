@@ -36,8 +36,8 @@ func (c *FakeVhapeAutoscalingV1alpha1) VhapeIgnoredWorkloads() v1alpha1.VhapeIgn
 	return newFakeVhapeIgnoredWorkloads(c)
 }
 
-func (c *FakeVhapeAutoscalingV1alpha1) VhapePolicies(namespace string) v1alpha1.VhapePolicyInterface {
-	return newFakeVhapePolicies(c, namespace)
+func (c *FakeVhapeAutoscalingV1alpha1) VhapePolicies() v1alpha1.VhapePolicyInterface {
+	return newFakeVhapePolicies(c)
 }
 
 func (c *FakeVhapeAutoscalingV1alpha1) VhapeWatchedNamespaces() v1alpha1.VhapeWatchedNamespaceInterface {

@@ -258,7 +258,7 @@ func TestWatchedNamespaceRegexHandlers(t *testing.T) {
 
 		oldObj := testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`)
 		newObj := testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`)
-		newObj.Spec.VhapePolicyRef.Name = "new-policy"
+		newObj.Spec.VhapePolicyName = "new-policy"
 		handler.onWatchedNamespaceRegexUpdate(oldObj, newObj)
 
 		testutil.AssertStringSlicesEqual(t, sink.regexes, []string{`^prod-.*$`})

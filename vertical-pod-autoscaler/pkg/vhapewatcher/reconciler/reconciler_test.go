@@ -204,7 +204,7 @@ func TestReconcileDeploymentIgnoresMissingDeployment(t *testing.T) {
 func TestReconcileDeploymentOutsideWatchedNamespaceDeletesGeneratedVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
-	options := generationOptions(testutil.TestPolicyNamespace, testutil.TestPolicyName, vpav1.UpdateModeInitial)
+	options := generationOptions(testutil.TestPolicyName, vpav1.UpdateModeInitial)
 	generatedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment() returned error: %v", err)
@@ -232,7 +232,7 @@ func TestReconcileDeploymentIgnoredWorkloadDeletesGeneratedVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	watched := testutil.NewWatchedNamespace(dep.Namespace)
 	ignored := testutil.NewIgnoredWorkload("ignore-api", dep.Namespace, dep.Name)
-	options := generationOptions(testutil.TestPolicyNamespace, testutil.TestPolicyName, vpav1.UpdateModeInitial)
+	options := generationOptions(testutil.TestPolicyName, vpav1.UpdateModeInitial)
 	generatedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment() returned error: %v", err)
@@ -286,7 +286,7 @@ func TestReconcileDeploymentPreservesManualVPAAndDeletesGeneratedVPA(t *testing.
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	watched := testutil.NewWatchedNamespace(dep.Namespace)
-	options := generationOptions(testutil.TestPolicyNamespace, testutil.TestPolicyName, vpav1.UpdateModeInitial)
+	options := generationOptions(testutil.TestPolicyName, vpav1.UpdateModeInitial)
 	generatedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
 		t.Fatalf("GenerateVPAForDeployment() returned error: %v", err)
@@ -312,7 +312,7 @@ func TestReconcileDeploymentPreservesManualVPAAndDeletesGeneratedVPA(t *testing.
 func TestReconcileDeploymentKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
-	options := generationOptions(testutil.TestPolicyNamespace, testutil.TestPolicyName, testutil.TestVPAUpdateMode)
+	options := generationOptions(testutil.TestPolicyName, testutil.TestVPAUpdateMode)
 	watched := testutil.NewWatchedNamespace(dep.Namespace)
 	currentGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, options)
 	if err != nil {
@@ -349,8 +349,8 @@ func TestReconcileDeploymentKeepsCurrentGeneratedVPAAndDeletesExtraGeneratedVPA(
 func TestReconcileDeploymentReplacesOutdatedGeneratedVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
-	oldOptions := generationOptions("old-system", "old-policy", vpav1.UpdateModeRecreate)
-	newOptions := generationOptions(testutil.TestPolicyNamespace, testutil.TestPolicyName, testutil.TestVPAUpdateMode)
+	oldOptions := generationOptions("old-policy", vpav1.UpdateModeRecreate)
+	newOptions := generationOptions(testutil.TestPolicyName, testutil.TestVPAUpdateMode)
 	watched := testutil.NewWatchedNamespace(dep.Namespace)
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
 	if err != nil {
@@ -384,7 +384,6 @@ func TestReconcileDeploymentUsesWatchedNamespacePolicyAndUpdateMode(t *testing.T
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	watched := testutil.NewWatchedNamespaceWithPolicy(
 		dep.Namespace,
-		"custom-policy-namespace",
 		"custom-policy",
 		vpav1.UpdateModeInitial,
 	)
@@ -468,13 +467,10 @@ func newVPAService(
 	return service
 }
 
-func generationOptions(policyNamespace, policyName string, updateMode vpav1.UpdateMode) vhapev1alpha1.VhapeWatchedNamespaceSpec {
+func generationOptions(policyName string, updateMode vpav1.UpdateMode) vhapev1alpha1.VhapeWatchedNamespaceSpec {
 	return vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Namespace: policyNamespace,
-			Name:      policyName,
-		},
-		VPAUpdateMode: updateMode,
+		VhapePolicyName: policyName,
+		VPAUpdateMode:   updateMode,
 	}
 }
 

@@ -220,11 +220,8 @@ func TestPatchesOutdatedGeneratedVPA(t *testing.T) {
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	newOptions := newDesiredConfig()
 	oldOptions := vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Namespace: "old-system",
-			Name:      "old-policy",
-		},
-		VPAUpdateMode: vpav1.UpdateModeRecreate,
+		VhapePolicyName: "old-policy",
+		VPAUpdateMode:   vpav1.UpdateModeRecreate,
 	}
 
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
@@ -255,11 +252,8 @@ func TestDeletesOutdatedGeneratedVPAWhenPatchFails(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	oldOptions := vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Namespace: "old-system",
-			Name:      "old-policy",
-		},
-		VPAUpdateMode: vpav1.UpdateModeRecreate,
+		VhapePolicyName: "old-policy",
+		VPAUpdateMode:   vpav1.UpdateModeRecreate,
 	}
 
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
@@ -301,11 +295,8 @@ func TestCleansUpExtraGeneratedVPAWhenPatchFails(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	oldOptions := vhapev1alpha1.VhapeWatchedNamespaceSpec{
-		VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-			Namespace: "old-system",
-			Name:      "old-policy",
-		},
-		VPAUpdateMode: vpav1.UpdateModeRecreate,
+		VhapePolicyName: "old-policy",
+		VPAUpdateMode:   vpav1.UpdateModeRecreate,
 	}
 
 	outdatedGeneratedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldOptions)
@@ -376,7 +367,7 @@ func TestPatchVPAPreservesAdditionalMetadata(t *testing.T) {
 	oldMode := vpav1.UpdateModeRecreate
 	current.Spec.UpdatePolicy.UpdateMode = &oldMode
 	current.Labels[vpaservice.VhapeLabel] = "old-recommender"
-	current.Annotations[vpaservice.VhapePolicyAnnotation] = "old-system/old-policy"
+	current.Annotations[vpaservice.VhapePolicyAnnotation] = "old-policy"
 	current.OwnerReferences[0].UID = "old-uid"
 
 	current.Labels["example.com/custom"] = "label-value"
@@ -551,7 +542,7 @@ func TestIsDesiredGeneratedVPA(t *testing.T) {
 	}
 
 	generatedVPAWithDifferentPolicy := desiredGeneratedVPA.DeepCopy()
-	generatedVPAWithDifferentPolicy.Annotations[vpaservice.VhapePolicyAnnotation] = "other/policy"
+	generatedVPAWithDifferentPolicy.Annotations[vpaservice.VhapePolicyAnnotation] = "other-policy"
 	if vpaservice.IsDesiredGeneratedVPA(generatedVPAWithDifferentPolicy, desiredGeneratedVPA) {
 		t.Fatal("VPA with different VHAPE policy annotation should not be desired")
 	}

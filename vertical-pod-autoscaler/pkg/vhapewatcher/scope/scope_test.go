@@ -269,7 +269,6 @@ func TestGetWatchedNamespace(t *testing.T) {
 		testutil.AssertWatchedNamespaceSpec(
 			t,
 			watched,
-			testutil.TestPolicyNamespace,
 			testutil.TestPolicyName,
 			testutil.TestVPAUpdateMode,
 		)
@@ -297,15 +296,15 @@ func TestShouldManageDeployment(t *testing.T) {
 	watchedNamespace := testutil.NewWatchedNamespace(testutil.TestNamespace)
 
 	regex := testutil.NewWatchedNamespaceRegex("production-regex", `^producao$`)
-	regex.Spec.VhapePolicyRef.Name = "regex-policy"
+	regex.Spec.VhapePolicyName = "regex-policy"
 
 	oldestRegex := testutil.NewWatchedNamespaceRegex("oldest-regex", `^producao$`)
 	oldestRegex.CreationTimestamp = metav1.NewTime(time.Unix(100, 0))
-	oldestRegex.Spec.VhapePolicyRef.Name = "oldest-policy"
+	oldestRegex.Spec.VhapePolicyName = "oldest-policy"
 
 	newestRegex := testutil.NewWatchedNamespaceRegex("newest-regex", `^producao$`)
 	newestRegex.CreationTimestamp = metav1.NewTime(time.Unix(200, 0))
-	newestRegex.Spec.VhapePolicyRef.Name = "newest-policy"
+	newestRegex.Spec.VhapePolicyName = "newest-policy"
 
 	tests := []struct {
 		name                    string

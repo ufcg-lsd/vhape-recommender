@@ -30,10 +30,6 @@ type VhapeIgnoredWorkloadListerExpansion interface{}
 // VhapePolicyLister.
 type VhapePolicyListerExpansion interface{}
 
-// VhapePolicyNamespaceListerExpansion allows custom methods to be added to
-// VhapePolicyNamespaceLister.
-type VhapePolicyNamespaceListerExpansion interface{}
-
 // VhapeWatchedNamespaceListerExpansion allows custom methods to be added to
 // VhapeWatchedNamespaceLister.
 type VhapeWatchedNamespaceListerExpansion interface{}
