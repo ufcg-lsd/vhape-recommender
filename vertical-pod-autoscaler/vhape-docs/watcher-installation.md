@@ -22,7 +22,7 @@ The Helm chart installs:
 * RBAC for the VHAPE Watcher;
 * the VHAPE Watcher Deployment.
 
-By default, the Helm chart also creates a `VhapeIgnoredNamespace` resource for `kube-system`, excluding workloads in that namespace from automatic watcher management.
+By default, the Helm chart also creates a `VhapeIgnoredNamespace` resource for `kube-system` and `monitoring`, excluding workloads in that namespace from automatic watcher management.
 
 From the repository root, install the chart:
 
