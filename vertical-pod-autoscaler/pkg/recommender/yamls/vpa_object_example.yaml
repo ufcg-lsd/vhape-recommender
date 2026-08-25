@@ -8,7 +8,7 @@ metadata:
     autoscaling.vhape.io/recommender: "vhape-recommender"
   annotations:
     # Reference to the VhapePolicy used to calculate recommendations
-    vhape/policy: "kube-system/vhape-policy-p93-default"
+    vhape/policy: "p93-percentile-hysteresis"
 spec:
   recommenders:
     # Delegates recommendations to the custom recommender instead of the default VPA recommender

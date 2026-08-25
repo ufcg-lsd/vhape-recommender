@@ -18,10 +18,22 @@ limitations under the License.
 
 package v1alpha1
 
+// VhapeIgnoredNamespaceListerExpansion allows custom methods to be added to
+// VhapeIgnoredNamespaceLister.
+type VhapeIgnoredNamespaceListerExpansion interface{}
+
 // VhapeIgnoredWorkloadListerExpansion allows custom methods to be added to
 // VhapeIgnoredWorkloadLister.
 type VhapeIgnoredWorkloadListerExpansion interface{}
 
+// VhapePolicyListerExpansion allows custom methods to be added to
+// VhapePolicyLister.
+type VhapePolicyListerExpansion interface{}
+
 // VhapeWatchedNamespaceListerExpansion allows custom methods to be added to
 // VhapeWatchedNamespaceLister.
 type VhapeWatchedNamespaceListerExpansion interface{}
+
+// VhapeWatchedNamespaceRegexListerExpansion allows custom methods to be added to
+// VhapeWatchedNamespaceRegexLister.
+type VhapeWatchedNamespaceRegexListerExpansion interface{}

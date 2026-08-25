@@ -10,6 +10,7 @@ import (
 type fakeDeploymentSink struct {
 	deployments []string
 	namespaces  []string
+	regexes     []string
 }
 
 func (s *fakeDeploymentSink) EnqueueDeployment(namespace, name string) {
@@ -18,6 +19,10 @@ func (s *fakeDeploymentSink) EnqueueDeployment(namespace, name string) {
 
 func (s *fakeDeploymentSink) EnqueueDeploymentsInNamespace(namespace string) {
 	s.namespaces = append(s.namespaces, namespace)
+}
+
+func (s *fakeDeploymentSink) EnqueueDeploymentsMatchingNamespaceRegex(regexCode string) {
+	s.regexes = append(s.regexes, regexCode)
 }
 
 func TestDeploymentHandlers(t *testing.T) {
@@ -215,6 +220,129 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 		handler.onWatchedNamespaceDelete(cache.DeletedFinalStateUnknown{Obj: "not-a-watched-namespace"})
 
 		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
+	})
+}
+
+func TestWatchedNamespaceRegexHandlers(t *testing.T) {
+	t.Run("add enqueues deployments matching regex", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onWatchedNamespaceRegexAdd(testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`))
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, []string{`^prod-.*$`})
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("add ignores unexpected object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onWatchedNamespaceRegexAdd("not-a-watched-namespace-regex")
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, nil)
+	})
+
+	t.Run("update with changed regex enqueues old and new regexes", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onWatchedNamespaceRegexUpdate(
+			testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`),
+			testutil.NewWatchedNamespaceRegex("production", `^(prod|staging)-.*$`),
+		)
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, []string{`^prod-.*$`, `^(prod|staging)-.*$`})
+	})
+
+	t.Run("update with same regex enqueues once", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		oldObj := testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`)
+		newObj := testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`)
+		newObj.Spec.VhapePolicyName = "new-policy"
+		handler.onWatchedNamespaceRegexUpdate(oldObj, newObj)
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, []string{`^prod-.*$`})
+	})
+
+	t.Run("update ignores invalid old and enqueues new", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onWatchedNamespaceRegexUpdate("invalid", testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`))
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, []string{`^prod-.*$`})
+	})
+
+	t.Run("delete enqueues deployments matching regex", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onWatchedNamespaceRegexDelete(testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`))
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, []string{`^prod-.*$`})
+	})
+
+	t.Run("delete handles tombstone", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onWatchedNamespaceRegexDelete(cache.DeletedFinalStateUnknown{
+			Obj: testutil.NewWatchedNamespaceRegex("production", `^prod-.*$`),
+		})
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, []string{`^prod-.*$`})
+	})
+
+	t.Run("delete ignores invalid tombstone", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onWatchedNamespaceRegexDelete(cache.DeletedFinalStateUnknown{Obj: "invalid"})
+
+		testutil.AssertStringSlicesEqual(t, sink.regexes, nil)
+	})
+}
+
+func TestIgnoredNamespaceHandlers(t *testing.T) {
+	t.Run("add enqueues namespace", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onIgnoredNamespaceAdd(testutil.NewIgnoredNamespace(testutil.TestNamespace))
+
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{testutil.TestNamespace})
+	})
+
+	t.Run("add ignores unexpected object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onIgnoredNamespaceAdd("invalid")
+
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
+	})
+
+	t.Run("update is ignored", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onIgnoredNamespaceUpdate(
+			testutil.NewIgnoredNamespace(testutil.TestNamespace),
+			testutil.NewIgnoredNamespace(testutil.TestNamespace),
+		)
+
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
+	})
+
+	t.Run("delete enqueues namespace", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onIgnoredNamespaceDelete(testutil.NewIgnoredNamespace(testutil.TestNamespace))
+
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{testutil.TestNamespace})
+	})
+
+	t.Run("delete handles tombstone", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onIgnoredNamespaceDelete(cache.DeletedFinalStateUnknown{
+			Obj: testutil.NewIgnoredNamespace(testutil.TestNamespace),
+		})
+
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{testutil.TestNamespace})
 	})
 }
 

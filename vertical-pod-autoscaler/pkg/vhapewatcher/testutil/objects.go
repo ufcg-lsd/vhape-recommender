@@ -3,12 +3,19 @@ package testutil
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 )
+
+func NewNamespace(name string) *corev1.Namespace {
+	return &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+	}
+}
 
 func NewDeployment(namespace, name string) *appsv1.Deployment {
 	return &appsv1.Deployment{
@@ -55,12 +62,11 @@ func NewVPAWithTarget(name, namespace, targetAPIVersion, targetKind, targetName 
 }
 
 func NewWatchedNamespace(name string) *vhapev1alpha1.VhapeWatchedNamespace {
-	return NewWatchedNamespaceWithPolicy(name, TestPolicyNamespace, TestPolicyName, TestVPAUpdateMode)
+	return NewWatchedNamespaceWithPolicy(name, TestPolicyName, TestVPAUpdateMode)
 }
 
 func NewWatchedNamespaceWithPolicy(
 	namespace string,
-	policyNamespace string,
 	policyName string,
 	updateMode vpav1.UpdateMode,
 ) *vhapev1alpha1.VhapeWatchedNamespace {
@@ -69,12 +75,28 @@ func NewWatchedNamespaceWithPolicy(
 			Name: namespace,
 		},
 		Spec: vhapev1alpha1.VhapeWatchedNamespaceSpec{
-			VhapePolicyRef: vhapev1alpha1.VhapePolicyRef{
-				Namespace: policyNamespace,
-				Name:      policyName,
-			},
-			VPAUpdateMode: updateMode,
+			VhapePolicyName: policyName,
+			VPAUpdateMode:   updateMode,
 		},
+	}
+}
+
+func NewWatchedNamespaceRegex(name, regexCode string) *vhapev1alpha1.VhapeWatchedNamespaceRegex {
+	return &vhapev1alpha1.VhapeWatchedNamespaceRegex{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Spec: vhapev1alpha1.VhapeWatchedNamespaceRegexSpec{
+			VhapeWatchedNamespaceSpec: vhapev1alpha1.VhapeWatchedNamespaceSpec{
+				VhapePolicyName: TestPolicyName,
+				VPAUpdateMode:   TestVPAUpdateMode,
+			},
+			Regex: regexCode,
+		},
+	}
+}
+
+func NewIgnoredNamespace(name string) *vhapev1alpha1.VhapeIgnoredNamespace {
+	return &vhapev1alpha1.VhapeIgnoredNamespace{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 	}
 }
 
@@ -106,8 +128,8 @@ func NewIgnoredWorkloadWithTarget(
 	}
 }
 
-func NewTargetRef(apiVersion, kind, namespace, name string) vhapev1alpha1.TargetRef {
-	return vhapev1alpha1.TargetRef{
+func NewTargetRef(apiVersion, kind, namespace, name string) corev1.ObjectReference {
+	return corev1.ObjectReference{
 		APIVersion: apiVersion,
 		Kind:       kind,
 		Namespace:  namespace,

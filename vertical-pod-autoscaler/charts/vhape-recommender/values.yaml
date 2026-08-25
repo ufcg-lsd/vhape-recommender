@@ -3,33 +3,6 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
-policies:
-  - name: vhape-policy-p93-default
-    cpu:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.10
-        slidingWindow: 24h
-    memory:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.05
-        slidingWindow: 24h
-    scalingRule: ""
-
-  - name: vhape-policy-p95
-    cpu:
-      percentile-hysteresis:
-        percentile: 0.95
-        headroom: 0.10
-        slidingWindow: 24h
-    memory:
-      percentile-hysteresis:
-        percentile: 0.95
-        headroom: 0.05
-        slidingWindow: 24h
-    scalingRule: ""
-
 resources:
   requests:
     cpu: "4"

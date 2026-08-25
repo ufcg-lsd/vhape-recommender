@@ -4,17 +4,17 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strings"
 	"sync"
 
 	"k8s.io/apimachinery/pkg/types"
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
+	vhape_listers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/scalingrules"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
-	"k8s.io/client-go/dynamic"
 	"k8s.io/klog/v2"
 )
 
@@ -55,8 +55,8 @@ type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 // Each estimator is resource-specific. This allows CPU and memory to use
 // different heuristic implementations or different heuristic configurations.
 type ResourceEstimators struct {
-	CPU    estimators.ResourceEstimator
-	Memory estimators.ResourceEstimator
+	CPU       estimators.ResourceEstimator
+	Memory    estimators.ResourceEstimator
 	policyUID types.UID
 }
 
@@ -67,7 +67,7 @@ type ResourceEstimators struct {
 // recommendations.
 type podResourceRecommender struct {
 	config        PodRecommendationLimits
-	dynamicClient dynamic.Interface
+	policyLister  vhape_listers.VhapePolicyLister
 	metricsClient input_metrics.MetricsClient
 	mu            sync.Mutex
 
@@ -84,10 +84,10 @@ type containerUsage struct {
 }
 
 // CreatePodResourceRecommender returns the primary recommender.
-func CreatePodResourceRecommender(config PodRecommendationLimits, dynamicClient dynamic.Interface, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
+func CreatePodResourceRecommender(config PodRecommendationLimits, policyLister vhape_listers.VhapePolicyLister, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
 	return &podResourceRecommender{
 		config:        config,
-		dynamicClient: dynamicClient,
+		policyLister:  policyLister,
 		metricsClient: metricsClient,
 		estimators:    make(map[model.VpaID]*ResourceEstimators),
 	}
@@ -108,7 +108,11 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 		return nil, err
 	}
 
-	resourceEstimators := r.getOrCreateEstimators(vpa, policy)
+	resourceEstimators, err := r.getOrCreateEstimators(vpa, policy)
+	if err != nil {
+		return nil, err
+	}
+
 	recommendations := make(RecommendedPodResources)
 	if len(containerStates) == 0 {
 		return recommendations, nil
@@ -142,25 +146,26 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 }
 
 // fetchPolicy loads the VhapePolicy referenced by the VPA annotation.
-func (r *podResourceRecommender) fetchPolicy(vpa *model.Vpa) (*VhapePolicy, error) {
-	policyRef := vpa.Annotations[vhapePolicyAnnotation]
-	parts := strings.Split(policyRef, "/")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+//
+// The policy comes from the informer cache and must be treated as read-only.
+func (r *podResourceRecommender) fetchPolicy(vpa *model.Vpa) (*vhape_types.VhapePolicy, error) {
+	policyName, ok := vpa.Annotations[vhapePolicyAnnotation]
+	if !ok {
 		return nil, fmt.Errorf(
-			"VPA %q/%q: invalid or missing %s annotation; expected <namespace>/<name>",
+			"VPA %q/%q: missing %s annotation",
 			vpa.ID.Namespace,
 			vpa.ID.VpaName,
 			vhapePolicyAnnotation,
 		)
 	}
 
-	policy, err := FetchVhapePolicy(r.dynamicClient, parts[0], parts[1])
+	policy, err := r.policyLister.Get(policyName)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"VPA %q/%q: fetch policy %q: %w",
 			vpa.ID.Namespace,
 			vpa.ID.VpaName,
-			policyRef,
+			policyName,
 			err,
 		)
 	}
@@ -205,48 +210,79 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 
 // getOrCreateEstimators returns the estimators associated with a VPA.
 // The estimators are recreated when the VPA annotation points to another policy.
+//
+// The heuristics configured in the policy are resolved here, so their parameters
+// are decoded only when estimators are actually created and not on every
+// recommendation cycle.
 func (r *podResourceRecommender) getOrCreateEstimators(
 	vpa *model.Vpa,
-	policy *VhapePolicy,
-) *ResourceEstimators {
+	policy *vhape_types.VhapePolicy,
+) (*ResourceEstimators, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if cached, ok := r.estimators[vpa.ID]; ok {
-		if cached.policyUID == policy.UID {
-			klog.V(4).InfoS(
-				"Cached estimators found",
-				"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
-				"policy", klog.KRef(policy.Namespace, policy.Name),
-				"policyUID", policy.UID,
-			)
-			return cached
-		}
+	cached, isCached := r.estimators[vpa.ID]
+	if isCached && cached.policyUID == policy.UID {
+		klog.V(4).InfoS(
+			"Cached estimators found",
+			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+			"policy", klog.KObj(policy),
+			"policyUID", policy.UID,
+		)
+		return cached, nil
+	}
 
+	cpuHeuristic, cpuHeuristicName, err := estimators.BuildHeuristic(policy.Spec.Resources.CPU)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"VhapePolicy %q: invalid spec.resources.cpu: %w",
+			policy.Name, err,
+		)
+	}
+
+	memoryHeuristic, memHeuristicName, err := estimators.BuildHeuristic(policy.Spec.Resources.Memory)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"VhapePolicy %q: invalid spec.resources.memory: %w",
+			policy.Name, err,
+		)
+	}
+
+	if isCached {
 		klog.InfoS(
 			"VPA policy changed; estimators discarded",
 			"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
 			"oldPolicyUID", cached.policyUID,
-			"newPolicy", klog.KRef(policy.Namespace, policy.Name),
+			"newPolicy", klog.KObj(policy),
 			"newPolicyUID", policy.UID,
 		)
 	}
 
 	created := &ResourceEstimators{
-		CPU:       policy.Spec.Resources.CPU.Heuristic.NewEstimator(model.ResourceCPU),
-		Memory:    policy.Spec.Resources.Memory.Heuristic.NewEstimator(model.ResourceMemory),
+		CPU:       cpuHeuristic.NewEstimator(model.ResourceCPU),
+		Memory:    memoryHeuristic.NewEstimator(model.ResourceMemory),
 		policyUID: policy.UID,
 	}
 
+	klog.V(4).InfoS(
+		"Estimators created from VhapePolicy",
+		"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+		"policy", klog.KObj(policy),
+		"policyUID", policy.UID,
+		"cpuHeuristic", cpuHeuristicName,
+		"memHeuristic", memHeuristicName,
+		"scalingRule", policy.Spec.ScalingRule,
+	)
+
 	r.estimators[vpa.ID] = created
-	return created
+	return created, nil
 }
 
 // recommendContainerResources calculates a full resource recommendation for one container.
 func (r *podResourceRecommender) recommendContainerResources(
 	containerName string,
 	state *model.AggregateContainerState,
-	policy *VhapePolicy,
+	policy *vhape_types.VhapePolicy,
 	est *ResourceEstimators,
 	containerCount int,
 ) recommendation.ResourceRecommendation {
@@ -348,7 +384,7 @@ func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCo
 // applyScalingRule applies the policy scaling rule to a single-resource recommendation.
 func (r *podResourceRecommender) applyScalingRule(
 	rec recommendation.SingleResourceRecommendation,
-	policy *VhapePolicy,
+	policy *vhape_types.VhapePolicy,
 	containerName string,
 	resourceName model.ResourceName,
 	currentRequest model.ResourceAmount,
@@ -409,4 +445,3 @@ func MapToListOfRecommendedContainerResources(resources RecommendedPodResources,
 		ContainerRecommendations: containerResources,
 	}
 }
-

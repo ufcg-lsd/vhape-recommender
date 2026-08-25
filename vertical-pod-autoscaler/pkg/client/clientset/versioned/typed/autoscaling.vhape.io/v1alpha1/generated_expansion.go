@@ -18,6 +18,12 @@ limitations under the License.
 
 package v1alpha1
 
+type VhapeIgnoredNamespaceExpansion interface{}
+
 type VhapeIgnoredWorkloadExpansion interface{}
 
+type VhapePolicyExpansion interface{}
+
 type VhapeWatchedNamespaceExpansion interface{}
+
+type VhapeWatchedNamespaceRegexExpansion interface{}

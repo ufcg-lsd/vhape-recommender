@@ -4,20 +4,66 @@ The VHAPE Watcher is an optional component used with the VHAPE Recommender. It a
 
 Without the watcher, VPA objects must be created and managed separately for each workload, including the VHAPE Recommender and the `VhapePolicy` that should be used, as described in the [VHAPE Recommender guide](recommender-guide.md).
 
-The watcher runs as a Deployment in the Kubernetes cluster and is configured through two cluster-scoped custom resources:
+The watcher runs as a Deployment in the Kubernetes cluster and is configured through cluster-scoped custom resources:
 
-* `VhapeWatchedNamespace`, which enables automatic VPA management for a namespace;
+* `VhapeWatchedNamespace`, which configures automatic VPA management for a specific namespace;
+* `VhapeWatchedNamespaceRegex`, which configures automatic VPA management for namespaces matching a regular expression;
+* `VhapeIgnoredNamespace`, which excludes a namespace from automatic management;
 * `VhapeIgnoredWorkload`, which excludes a specific Deployment from automatic management.
 
 For installation instructions, see [VHAPE Watcher installation](watcher-installation.md).
 
 ## How it works
 
-For each Deployment in a watched namespace, the VHAPE Watcher ensures that a generated VPA exists with the configuration defined by the corresponding `VhapeWatchedNamespace`. The VHAPE Watcher continuously reconciles this desired state as Deployments, VPAs, and watcher configuration resources change.
+The VHAPE Watcher continuously reconciles Deployments, VPAs, and watcher configuration resources.
 
-## Watch a namespace
+For each Deployment, the watcher resolves its scope and configuration in the following order:
 
-Create a `VhapeWatchedNamespace` to enable watcher management for a namespace. This resource is cluster-scoped, and its `metadata.name` identifies the namespace to manage.
+```text
+Deployment
+├── Manually configured VPA
+│   └── Manual VPA is preserved
+├── VhapeIgnoredWorkload
+│   └── Deployment is not managed
+├── VhapeIgnoredNamespace
+│   └── Deployment is not managed
+├── VhapeWatchedNamespace
+│   └── Namespace-specific configuration is used
+├── VhapeWatchedNamespaceRegex
+│   └── Matching regex configuration is used
+└── No matching configuration
+    └── Deployment is not managed
+```
+
+A manual VPA provides workload-specific configuration. `VhapeWatchedNamespace` provides namespace-specific configuration. `VhapeWatchedNamespaceRegex` provides a shared default for multiple namespaces. If multiple `VhapeWatchedNamespaceRegex` resources match the same namespace, the oldest matching resource is used.
+
+When a deployment is not managed by Vhape Watcher or a manual VPA is present, any previously automatically created VPAs are thus deleted.
+
+Creating, updating or deleting any resource listed above causes affected deployments to be reconciled again.
+
+
+## Watch namespaces by regex
+
+Create a `VhapeWatchedNamespaceRegex` to apply the same watcher configuration to multiple namespaces.
+
+Example at `vertical-pod-autoscaler/pkg/vhapewatcher/yamls/vhapewatchednamespaceregex_example.yaml`:
+
+```yaml
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapeWatchedNamespaceRegex
+metadata:
+  name: production-namespaces # Name of this namespace matching rule.
+spec:
+  # Regular expression used to select namespaces.
+  # This example matches namespaces starting with "prod-".
+  regex: "^prod-.*$"
+  vhapePolicyName: p93-percentile-hysteresis # VhapePolicy used by managed VPAs
+  vpaUpdateMode: InPlaceOrRecreate # update mode used by managed VPAs
+```
+
+## Watch a specific namespace
+
+Create a `VhapeWatchedNamespace` to manage a specific namespace. This resource is cluster-scoped, and its `metadata.name` identifies the namespace.
 
 Example at `vertical-pod-autoscaler/pkg/vhapewatcher/yamls/vhapewatchednamespace_example.yaml`:
 
@@ -25,28 +71,28 @@ Example at `vertical-pod-autoscaler/pkg/vhapewatcher/yamls/vhapewatchednamespace
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapeWatchedNamespace
 metadata:
-  name: production
+  name: production # namespace to be managed by the VHAPE Watcher
 spec:
-  vhapePolicyRef:
-    namespace: kube-system
-    name: vhape-policy-p93-default
-  vpaUpdateMode: InPlaceOrRecreate
+  vhapePolicyName: p93-percentile-hysteresis # VhapePolicy used by watcher-managed VPAs in this namespace
+  vpaUpdateMode: InPlaceOrRecreate # update mode used by watcher-managed VPAs in this namespace
 ```
 
-The fields under `spec` define the default configuration for generated VPAs:
+A `VhapeWatchedNamespace` takes precedence over any `VhapeWatchedNamespaceRegex` matching the same namespace.
 
-* `vhapePolicyRef` selects the `VhapePolicy`;
-* `vpaUpdateMode` defines the VPA update mode (`Off`, `Initial`, `Recreate`, `InPlaceOrRecreate`).
+## Ignore a namespace
 
-After creating the `VhapeWatchedNamespace`, apply the resource:
+Create a `VhapeIgnoredNamespace` to exclude a namespace from automatic watcher management. This is especially useful for excluding individual namespaces selected by a broad regex rule.
 
-```bash
-kubectl apply -f watched-namespace.yaml
+The resource is cluster-scoped, and its `metadata.name` identifies the namespace to ignore.
+
+Example at `vertical-pod-autoscaler/pkg/vhapewatcher/yamls/vhapeignorednamespace_example.yaml`:
+
+```yaml
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapeIgnoredNamespace
+metadata:
+  name: kube-system # Namespace to be ignored by the VHAPE Watcher.
 ```
-
-Updating the `vhapePolicyRef` or `vpaUpdateMode` fields of a `VhapeWatchedNamespace` object causes the watcher to reconcile all Deployments in that namespace. Generated VPAs whose configuration no longer matches the desired state are deleted and recreated with the updated configuration.
-
-Deleting the `VhapeWatchedNamespace` removes the namespace from watcher management. Generated VPAs associated with Deployments in that namespace are then removed.
 
 ## Ignore a workload
 
@@ -58,50 +104,30 @@ Example at `vertical-pod-autoscaler/pkg/vhapewatcher/yamls/vhapeignoredworkload_
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapeIgnoredWorkload
 metadata:
-  name: legacy-api-production
+  name: legacy-api-deployment-production # name of the exclusion rule
 spec:
-  targetRef:
+  targetRef: # Deployment to be excluded from Watcher management
     apiVersion: apps/v1
     kind: Deployment
-    namespace: production
-    name: legacy-api
-  reason: "VPA managed outside the VHAPE Watcher"
+    namespace: production # namespace where the Deployment is defined
+    name: legacy-api # name of the Deployment
+  reason: "VPA managed manually" # optional reason for excluding the workload
 ```
 
-The `targetRef` identifies the Deployment to exclude. The `reason` field is optional and can be used to document why the workload is ignored.
+## Manual VPA configuration
 
-Apply the resource:
+A manually managed VPA targeting a Deployment has the highest configuration precedence. The watcher preserves the manual VPA and removes any watcher-generated VPA targeting the same Deployment.
 
-```bash
-kubectl apply -f ignored-workload.yaml
-```
+For more information about configuring VPA objects, see the [VHAPE Recommender guide](recommender-guide.md).
 
-When a Deployment is ignored, the watcher:
+## VPA ownership
 
-* stops managing the Deployment;
-* does not create a generated VPA for it;
-* removes any existing VPA generated by the watcher for that Deployment.
-
-## Operational notes
-
-### Workload-specific VPA configuration
-
-The VHAPE Watcher operates idempotently and continuously reconciles generated VPAs against the current watcher configuration.
-
-Generated VPA objects should be treated as watcher-owned resources. The Watcher continuously reconciles these objects against the configuration defined by the corresponding `VhapeWatchedNamespace`. Because it does not distinguish intentional changes from outdated configuration, direct changes to the VPA specification may cause the object to be deleted and recreated with the configuration expected by the Watcher.
-
-When a Deployment requires configuration that differs from the defaults defined for its watched namespace, a VPA should be manually created specifically for that workload. This allows workload-specific exceptions to be expressed directly through the standard VPA API, without introducing complexity through additional Watcher-specific configuration.
-
-For more information about how to configure these VPA objects, see the [VHAPE Recommender guide](recommender-guide.md).
-
-### VPA ownership and conflict handling
-
-When the Watcher finds a VPA targeting a Deployment that was not created by the Watcher, it treats that VPA as an explicit workload-specific configuration. The existing VPA is preserved, and any Watcher-generated VPA targeting the same Deployment is removed.
-
-The watcher identifies its generated VPAs through the label:
+The watcher identifies generated VPAs through the label:
 
 ```yaml
 app.kubernetes.io/managed-by: vhape-watcher
 ```
 
-This label should therefore be reserved for watcher-generated VPAs.
+VPAs without this label are treated as manually managed. The label should therefore be reserved for watcher-generated VPAs.
+
+Watcher-generated VPAs are continuously reconciled against the selected configuration and should not be edited. Direct changes to their specification may cause them to be deleted and recreated. For workload-specific configuration, a VPA object should be created manually targeting that workload.

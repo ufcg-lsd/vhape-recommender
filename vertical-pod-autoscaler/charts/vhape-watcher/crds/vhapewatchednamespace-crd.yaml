@@ -15,10 +15,7 @@ spec:
       served: true
       storage: true
       additionalPrinterColumns:
-        - jsonPath: .spec.vhapePolicyRef.namespace
-          name: PolicyNamespace
-          type: string
-        - jsonPath: .spec.vhapePolicyRef.name
+        - jsonPath: .spec.vhapePolicyName
           name: PolicyName
           type: string
         - jsonPath: .spec.vpaUpdateMode
@@ -34,19 +31,12 @@ spec:
             spec:
               type: object
               required:
-                - vhapePolicyRef
+                - vhapePolicyName
                 - vpaUpdateMode
               properties:
-                vhapePolicyRef:
-                  type: object
-                  required:
-                    - namespace
-                    - name
-                  properties:
-                    namespace:
-                      type: string
-                    name:
-                      type: string
+                vhapePolicyName:
+                  type: string
+                  minLength: 1
                 vpaUpdateMode:
                   type: string
                   enum:
@@ -54,4 +44,3 @@ spec:
                     - Initial
                     - Recreate
                     - InPlaceOrRecreate
-                    - Auto
