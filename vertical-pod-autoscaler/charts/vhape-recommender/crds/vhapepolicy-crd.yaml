@@ -49,6 +49,7 @@ spec:
                             - percentile
                             - headroom
                             - slidingWindow
+                            - minimumCoverageWindow
                           properties:
                             percentile:
                               type: number
@@ -58,6 +59,8 @@ spec:
                               type: number
                               minimum: 0
                             slidingWindow:
+                              type: string
+                            minimumCoverageWindow:
                               type: string
                     memory:
                       type: object
@@ -70,6 +73,7 @@ spec:
                             - percentile
                             - headroom
                             - slidingWindow
+                            - minimumCoverageWindow
                           properties:
                             percentile:
                               type: number
@@ -79,6 +83,8 @@ spec:
                               type: number
                               minimum: 0
                             slidingWindow:
+                              type: string
+                            minimumCoverageWindow:
                               type: string
                 scalingRule:
                   type: string
