@@ -123,6 +123,7 @@ spec:
         percentile: 0.93
         headroom: 0.10
         slidingWindow: 24h
+        minimumCoverageWindow: 30m
   scalingRule: ""
 ```
 
