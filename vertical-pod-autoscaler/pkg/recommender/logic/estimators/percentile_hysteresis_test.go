@@ -12,7 +12,7 @@ import (
 )
 
 func TestPercentileHysteresisFallsBackWithoutEnoughSamples(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour, time.Minute)
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{
 		CurrentRequest: 250,
@@ -26,7 +26,7 @@ func TestPercentileHysteresisFallsBackWithoutEnoughSamples(t *testing.T) {
 }
 
 func TestPercentileHysteresisFallsBackToMinimumWithoutCurrentRequest(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour, time.Minute)
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{
 		Min: 100,
@@ -39,7 +39,7 @@ func TestPercentileHysteresisFallsBackToMinimumWithoutCurrentRequest(t *testing.
 }
 
 func TestPercentileHysteresisIgnoresNegativeSamples(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Hour)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Hour, time.Minute)
 	estimator.FeedSamples("app", []model.ResourceAmount{-1})
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{
@@ -52,7 +52,7 @@ func TestPercentileHysteresisIgnoresNegativeSamples(t *testing.T) {
 }
 
 func TestPercentileHysteresisUsesPercentileAndHeadroom(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0.5, time.Hour)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0.5, time.Hour, time.Minute)
 	estimator.samples["app"] = []TimedSample{
 		{Value: 100, Timestamp: time.Now().Add(-2 * time.Minute)},
 		{Value: 200, Timestamp: time.Now().Add(-time.Minute)},
@@ -70,7 +70,7 @@ func TestPercentileHysteresisUsesPercentileAndHeadroom(t *testing.T) {
 }
 
 func TestPercentileHysteresisAppliesMaximumBound(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0.5, time.Hour)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0.5, time.Hour, time.Minute)
 	estimator.samples["app"] = []TimedSample{
 		{Value: 100, Timestamp: time.Now().Add(-2 * time.Minute)},
 		{Value: 200, Timestamp: time.Now().Add(-time.Minute)},
@@ -89,7 +89,7 @@ func TestPercentileHysteresisAppliesMaximumBound(t *testing.T) {
 }
 
 func TestPercentileHysteresisPurgesExpiredSamples(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Minute)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Minute, 30*time.Second)
 	estimator.samples["app"] = []TimedSample{
 		{Value: 100, Timestamp: time.Now().Add(-2 * time.Minute)},
 		{Value: 200, Timestamp: time.Now()},
@@ -111,7 +111,7 @@ func TestApplyConstraints(t *testing.T) {
 }
 
 func TestPercentileHysteresisFallsBackWithSingleSample(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour, time.Minute)
 	estimator.FeedSamples("app", []model.ResourceAmount{100})
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{
@@ -126,7 +126,7 @@ func TestPercentileHysteresisFallsBackWithSingleSample(t *testing.T) {
 }
 
 func TestPercentileHysteresisFallsBackWhenCoverageBelowThreshold(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour)
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour, 2*time.Second)
 	now := time.Now()
 	estimator.samples["app"] = []TimedSample{
 		{Value: 100, Timestamp: now},
@@ -142,9 +142,9 @@ func TestPercentileHysteresisFallsBackWhenCoverageBelowThreshold(t *testing.T) {
 }
 
 func TestPercentileHysteresisSucceedsExactlyAtThreshold(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.0, time.Hour)
+	requiredCoverage := time.Minute
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.0, time.Hour, requiredCoverage)
 	now := time.Now()
-	requiredCoverage := time.Duration(float64(time.Hour) * 0.02)
 	estimator.samples["app"] = []TimedSample{
 		{Value: 100, Timestamp: now.Add(-requiredCoverage)},
 		{Value: 200, Timestamp: now},
@@ -169,9 +169,9 @@ func TestScaleResourceAmount(t *testing.T) {
 }
 
 func TestPercentileHysteresisFeedsMultipleContainers(t *testing.T) {
-	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Hour)
+	requiredCoverage := time.Minute
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Hour, requiredCoverage)
 	now := time.Now()
-	requiredCoverage := time.Duration(float64(time.Hour) * 0.02)
 
 	// 3 samples: 50th percentile index = ceil(0.5*3)-1 = 1 (middle value)
 	estimator.samples["container-a"] = []TimedSample{
@@ -198,15 +198,16 @@ func TestPercentileHysteresisFeedsMultipleContainers(t *testing.T) {
 
 func TestPercentileHysteresisSpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
 	spec, name, err := BuildHeuristic(map[string]runtime.RawExtension{
-		PercentileHysteresis: {Raw: []byte(`{"percentile":0.9,"headroom":0.15,"slidingWindow":"5m"}`)},
+		PercentileHysteresis: {Raw: []byte(`{"percentile":0.9,"headroom":0.15,"slidingWindow":"5m","minimumCoverageWindow":"1m"}`)},
 	})
 
 	assert.NoError(t, err)
 	assert.Equal(t, PercentileHysteresis, name)
 	assert.Equal(t, &PercentileHysteresisSpec{
-		Percentile:    0.9,
-		Headroom:      0.15,
-		SlidingWindow: metav1.Duration{Duration: 5 * time.Minute},
+		Percentile:            0.9,
+		Headroom:              0.15,
+		SlidingWindow:         metav1.Duration{Duration: 5 * time.Minute},
+		MinimumCoverageWindow: metav1.Duration{Duration: time.Minute},
 	}, spec)
 
 	estimator, ok := spec.NewEstimator(model.ResourceMemory).(*PercentileHysteresisEstimator)
@@ -216,6 +217,7 @@ func TestPercentileHysteresisSpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
 	assert.Equal(t, 0.9, estimator.percentile)
 	assert.Equal(t, 0.15, estimator.headroom)
 	assert.Equal(t, 5*time.Minute, estimator.slidingWindow)
+	assert.Equal(t, time.Minute, estimator.minimumCoverageWindow)
 }
 
 func TestPercentileHysteresisSpecRejectsMalformedParameters(t *testing.T) {
@@ -238,6 +240,16 @@ func TestPercentileHysteresisSpecRejectsMalformedParameters(t *testing.T) {
 			name:    "sliding window is not a duration",
 			config:  `{"percentile":0.9,"headroom":0.15,"slidingWindow":"soon"}`,
 			wantErr: `invalid duration "soon"`,
+		},
+		{
+			name:    "minimum coverage window equals sliding window",
+			config:  `{"percentile":0.9,"headroom":0.15,"slidingWindow":"5m","minimumCoverageWindow":"5m"}`,
+			wantErr: "minimumCoverageWindow must be less than slidingWindow",
+		},
+		{
+			name:    "minimum coverage window exceeds sliding window",
+			config:  `{"percentile":0.9,"headroom":0.15,"slidingWindow":"5m","minimumCoverageWindow":"6m"}`,
+			wantErr: "minimumCoverageWindow must be less than slidingWindow",
 		},
 	}
 
