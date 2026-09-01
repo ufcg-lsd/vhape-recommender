@@ -222,10 +222,12 @@ func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containe
 
 	e.purgeSamples(containerName)
 
-	if !e.hasEnoughWindowCoverage(containerName) {
+	coverage := e.windowCoverage(containerName)
+	if coverage < e.minimumCoverageWindow {
 		klog.V(4).InfoS("PercentileHysteresis: not enough window coverage",
 			"resource", e.resourceName,
 			"containerName", containerName,
+			"currentCoverage", coverage,
 			"minimumCoverageWindow", e.minimumCoverageWindow,
 			"slidingWindow", e.slidingWindow,
 		)
@@ -270,20 +272,18 @@ func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containe
 	}
 }
 
-// hasEnoughWindowCoverage reports whether the stored samples for a container
-// cover enough of the sliding window to produce a recommendation.
-func (e *PercentileHysteresisEstimator) hasEnoughWindowCoverage(containerName string) bool {
+// windowCoverage returns the duration between the oldest and newest samples
+// stored for a container. Fewer than two samples have no coverage.
+func (e *PercentileHysteresisEstimator) windowCoverage(containerName string) time.Duration {
 	samples := e.samples[containerName]
 	if len(samples) < 2 {
-		return false
+		return 0
 	}
 
 	first := samples[0].Timestamp
 	last := samples[len(samples)-1].Timestamp
 
-	coverage := last.Sub(first)
-
-	return coverage >= e.minimumCoverageWindow
+	return last.Sub(first)
 }
 
 // scaleResourceAmount multiplies a resource amount by the given factor and

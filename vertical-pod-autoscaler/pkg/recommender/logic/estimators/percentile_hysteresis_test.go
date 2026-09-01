@@ -141,6 +141,20 @@ func TestPercentileHysteresisFallsBackWhenCoverageBelowThreshold(t *testing.T) {
 	assert.Equal(t, model.ResourceAmount(250), got.Target)
 }
 
+func TestPercentileHysteresisWindowCoverage(t *testing.T) {
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour, time.Minute)
+	now := time.Now()
+
+	assert.Zero(t, estimator.windowCoverage("app"))
+
+	estimator.samples["app"] = []TimedSample{
+		{Value: 100, Timestamp: now.Add(-3 * time.Minute)},
+		{Value: 200, Timestamp: now},
+	}
+
+	assert.Equal(t, 3*time.Minute, estimator.windowCoverage("app"))
+}
+
 func TestPercentileHysteresisSucceedsExactlyAtThreshold(t *testing.T) {
 	requiredCoverage := time.Minute
 	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.0, time.Hour, requiredCoverage)
