@@ -23,6 +23,9 @@ func init() {
 		if err := json.Unmarshal(config, spec); err != nil {
 			return nil, fmt.Errorf("invalid parameters: %w", err)
 		}
+		if spec.MinimumCoverageWindow.Duration >= spec.SlidingWindow.Duration {
+			return nil, fmt.Errorf("invalid parameters: minimumCoverageWindow must be less than slidingWindow")
+		}
 
 		return spec, nil
 	})
@@ -31,9 +34,10 @@ func init() {
 // PercentileHysteresisSpec contains the configuration for the percentile
 // hysteresis heuristic.
 type PercentileHysteresisSpec struct {
-	Percentile    float64         `json:"percentile"`
-	Headroom      float64         `json:"headroom"`
-	SlidingWindow metav1.Duration `json:"slidingWindow"`
+	Percentile            float64         `json:"percentile"`
+	Headroom              float64         `json:"headroom"`
+	SlidingWindow         metav1.Duration `json:"slidingWindow"`
+	MinimumCoverageWindow metav1.Duration `json:"minimumCoverageWindow"`
 }
 
 // NewEstimator creates a percentile hysteresis estimator for the given resource.
@@ -43,6 +47,7 @@ func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName)
 		s.Percentile,
 		s.Headroom,
 		s.SlidingWindow.Duration,
+		s.MinimumCoverageWindow.Duration,
 	)
 }
 
@@ -60,19 +65,19 @@ type TimedSample struct {
 // percentile of recent usage samples plus a configurable headroom.
 //
 // Samples are stored per container and are periodically purged according to a
-// sliding window expiration. A recommendation is produced only when the available 
-// samples cover a minimum portion of that window. Until enough coverage is available,
+// sliding window expiration. A recommendation is produced only when the available
+// samples cover the configured minimum time span. Until enough coverage is available,
 // the estimator falls back to the current request, or to the minimum allowed
 // value when the current request is not set.
 type PercentileHysteresisEstimator struct {
-	mu            sync.Mutex
-	resourceName  model.ResourceName
-	samples       map[string][]TimedSample
-	percentile    float64
-	headroom      float64
-	slidingWindow time.Duration
-	percentileBuf []model.ResourceAmount
-	minWindowCoverageRatio float64
+	mu                    sync.Mutex
+	resourceName          model.ResourceName
+	samples               map[string][]TimedSample
+	percentile            float64
+	headroom              float64
+	slidingWindow         time.Duration
+	percentileBuf         []model.ResourceAmount
+	minimumCoverageWindow time.Duration
 }
 
 func NewPercentileHysteresisEstimator(
@@ -80,16 +85,17 @@ func NewPercentileHysteresisEstimator(
 	percentile float64,
 	headroom float64,
 	slidingWindow time.Duration,
+	minimumCoverageWindow time.Duration,
 ) *PercentileHysteresisEstimator {
 
 	return &PercentileHysteresisEstimator{
-		resourceName:  resourceName,
-		samples:       make(map[string][]TimedSample),
-		percentile:    percentile,
-		headroom:      headroom,
-		slidingWindow: slidingWindow,
-		percentileBuf: make([]model.ResourceAmount, 0),
-		minWindowCoverageRatio: 0.02,
+		resourceName:          resourceName,
+		samples:               make(map[string][]TimedSample),
+		percentile:            percentile,
+		headroom:              headroom,
+		slidingWindow:         slidingWindow,
+		percentileBuf:         make([]model.ResourceAmount, 0),
+		minimumCoverageWindow: minimumCoverageWindow,
 	}
 }
 
@@ -200,7 +206,6 @@ func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, sample
 	e.purgeSamples(containerName)
 }
 
-
 // GetSingleResourceRecommendation returns a recommendation for the configured
 // resource and the given container.
 //
@@ -217,11 +222,13 @@ func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containe
 
 	e.purgeSamples(containerName)
 
-	if !e.hasEnoughWindowCoverage(containerName) {
+	coverage := e.windowCoverage(containerName)
+	if coverage < e.minimumCoverageWindow {
 		klog.V(4).InfoS("PercentileHysteresis: not enough window coverage",
 			"resource", e.resourceName,
 			"containerName", containerName,
-			"requiredCoverageRatio", e.minWindowCoverageRatio,
+			"currentCoverage", coverage,
+			"minimumCoverageWindow", e.minimumCoverageWindow,
 			"slidingWindow", e.slidingWindow,
 		)
 
@@ -265,21 +272,18 @@ func (e *PercentileHysteresisEstimator) GetSingleResourceRecommendation(containe
 	}
 }
 
-// hasEnoughWindowCoverage reports whether the stored samples for a container
-// cover enough of the sliding window to produce a recommendation.
-func (e *PercentileHysteresisEstimator) hasEnoughWindowCoverage(containerName string) bool {
+// windowCoverage returns the duration between the oldest and newest samples
+// stored for a container. Fewer than two samples have no coverage.
+func (e *PercentileHysteresisEstimator) windowCoverage(containerName string) time.Duration {
 	samples := e.samples[containerName]
 	if len(samples) < 2 {
-		return false
+		return 0
 	}
 
 	first := samples[0].Timestamp
 	last := samples[len(samples)-1].Timestamp
 
-	coverage := last.Sub(first)
-	requiredCoverage := time.Duration(float64(e.slidingWindow) * e.minWindowCoverageRatio)
-
-	return coverage >= requiredCoverage
+	return last.Sub(first)
 }
 
 // scaleResourceAmount multiplies a resource amount by the given factor and

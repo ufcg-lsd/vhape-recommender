@@ -26,11 +26,13 @@ spec:
         percentile: 0.93
         headroom: 0.10
         slidingWindow: 24h
+        minimumCoverageWindow: 30m
     memory:
       percentile-hysteresis:
         percentile: 0.93
         headroom: 0.05
         slidingWindow: 24h
+        minimumCoverageWindow: 30m
   scalingRule: ""
 ```
 
@@ -53,11 +55,13 @@ spec:
         percentile: 0.93
         headroom: 0.10
         slidingWindow: 24h
+        minimumCoverageWindow: 30m
     memory:
       percentile-hysteresis:
         percentile: 0.95
         headroom: 0.20
         slidingWindow: 12h
+        minimumCoverageWindow: 30m
 ```
 
 ## Scaling rules
@@ -100,25 +104,21 @@ percentile-hysteresis:
   percentile: 0.93
   headroom: 0.10
   slidingWindow: 24h
+  minimumCoverageWindow: 30m
 ```
 
-| Field           | Type                       | Meaning                                                                             |
-| --------------- | -------------------------- | ----------------------------------------------------------------------------------- |
-| `percentile`    | number between `0` and `1` | Usage percentile used as the base recommendation. `0.93` means the 93rd percentile. |
-| `headroom`      | number `>= 0`              | Extra capacity added on top of the selected percentile. `0.10` means 10%.           |
-| `slidingWindow` | duration string            | How long samples remain eligible. Examples: `30m`, `2h`, `24h`.                     |
+| Field                   | Type                       | Meaning                                                                                                  |
+| ----------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `percentile`            | number between `0` and `1` | Usage percentile used as the base recommendation. `0.93` means the 93rd percentile.                      |
+| `headroom`              | number `>= 0`              | Extra capacity added on top of the selected percentile. `0.10` means 10%.                                |
+| `slidingWindow`         | duration string            | How long samples remain eligible. Examples: `30m`, `2h`, `24h`.                                          |
+| `minimumCoverageWindow` | duration string            | Minimum time span between the oldest and newest samples. It must be less than `slidingWindow`.           |
 
 ### Minimum window coverage
 
-The estimator requires samples to cover a minimum fraction of the sliding window before producing a percentile-based recommendation.
+The estimator requires samples to span at least `minimumCoverageWindow` before producing a percentile-based recommendation. This is an absolute duration and is independent of the size of `slidingWindow`.
 
-The current default is:
-
-```text
-minWindowCoverageRatio = 0.02
-```
-
-For a `24h` sliding window, this means samples must span at least about 29 minutes.
+For example, with `minimumCoverageWindow: 30m`, the time between the oldest and newest eligible samples must be at least 30 minutes. The configuration is rejected when `minimumCoverageWindow` is equal to or greater than `slidingWindow`.
 
 If there is not enough coverage, the estimator falls back to:
 
