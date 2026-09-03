@@ -137,7 +137,7 @@ VHAPE currently preserves this split to stay compatible with the original VPA be
 
 This can happen when the estimator does not have enough sample coverage yet.
 
-The default `percentile-hysteresis` heuristic requires samples to cover a minimum fraction of the configured sliding window before using percentile-based recommendations. Until then, it falls back to the current request or to the configured minimum.
+The default `percentile-hysteresis` heuristic requires samples to span the configured `minimumCoverageWindow` before using percentile-based recommendations. Until then, it falls back to the current request or to the configured minimum.
 
 It can also happen when a scaling rule is configured in the selected `VhapePolicy`:
 
