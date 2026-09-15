@@ -54,6 +54,7 @@ rules:
       - list
       - watch
       - patch
+      - update
 
   # Legacy VPA API group kept for compatibility with upstream VPA RBAC.
   - apiGroups:
