@@ -78,6 +78,10 @@ func (r *recommender) GetClusterStateFeeder() input.ClusterStateFeeder {
 }
 
 func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalingv1.VerticalPodAutoscaler) {
+	if err := r.ensureInitialRequestsAnnotation(context.Background(), observedVpa); err != nil {
+		klog.ErrorS(err, "Failed to persist initial workload requests", "vpa", klog.KObj(observedVpa))
+	}
+
 	resources, err := r.podResourceRecommender.GetRecommendedPodResources(
 		GetContainerNameToAggregateStateMap(vpa),
 		vpa,
