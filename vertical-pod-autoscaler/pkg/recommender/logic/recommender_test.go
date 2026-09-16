@@ -22,7 +22,6 @@ import (
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
-	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/scalingrules"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
 
@@ -103,13 +102,15 @@ func newVhapePolicyLister(policies ...*vhape_types.VhapePolicy) vhape_listers.Vh
 	return vhape_listers.NewVhapePolicyLister(indexer)
 }
 
-func newPercentileHysteresisHeuristic(percentile, headroom float64, slidingWindow string) vhape_types.ResourceHeuristics {
-	return vhape_types.ResourceHeuristics{
-		estimators.PercentileHysteresis: runtime.RawExtension{
-			Raw: []byte(fmt.Sprintf(
-				`{"percentile":%v,"headroom":%v,"slidingWindow":%q}`,
-				percentile, headroom, slidingWindow,
-			)),
+func newPercentileHysteresisHeuristic(percentile, headroom float64, slidingWindow string) vhape_types.ResourceScalingSpec {
+	return vhape_types.ResourceScalingSpec{
+		ScalingHeuristic: vhape_types.ResourceHeuristics{
+			estimators.PercentileHysteresis: runtime.RawExtension{
+				Raw: []byte(fmt.Sprintf(
+					`{"percentile":%v,"headroom":%v,"slidingWindow":%q}`,
+					percentile, headroom, slidingWindow,
+				)),
+			},
 		},
 	}
 }
@@ -269,80 +270,6 @@ func quantityEqual(want, got resource.Quantity) bool {
 	return want.Cmp(got) == 0 && want.Format == got.Format
 }
 
-func TestApplyScalingRule(t *testing.T) {
-	tests := []struct {
-		name           string
-		scalingRule    string
-		currentRequest model.ResourceAmount
-		input          recommendation.SingleResourceRecommendation
-		want           recommendation.SingleResourceRecommendation
-	}{
-		{
-			name:           "block scale up caps values above current request",
-			scalingRule:    scalingrules.BlockScaleUpRule,
-			currentRequest: 100,
-			input: recommendation.SingleResourceRecommendation{
-				Target:         120,
-				LowerBound:     90,
-				UpperBound:     130,
-				UncappedTarget: 120,
-			},
-			want: recommendation.SingleResourceRecommendation{
-				Target:         100,
-				LowerBound:     90,
-				UpperBound:     100,
-				UncappedTarget: 120,
-			},
-		},
-		{
-			name:           "block scale down raises values below current request",
-			scalingRule:    scalingrules.BlockScaleDownRule,
-			currentRequest: 100,
-			input: recommendation.SingleResourceRecommendation{
-				Target:         80,
-				LowerBound:     60,
-				UpperBound:     110,
-				UncappedTarget: 80,
-			},
-			want: recommendation.SingleResourceRecommendation{
-				Target:         100,
-				LowerBound:     100,
-				UpperBound:     110,
-				UncappedTarget: 80,
-			},
-		},
-		{
-			name:           "unknown rule leaves recommendation unchanged",
-			scalingRule:    "not-a-rule",
-			currentRequest: 100,
-			input: recommendation.SingleResourceRecommendation{
-				Target:         120,
-				LowerBound:     90,
-				UpperBound:     130,
-				UncappedTarget: 120,
-			},
-			want: recommendation.SingleResourceRecommendation{
-				Target:         120,
-				LowerBound:     90,
-				UpperBound:     130,
-				UncappedTarget: 120,
-			},
-		},
-	}
-
-	recommender := &podResourceRecommender{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := recommender.applyScalingRule(tt.input, &vhape_types.VhapePolicy{
-				Spec: vhape_types.VhapePolicySpec{
-					ScalingRule: tt.scalingRule,
-				},
-			}, "app", model.ResourceCPU, tt.currentRequest)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestCollectCurrentUsageReturnsMetrics(t *testing.T) {
 	podID := model.PodID{Namespace: "default", PodName: "pod-1"}
 	now := time.Now()
@@ -482,7 +409,7 @@ func TestFetchPolicyReturnsValidPolicy(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, policy)
 	assert.Equal(t, "my-policy", policy.Name)
-	assert.Contains(t, policy.Spec.Resources.CPU, estimators.PercentileHysteresis)
+	assert.Contains(t, policy.Spec.Resources.CPU.ScalingHeuristic, estimators.PercentileHysteresis)
 }
 
 func TestFetchPolicyReturnsErrorForInvalidAnnotation(t *testing.T) {
@@ -812,9 +739,9 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 			spec: vhape_types.VhapePolicySpec{
 				Resources: vhape_types.VhapeResourcesSpec{
 					CPU: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
-					Memory: vhape_types.ResourceHeuristics{
-						"unknown": runtime.RawExtension{Raw: []byte(`{}`)},
-					},
+					Memory: vhape_types.ResourceScalingSpec{ScalingHeuristic: vhape_types.ResourceHeuristics{
+						"unknown": {Raw: []byte(`{}`)},
+					}},
 				},
 			},
 			wantErr: `VhapePolicy "policy": invalid spec.resources.memory: unsupported heuristic "unknown"`,
@@ -823,11 +750,11 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 			name: "malformed cpu parameters",
 			spec: vhape_types.VhapePolicySpec{
 				Resources: vhape_types.VhapeResourcesSpec{
-					CPU: vhape_types.ResourceHeuristics{
+					CPU: vhape_types.ResourceScalingSpec{ScalingHeuristic: vhape_types.ResourceHeuristics{
 						estimators.PercentileHysteresis: runtime.RawExtension{
 							Raw: []byte(`{"slidingWindow":"soon"}`),
 						},
-					},
+					}},
 					Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
 				},
 			},
