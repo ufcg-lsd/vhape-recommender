@@ -47,7 +47,7 @@ spec:
                 vpaUpdateMode:
                   type: string
                   enum:
-                    - Off
+                    - "Off"
                     - Initial
                     - Recreate
                     - InPlaceOrRecreate
