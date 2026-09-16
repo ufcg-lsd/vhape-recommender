@@ -35,6 +35,16 @@ func TestBuildRejectsUnknownRule(t *testing.T) {
 	assert.ErrorContains(t, err, `unsupported scaling rule "unknown"`)
 }
 
+func TestBuildPreservesPolicyOrder(t *testing.T) {
+	rules, err := Build([]vhape_types.ScalingRule{
+		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"maximum":"100%"}`)}},
+		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"minimum":"150%"}`)}},
+	})
+	assert.NoError(t, err)
+	assert.IsType(t, requestCeiling{}, rules[0])
+	assert.IsType(t, requestFloor{}, rules[1])
+}
+
 func TestRegisterPanicsOnDuplicatedName(t *testing.T) {
 	registerTestRule(t, "fake", func([]byte) (ScalingRule, error) { return requestFloor{}, nil })
 	assert.PanicsWithValue(t, `scaling rule "fake" registered twice`, func() {
