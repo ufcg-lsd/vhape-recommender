@@ -53,6 +53,10 @@ type VpaTargetSelectorFetcher interface {
 	// Fetch returns a labelSelector used to gather Pods controlled by the given VPA.
 	// If error is nil, the returned labelSelector is not nil.
 	Fetch(ctx context.Context, vpa *vpa_types.VerticalPodAutoscaler) (labels.Selector, error)
+
+	// FetchPodTemplate returns a copy of the Pod template declared by the VPA target.
+	// It is supported for the built-in workload kinds backed by informers.
+	FetchPodTemplate(ctx context.Context, vpa *vpa_types.VerticalPodAutoscaler) (*corev1.PodTemplateSpec, error)
 }
 
 type wellKnownController string
@@ -135,6 +139,47 @@ func (f *vpaTargetSelectorFetcher) Fetch(ctx context.Context, vpa *vpa_types.Ver
 			vpa.Spec.TargetRef.APIVersion, vpa.Spec.TargetRef.Kind, vpa.Spec.TargetRef.Name, err)
 	}
 	return selector, nil
+}
+
+// FetchPodTemplate returns the template declared by a well-known workload target.
+// Returning a deep copy prevents callers from mutating an object kept in the informer cache.
+func (f *vpaTargetSelectorFetcher) FetchPodTemplate(_ context.Context, vpa *vpa_types.VerticalPodAutoscaler) (*corev1.PodTemplateSpec, error) {
+	if vpa.Spec.TargetRef == nil {
+		return nil, errors.New("targetRef not defined. If this is a v1beta1 object, switch to v1")
+	}
+
+	kind := wellKnownController(vpa.Spec.TargetRef.Kind)
+	informer, exists := f.informersMap[kind]
+	if !exists {
+		return nil, fmt.Errorf("targetRef kind %q does not expose a supported Pod template", vpa.Spec.TargetRef.Kind)
+	}
+
+	obj, exists, err := informer.GetStore().GetByKey(vpa.Namespace + "/" + vpa.Spec.TargetRef.Name)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, fmt.Errorf("%s %s/%s does not exist", vpa.Spec.TargetRef.Kind, vpa.Namespace, vpa.Spec.TargetRef.Name)
+	}
+
+	switch apiObj := obj.(type) {
+	case *appsv1.DaemonSet:
+		return apiObj.Spec.Template.DeepCopy(), nil
+	case *appsv1.Deployment:
+		return apiObj.Spec.Template.DeepCopy(), nil
+	case *appsv1.StatefulSet:
+		return apiObj.Spec.Template.DeepCopy(), nil
+	case *appsv1.ReplicaSet:
+		return apiObj.Spec.Template.DeepCopy(), nil
+	case *batchv1.Job:
+		return apiObj.Spec.Template.DeepCopy(), nil
+	case *batchv1.CronJob:
+		return apiObj.Spec.JobTemplate.Spec.Template.DeepCopy(), nil
+	case *corev1.ReplicationController:
+		return apiObj.Spec.Template.DeepCopy(), nil
+	default:
+		return nil, fmt.Errorf("don't know how to read Pod template from %s", vpa.Spec.TargetRef.Kind)
+	}
 }
 
 func getLabelSelector(informer cache.SharedIndexInformer, kind, namespace, name string) (labels.Selector, error) {

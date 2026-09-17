@@ -29,6 +29,7 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target"
 	controllerfetcher "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target/controller_fetcher"
 	metrics_recommender "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/metrics/recommender"
 	vpa_utils "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/vpa"
@@ -57,6 +58,7 @@ type recommender struct {
 	checkpointsGCInterval         time.Duration
 	checkpointsWriteTimeout       time.Duration
 	controllerFetcher             controllerfetcher.ControllerFetcher
+	targetFetcher                 target.VpaTargetSelectorFetcher
 	lastCheckpointGC              time.Time
 	vpaClient                     vpa_api.VerticalPodAutoscalersGetter
 	podResourceRecommender        logic.PodResourceRecommender
@@ -76,6 +78,10 @@ func (r *recommender) GetClusterStateFeeder() input.ClusterStateFeeder {
 }
 
 func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalingv1.VerticalPodAutoscaler) {
+	if err := r.ensureInitialRequestsAnnotation(context.Background(), observedVpa); err != nil {
+		klog.ErrorS(err, "Failed to persist initial workload requests", "vpa", klog.KObj(observedVpa))
+	}
+
 	resources, err := r.podResourceRecommender.GetRecommendedPodResources(
 		GetContainerNameToAggregateStateMap(vpa),
 		vpa,
@@ -215,6 +221,7 @@ type RecommenderFactory struct {
 
 	ClusterStateFeeder     input.ClusterStateFeeder
 	ControllerFetcher      controllerfetcher.ControllerFetcher
+	TargetFetcher          target.VpaTargetSelectorFetcher
 	CheckpointWriter       checkpoint.CheckpointWriter
 	PodResourceRecommender logic.PodResourceRecommender
 	RecommendationFormat   logic.RecommendationFormat
@@ -260,6 +267,7 @@ func (c RecommenderFactory) Make() Recommender {
 		checkpointsGCInterval:         c.CheckpointsGCInterval,
 		checkpointsWriteTimeout:       c.CheckpointsWriteTimeout,
 		controllerFetcher:             c.ControllerFetcher,
+		targetFetcher:                 c.TargetFetcher,
 		useCheckpoints:                c.UseCheckpoints,
 		vpaClient:                     c.VpaClient,
 		podResourceRecommender:        c.PodResourceRecommender,

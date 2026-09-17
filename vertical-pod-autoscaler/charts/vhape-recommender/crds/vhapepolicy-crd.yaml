@@ -14,10 +14,6 @@ spec:
     - name: v1alpha1
       served: true
       storage: true
-      additionalPrinterColumns:
-        - jsonPath: .spec.scalingRule
-          name: ScalingRule
-          type: string
       schema:
         openAPIV3Schema:
           type: object
@@ -40,55 +36,105 @@ spec:
                   properties:
                     cpu:
                       type: object
-                      minProperties: 1
-                      maxProperties: 1
+                      required:
+                        - scalingHeuristic
                       properties:
-                        percentile-hysteresis:
+                        scalingHeuristic:
                           type: object
-                          required:
-                            - percentile
-                            - headroom
-                            - slidingWindow
-                            - minimumCoverageWindow
+                          minProperties: 1
+                          maxProperties: 1
                           properties:
-                            percentile:
-                              type: number
-                              minimum: 0
-                              maximum: 1
-                            headroom:
-                              type: number
-                              minimum: 0
-                            slidingWindow:
-                              type: string
-                            minimumCoverageWindow:
-                              type: string
+                            percentile-hysteresis:
+                              type: object
+                              required:
+                                - percentile
+                                - headroom
+                                - slidingWindow
+                                - minimumCoverageWindow
+                              properties:
+                                percentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                headroom:
+                                  type: number
+                                  minimum: 0
+                                slidingWindow:
+                                  type: string
+                                minimumCoverageWindow:
+                                  type: string
+                        scalingRules:
+                          type: array
+                          items:
+                            type: object
+                            minProperties: 1
+                            maxProperties: 1
+                            properties:
+                              request-ceiling:
+                                type: object
+                                required:
+                                  - maximum
+                                properties:
+                                  maximum:
+                                    type: string
+                                    pattern: '^[0-9]+(\.[0-9]+)?%$'
+                              request-floor:
+                                type: object
+                                required:
+                                  - minimum
+                                properties:
+                                  minimum:
+                                    type: string
+                                    pattern: '^[0-9]+(\.[0-9]+)?%$'
                     memory:
                       type: object
-                      minProperties: 1
-                      maxProperties: 1
+                      required:
+                        - scalingHeuristic
                       properties:
-                        percentile-hysteresis:
+                        scalingHeuristic:
                           type: object
-                          required:
-                            - percentile
-                            - headroom
-                            - slidingWindow
-                            - minimumCoverageWindow
+                          minProperties: 1
+                          maxProperties: 1
                           properties:
-                            percentile:
-                              type: number
-                              minimum: 0
-                              maximum: 1
-                            headroom:
-                              type: number
-                              minimum: 0
-                            slidingWindow:
-                              type: string
-                            minimumCoverageWindow:
-                              type: string
-                scalingRule:
-                  type: string
-                  enum:
-                    - ""
-                    - block-scale-up
-                    - block-scale-down
+                            percentile-hysteresis:
+                              type: object
+                              required:
+                                - percentile
+                                - headroom
+                                - slidingWindow
+                                - minimumCoverageWindow
+                              properties:
+                                percentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                headroom:
+                                  type: number
+                                  minimum: 0
+                                slidingWindow:
+                                  type: string
+                                minimumCoverageWindow:
+                                  type: string
+                        scalingRules:
+                          type: array
+                          items:
+                            type: object
+                            minProperties: 1
+                            maxProperties: 1
+                            properties:
+                              request-ceiling:
+                                type: object
+                                required:
+                                  - maximum
+                                properties:
+                                  maximum:
+                                    type: string
+                                    pattern: '^[0-9]+(\.[0-9]+)?%$'
+                              request-floor:
+                                type: object
+                                required:
+                                  - minimum
+                                properties:
+                                  minimum:
+                                    type: string
+                                    pattern: '^[0-9]+(\.[0-9]+)?%$'
