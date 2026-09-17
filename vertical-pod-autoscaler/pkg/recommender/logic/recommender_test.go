@@ -37,6 +37,7 @@ func (m *mockMetricsClient) GetContainersMetrics(_ context.Context) ([]*input_me
 type mockResourceEstimator struct {
 	recommendations map[string]recommendation.SingleResourceRecommendation
 	feedCalls       map[string][][]model.ResourceAmount
+	recommendCalls  map[string]int
 }
 
 func (m *mockResourceEstimator) FeedSamples(containerName string, samples []model.ResourceAmount) {
@@ -48,6 +49,10 @@ func (m *mockResourceEstimator) FeedSamples(containerName string, samples []mode
 }
 
 func (m *mockResourceEstimator) GetSingleResourceRecommendation(containerName string, _ estimators.ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
+	if m.recommendCalls == nil {
+		m.recommendCalls = make(map[string]int)
+	}
+	m.recommendCalls[containerName]++
 	if r, ok := m.recommendations[containerName]; ok {
 		return r
 	}
@@ -449,16 +454,20 @@ func TestRecommendContainerResourcesComputesFullRecommendation(t *testing.T) {
 		Target: 512, LowerBound: 460, UpperBound: 564, UncappedTarget: 512,
 	}
 
+	cpuEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}}
+	memoryEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}}
 	est := &ResourceEstimators{
-		CPU:    &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}},
-		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
+		CPU: resourceEstimator{
+			estimator: cpuEstimator,
+		},
+		Memory: resourceEstimator{
+			estimator: memoryEstimator,
+		},
 	}
 
-	// recommendContainerResources only reads the scaling rule from the policy.
-	policy := newTestPolicyObject("policy", newTestPolicySpec())
-
 	r := &podResourceRecommender{config: PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100}}
-	rec := r.recommendContainerResources("app", state, policy, est, 1)
+	rec, err := r.recommendContainerResources("app", state, newTestVPA("default", "vpa", ""), est, 1)
+	assert.NoError(t, err)
 
 	assert.Equal(t, model.ResourceAmount(200), rec.Target[model.ResourceCPU])
 	assert.Equal(t, model.ResourceAmount(512), rec.Target[model.ResourceMemory])
@@ -481,19 +490,25 @@ func TestRecommendContainerResourcesFiltersControlledResources(t *testing.T) {
 		Target: 512, LowerBound: 460, UpperBound: 564, UncappedTarget: 512,
 	}
 
+	cpuEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}}
+	memoryEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}}
 	est := &ResourceEstimators{
-		CPU:    &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}},
-		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
+		CPU: resourceEstimator{
+			estimator: cpuEstimator,
+		},
+		Memory: resourceEstimator{
+			estimator: memoryEstimator,
+		},
 	}
 
-	// recommendContainerResources only reads the scaling rule from the policy.
-	policy := newTestPolicyObject("policy", newTestPolicySpec())
-
 	r := &podResourceRecommender{config: PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100}}
-	rec := r.recommendContainerResources("app", state, policy, est, 1)
+	rec, err := r.recommendContainerResources("app", state, newTestVPA("default", "vpa", ""), est, 1)
+	assert.NoError(t, err)
 
 	assert.Empty(t, rec.Target[model.ResourceCPU])
 	assert.Equal(t, model.ResourceAmount(512), rec.Target[model.ResourceMemory])
+	assert.Empty(t, cpuEstimator.recommendCalls)
+	assert.Equal(t, 1, memoryEstimator.recommendCalls["app"])
 }
 
 func TestGetRecommendedPodResourcesReturnsErrorForNilVPA(t *testing.T) {
@@ -550,8 +565,8 @@ func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testi
 		metricsClient: &mockMetricsClient{err: assert.AnError},
 		estimators: map[model.VpaID]*ResourceEstimators{
 			vpa.ID: {
-				CPU:       cpuEstimator,
-				Memory:    memoryEstimator,
+				CPU:       resourceEstimator{estimator: cpuEstimator},
+				Memory:    resourceEstimator{estimator: memoryEstimator},
 				policyUID: types.UID("uid-policy"),
 			},
 		},
@@ -715,8 +730,8 @@ func TestGetOrCreateEstimatorsBuildsEstimatorsFromPolicyHeuristics(t *testing.T)
 	est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
 
 	assert.NoError(t, err)
-	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.CPU)
-	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.Memory)
+	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.CPU.estimator)
+	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.Memory.estimator)
 }
 
 func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {

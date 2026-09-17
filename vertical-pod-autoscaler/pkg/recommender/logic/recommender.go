@@ -10,9 +10,11 @@ import (
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vhape_listers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/initialrequests"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/scalingrules"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 	"k8s.io/klog/v2"
 )
@@ -49,14 +51,19 @@ type RecommendationFormat struct {
 // RecommendedPodResources maps container names to their resource recommendations.
 type RecommendedPodResources map[string]recommendation.ResourceRecommendation
 
-// ResourceEstimators contains the estimators used for each supported resource.
-//
-// Each estimator is resource-specific. This allows CPU and memory to use
-// different heuristic implementations or different heuristic configurations.
+// ResourceEstimators contains the recommendation pipeline for each supported
+// resource.
 type ResourceEstimators struct {
-	CPU       estimators.ResourceEstimator
-	Memory    estimators.ResourceEstimator
+	CPU       resourceEstimator
+	Memory    resourceEstimator
 	policyUID types.UID
+}
+
+// resourceEstimator groups a resource's heuristic with the scaling rules that
+// must be applied to its recommendation.
+type resourceEstimator struct {
+	estimator    estimators.ResourceEstimator
+	scalingRules []scalingrules.ScalingRule
 }
 
 // podResourceRecommender is the default PodResourceRecommender implementation.
@@ -124,21 +131,25 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 
 	for containerName := range containerStates {
 		if cpuSamples := usage.CPU[containerName]; len(cpuSamples) > 0 {
-			resourceEstimators.CPU.FeedSamples(containerName, cpuSamples)
+			resourceEstimators.CPU.estimator.FeedSamples(containerName, cpuSamples)
 		}
 		if memorySamples := usage.Memory[containerName]; len(memorySamples) > 0 {
-			resourceEstimators.Memory.FeedSamples(containerName, memorySamples)
+			resourceEstimators.Memory.estimator.FeedSamples(containerName, memorySamples)
 		}
 	}
 
 	for containerName, state := range containerStates {
-		recommendations[containerName] = r.recommendContainerResources(
+		recommendation, err := r.recommendContainerResources(
 			containerName,
 			state,
-			policy,
+			vpa,
 			resourceEstimators,
 			len(containerStates),
 		)
+		if err != nil {
+			return nil, fmt.Errorf("VPA %q/%q: recommend resources for container %q: %w", vpa.ID.Namespace, vpa.ID.VpaName, containerName, err)
+		}
+		recommendations[containerName] = recommendation
 	}
 
 	return recommendations, nil
@@ -246,6 +257,14 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 			policy.Name, err,
 		)
 	}
+	cpuRules, err := scalingrules.Build(policy.Spec.Resources.CPU.ScalingRules)
+	if err != nil {
+		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.cpu.scalingRules: %w", policy.Name, err)
+	}
+	memoryRules, err := scalingrules.Build(policy.Spec.Resources.Memory.ScalingRules)
+	if err != nil {
+		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.memory.scalingRules: %w", policy.Name, err)
+	}
 
 	if isCached {
 		klog.InfoS(
@@ -258,8 +277,14 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 	}
 
 	created := &ResourceEstimators{
-		CPU:       cpuHeuristic.NewEstimator(model.ResourceCPU),
-		Memory:    memoryHeuristic.NewEstimator(model.ResourceMemory),
+		CPU: resourceEstimator{
+			estimator:    cpuHeuristic.NewEstimator(model.ResourceCPU),
+			scalingRules: cpuRules,
+		},
+		Memory: resourceEstimator{
+			estimator:    memoryHeuristic.NewEstimator(model.ResourceMemory),
+			scalingRules: memoryRules,
+		},
 		policyUID: policy.UID,
 	}
 
@@ -282,37 +307,45 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 func (r *podResourceRecommender) recommendContainerResources(
 	containerName string,
 	state *model.AggregateContainerState,
-	policy *vhape_types.VhapePolicy,
+	vpa *model.Vpa,
 	est *ResourceEstimators,
 	containerCount int,
-) recommendation.ResourceRecommendation {
+) (recommendation.ResourceRecommendation, error) {
 	controlledResources := state.GetControlledResources()
 	observedRequest := state.GetLastObservedRequest()
+	if vpa == nil && (len(est.CPU.scalingRules) > 0 || len(est.Memory.scalingRules) > 0) {
+		return recommendation.ResourceRecommendation{}, fmt.Errorf("VPA is nil")
+	}
 
-	cpuRec := est.CPU.GetSingleResourceRecommendation(
-		containerName,
-		r.calculateContainerCpuConstraints(containerCount, observedRequest[model.ResourceCPU]),
-	)
+	var cpuRec recommendation.SingleResourceRecommendation
+	if isResourceControlled(controlledResources, model.ResourceCPU) {
+		cpuRec = est.CPU.estimator.GetSingleResourceRecommendation(
+			containerName,
+			r.calculateContainerCpuConstraints(containerCount, observedRequest[model.ResourceCPU]),
+		)
+		if len(est.CPU.scalingRules) > 0 {
+			originalRequest, err := initialrequests.Request(vpa.Annotations, containerName, model.ResourceCPU)
+			if err != nil {
+				return recommendation.ResourceRecommendation{}, fmt.Errorf("get original CPU request: %w", err)
+			}
+			cpuRec = scalingrules.Apply(est.CPU.scalingRules, cpuRec, originalRequest)
+		}
+	}
 
-	cpuRec = r.applyScalingRules(
-		cpuRec,
-		policy.Spec.Resources.CPU.ScalingRules,
-		containerName,
-		model.ResourceCPU,
-		observedRequest[model.ResourceCPU],
-	)
-
-	memRec := est.Memory.GetSingleResourceRecommendation(
-		containerName,
-		r.calculateContainerMemoryConstraints(containerCount, observedRequest[model.ResourceMemory]),
-	)
-	memRec = r.applyScalingRules(
-		memRec,
-		policy.Spec.Resources.Memory.ScalingRules,
-		containerName,
-		model.ResourceMemory,
-		observedRequest[model.ResourceMemory],
-	)
+	var memRec recommendation.SingleResourceRecommendation
+	if isResourceControlled(controlledResources, model.ResourceMemory) {
+		memRec = est.Memory.estimator.GetSingleResourceRecommendation(
+			containerName,
+			r.calculateContainerMemoryConstraints(containerCount, observedRequest[model.ResourceMemory]),
+		)
+		if len(est.Memory.scalingRules) > 0 {
+			originalRequest, err := initialrequests.Request(vpa.Annotations, containerName, model.ResourceMemory)
+			if err != nil {
+				return recommendation.ResourceRecommendation{}, fmt.Errorf("get original memory request: %w", err)
+			}
+			memRec = scalingrules.Apply(est.Memory.scalingRules, memRec, originalRequest)
+		}
+	}
 
 	rec := recommendation.ResourceRecommendation{
 		Target: FilterControlledResources(model.Resources{
@@ -348,7 +381,7 @@ func (r *podResourceRecommender) recommendContainerResources(
 		"uncappedTargetMemMB", float64(rec.UncappedTarget[model.ResourceMemory])/1024/1024,
 	)
 
-	return rec
+	return rec, nil
 }
 
 // calculateContainerCPUConstraints returns per-container CPU recommendation constraints.
@@ -381,16 +414,13 @@ func (r *podResourceRecommender) calculateContainerMemoryConstraints(containerCo
 	}
 }
 
-// applyScalingRules is the integration point for resource-scoped scaling rules.
-// Rule evaluation is intentionally deferred until rule implementations are added.
-func (r *podResourceRecommender) applyScalingRules(
-	rec recommendation.SingleResourceRecommendation,
-	_ []vhape_types.ScalingRule,
-	_ string,
-	_ model.ResourceName,
-	_ model.ResourceAmount,
-) recommendation.SingleResourceRecommendation {
-	return rec
+func isResourceControlled(resources []model.ResourceName, resourceName model.ResourceName) bool {
+	for _, resource := range resources {
+		if resource == resourceName {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *podResourceRecommender) Free(vpaID model.VpaID) {
