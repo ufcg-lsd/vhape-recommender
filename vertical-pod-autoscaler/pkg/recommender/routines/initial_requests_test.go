@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -13,12 +14,29 @@ import (
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpa_fake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/initialrequests"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
 
 type staticPodTemplateFetcher struct {
 	template *corev1.PodTemplateSpec
 	calls    int
 }
+
+type annotationCapturingPodResourceRecommender struct {
+	initialRequests string
+}
+
+func (r *annotationCapturingPodResourceRecommender) GetRecommendedPodResources(
+	_ model.ContainerNameToAggregateStateMap,
+	vpa *model.Vpa,
+	_ []model.PodID,
+) (logic.RecommendedPodResources, error) {
+	r.initialRequests = vpa.Annotations[initialrequests.Annotation]
+	return logic.RecommendedPodResources{}, nil
+}
+
+func (r *annotationCapturingPodResourceRecommender) Free(model.VpaID) {}
 
 func (f *staticPodTemplateFetcher) Fetch(_ context.Context, _ *vpa_types.VerticalPodAutoscaler) (labels.Selector, error) {
 	return labels.Everything(), nil
@@ -74,5 +92,48 @@ func TestEnsureInitialRequestsAnnotation(t *testing.T) {
 	}
 	if targetFetcher.calls != 1 {
 		t.Errorf("FetchPodTemplate() calls = %d, want 1", targetFetcher.calls)
+	}
+}
+
+func TestProcessVPAUpdateLeavesInitialRequestsForTheInformerToLoad(t *testing.T) {
+	observedVPA := &vpa_types.VerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "example"},
+	}
+	targetFetcher := &staticPodTemplateFetcher{template: &corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: "app",
+			Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+				corev1.ResourceCPU: resource.MustParse("250m"),
+			}},
+		}}},
+	}}
+	client := vpa_fake.NewSimpleClientset(observedVPA).AutoscalingV1() //nolint:staticcheck // fake client is required for this unit test
+	podRecommender := &annotationCapturingPodResourceRecommender{}
+	r := &recommender{
+		clusterState:           model.NewClusterState(time.Minute),
+		vpaClient:              client,
+		targetFetcher:          targetFetcher,
+		podResourceRecommender: podRecommender,
+	}
+	modelVPA := model.NewVpa(
+		model.VpaID{Namespace: observedVPA.Namespace, VpaName: observedVPA.Name},
+		labels.Everything(),
+		time.Now(),
+	)
+
+	processVPAUpdate(r, modelVPA, observedVPA)
+
+	if podRecommender.initialRequests != "" {
+		t.Fatal("recommender received initial requests before the informer cache was refreshed")
+	}
+	if _, found := modelVPA.Annotations[initialrequests.Annotation]; found {
+		t.Error("processVPAUpdate must not mutate the cluster-state VPA annotations")
+	}
+	updated, err := client.VerticalPodAutoscalers(observedVPA.Namespace).Get(context.Background(), observedVPA.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated VPA: %v", err)
+	}
+	if _, found := updated.Annotations[initialrequests.Annotation]; !found {
+		t.Error("updated VPA is missing the initial requests annotation")
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vpaautoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -13,9 +12,7 @@ import (
 )
 
 // ensureInitialRequestsAnnotation snapshots the target workload's declared
-// requests exactly once. It uses Update rather than an unconditional patch so
-// resourceVersion protects an annotation written concurrently by another
-// recommender instance.
+// requests exactly once.
 func (r *recommender) ensureInitialRequestsAnnotation(
 	ctx context.Context,
 	observedVPA *vpaautoscalingv1.VerticalPodAutoscaler,
@@ -27,14 +24,9 @@ func (r *recommender) ensureInitialRequestsAnnotation(
 		return nil
 	}
 
-	vpaClient := r.vpaClient.VerticalPodAutoscalers(observedVPA.Namespace)
-	current, err := vpaClient.Get(ctx, observedVPA.Name, metav1.GetOptions{})
-	if err != nil {
-		return fmt.Errorf("get VPA: %w", err)
-	}
-	if _, found := current.Annotations[initialrequests.Annotation]; found {
-		return nil
-	}
+	// Objects returned by the VPA informer cache are read-only. Update a deep
+	// copy so the cache remains owned exclusively by the informer.
+	current := observedVPA.DeepCopy()
 
 	template, err := r.targetFetcher.FetchPodTemplate(ctx, current)
 	if err != nil {
@@ -46,27 +38,13 @@ func (r *recommender) ensureInitialRequestsAnnotation(
 		return fmt.Errorf("marshal initial requests: %w", err)
 	}
 
-	// Make at most two attempts: the initial write and one retry after a conflict.
-	for attempt := 0; attempt < 2; attempt++ {
-		if current.Annotations == nil {
-			current.Annotations = make(map[string]string)
-		}
-		if _, found := current.Annotations[initialrequests.Annotation]; found {
-			return nil
-		}
-		current.Annotations[initialrequests.Annotation] = string(payload)
-
-		if _, err = vpaClient.Update(ctx, current, metav1.UpdateOptions{}); err == nil {
-			return nil
-		}
-		if !apierrors.IsConflict(err) || attempt == 1 {
-			return fmt.Errorf("update VPA annotation: %w", err)
-		}
-
-		current, err = vpaClient.Get(ctx, observedVPA.Name, metav1.GetOptions{})
-		if err != nil {
-			return fmt.Errorf("get VPA after update conflict: %w", err)
-		}
+	if current.Annotations == nil {
+		current.Annotations = make(map[string]string)
+	}
+	current.Annotations[initialrequests.Annotation] = string(payload)
+	vpaClient := r.vpaClient.VerticalPodAutoscalers(observedVPA.Namespace)
+	if _, err = vpaClient.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("update VPA annotation: %w", err)
 	}
 
 	return nil
