@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
 	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
 
 func registerTestRule(t *testing.T, name string, factory Factory) {
@@ -43,6 +45,19 @@ func TestBuildPreservesPolicyOrder(t *testing.T) {
 	assert.NoError(t, err)
 	assert.IsType(t, requestCeiling{}, rules[0])
 	assert.IsType(t, requestFloor{}, rules[1])
+}
+
+func TestApplyExecutesRulesInPolicyOrder(t *testing.T) {
+	rules, err := Build([]vhape_types.ScalingRule{
+		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"maximum":"100%"}`)}},
+		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"minimum":"150%"}`)}},
+	})
+	assert.NoError(t, err)
+
+	got := Apply(rules, recommendation.SingleResourceRecommendation{
+		Target: 125, LowerBound: 125, UpperBound: 125,
+	}, model.ResourceAmount(100))
+	assert.Equal(t, model.ResourceAmount(150), got.Target)
 }
 
 func TestRegisterPanicsOnDuplicatedName(t *testing.T) {
