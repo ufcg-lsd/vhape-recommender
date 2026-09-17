@@ -28,6 +28,7 @@ import (
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vpa_fake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/initialrequests"
 )
 
 type staticPodTemplateFetcher struct {
@@ -70,8 +71,8 @@ func TestEnsureInitialRequestsAnnotation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("get updated VPA: %v", err)
 	}
-	var snapshot initialRequestsSnapshot
-	if err := json.Unmarshal([]byte(updated.Annotations[initialRequestsAnnotation]), &snapshot); err != nil {
+	var snapshot initialrequests.Snapshot
+	if err := json.Unmarshal([]byte(updated.Annotations[initialrequests.Annotation]), &snapshot); err != nil {
 		t.Fatalf("unmarshal annotation: %v", err)
 	}
 	appCPU := snapshot.Containers["app"][corev1.ResourceCPU]

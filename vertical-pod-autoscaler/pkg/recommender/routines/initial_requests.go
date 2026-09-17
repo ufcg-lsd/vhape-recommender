@@ -21,20 +21,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vpaautoscalingv1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/initialrequests"
 )
-
-const initialRequestsAnnotation = "autoscaling.vhape.io/initial-requests"
-
-// initialRequestsSnapshot is the workload template's requests when the
-// recommender first observes a VPA.
-type initialRequestsSnapshot struct {
-	Containers map[string]corev1.ResourceList `json:"containers"`
-}
 
 // ensureInitialRequestsAnnotation snapshots the target workload's declared
 // requests exactly once. It uses Update rather than an unconditional patch so
@@ -47,7 +39,7 @@ func (r *recommender) ensureInitialRequestsAnnotation(
 	if observedVPA == nil || r.targetFetcher == nil || r.vpaClient == nil {
 		return nil
 	}
-	if _, found := observedVPA.Annotations[initialRequestsAnnotation]; found {
+	if _, found := observedVPA.Annotations[initialrequests.Annotation]; found {
 		return nil
 	}
 
@@ -56,7 +48,7 @@ func (r *recommender) ensureInitialRequestsAnnotation(
 	if err != nil {
 		return fmt.Errorf("get VPA: %w", err)
 	}
-	if _, found := current.Annotations[initialRequestsAnnotation]; found {
+	if _, found := current.Annotations[initialrequests.Annotation]; found {
 		return nil
 	}
 
@@ -65,7 +57,7 @@ func (r *recommender) ensureInitialRequestsAnnotation(
 		return fmt.Errorf("fetch target Pod template: %w", err)
 	}
 
-	payload, err := json.Marshal(snapshotInitialRequests(template))
+	payload, err := json.Marshal(initialrequests.FromPodTemplate(template))
 	if err != nil {
 		return fmt.Errorf("marshal initial requests: %w", err)
 	}
@@ -75,10 +67,10 @@ func (r *recommender) ensureInitialRequestsAnnotation(
 		if current.Annotations == nil {
 			current.Annotations = make(map[string]string)
 		}
-		if _, found := current.Annotations[initialRequestsAnnotation]; found {
+		if _, found := current.Annotations[initialrequests.Annotation]; found {
 			return nil
 		}
-		current.Annotations[initialRequestsAnnotation] = string(payload)
+		current.Annotations[initialrequests.Annotation] = string(payload)
 
 		if _, err = vpaClient.Update(ctx, current, metav1.UpdateOptions{}); err == nil {
 			return nil
@@ -94,14 +86,4 @@ func (r *recommender) ensureInitialRequestsAnnotation(
 	}
 
 	return nil
-}
-
-func snapshotInitialRequests(template *corev1.PodTemplateSpec) initialRequestsSnapshot {
-	snapshot := initialRequestsSnapshot{
-		Containers: make(map[string]corev1.ResourceList, len(template.Spec.Containers)),
-	}
-	for _, container := range template.Spec.Containers {
-		snapshot.Containers[container.Name] = container.Resources.Requests.DeepCopy()
-	}
-	return snapshot
 }
