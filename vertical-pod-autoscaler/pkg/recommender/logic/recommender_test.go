@@ -22,6 +22,7 @@ import (
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/scalingrules"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
 
@@ -434,6 +435,30 @@ func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Contains(t, r.estimators, vpa.ID)
+}
+
+func TestGetRecommendedPodResourcesSkipsScalingRulesUntilInitialRequestsAreCached(t *testing.T) {
+	policy := newTestPolicyObject("policy", newTestPolicySpec())
+	policy.Spec.Resources.CPU.ScalingRules = []vhape_types.ScalingRule{{
+		scalingrules.RequestCeilingRule: {Raw: []byte(`{"maximum":"100%"}`)},
+	}}
+	vpa := newTestVPA("default", "vpa", policy.Name)
+	state := model.NewAggregateContainerState()
+	state.ObserveRequest(model.Resources{model.ResourceCPU: 100}, time.Now())
+	r := &podResourceRecommender{
+		policyLister:  newVhapePolicyLister(policy),
+		metricsClient: &mockMetricsClient{},
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
+	}
+
+	got, err := r.GetRecommendedPodResources(
+		model.ContainerNameToAggregateStateMap{"app": state},
+		vpa,
+		nil,
+	)
+
+	assert.NoError(t, err)
+	assert.Contains(t, got, "app")
 }
 
 func TestGetRecommendedPodResourcesReturnsPolicyError(t *testing.T) {

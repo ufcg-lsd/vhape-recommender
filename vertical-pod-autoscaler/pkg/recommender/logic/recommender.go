@@ -254,9 +254,14 @@ func (r *podResourceRecommender) recommendContainerResources(
 		if len(est.CPU.scalingRules) > 0 {
 			originalRequest, err := initialrequests.Request(vpa.Annotations, containerName, model.ResourceCPU)
 			if err != nil {
-				return recommendation.ResourceRecommendation{}, fmt.Errorf("get original CPU request: %w", err)
+				klog.ErrorS(err,
+					"Skipping CPU scaling rules because the original request is unavailable",
+					"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+					"container", containerName,
+				)
+			} else {
+				cpuRec = scalingrules.ApplyRules(est.CPU.scalingRules, cpuRec, originalRequest)
 			}
-			cpuRec = scalingrules.ApplyRules(est.CPU.scalingRules, cpuRec, originalRequest)
 		}
 	}
 
@@ -269,9 +274,14 @@ func (r *podResourceRecommender) recommendContainerResources(
 		if len(est.Memory.scalingRules) > 0 {
 			originalRequest, err := initialrequests.Request(vpa.Annotations, containerName, model.ResourceMemory)
 			if err != nil {
-				return recommendation.ResourceRecommendation{}, fmt.Errorf("get original memory request: %w", err)
+				klog.ErrorS(err,
+					"Skipping memory scaling rules because the original request is unavailable",
+					"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+					"container", containerName,
+				)
+			} else {
+				memRec = scalingrules.ApplyRules(est.Memory.scalingRules, memRec, originalRequest)
 			}
-			memRec = scalingrules.ApplyRules(est.Memory.scalingRules, memRec, originalRequest)
 		}
 	}
 
