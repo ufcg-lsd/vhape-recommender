@@ -47,14 +47,14 @@ func TestBuildPreservesPolicyOrder(t *testing.T) {
 	assert.IsType(t, requestFloor{}, rules[1])
 }
 
-func TestApplyExecutesRulesInPolicyOrder(t *testing.T) {
+func TestApplyRulesExecutesRulesInPolicyOrder(t *testing.T) {
 	rules, err := Build([]vhape_types.ScalingRule{
 		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"maximum":"100%"}`)}},
 		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"minimum":"150%"}`)}},
 	})
 	assert.NoError(t, err)
 
-	got := Apply(rules, recommendation.SingleResourceRecommendation{
+	got := ApplyRules(rules, recommendation.SingleResourceRecommendation{
 		Target: 125, LowerBound: 125, UpperBound: 125,
 	}, model.ResourceAmount(100))
 	assert.Equal(t, model.ResourceAmount(150), got.Target)

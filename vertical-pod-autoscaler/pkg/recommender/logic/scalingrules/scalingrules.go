@@ -17,8 +17,8 @@ type ScalingRule interface {
 	Apply(recommendation.SingleResourceRecommendation, model.ResourceAmount) recommendation.SingleResourceRecommendation
 }
 
-// Apply executes compiled rules in their policy order.
-func Apply(rules []ScalingRule, rec recommendation.SingleResourceRecommendation, originalRequest model.ResourceAmount) recommendation.SingleResourceRecommendation {
+// ApplyRules executes compiled rules in their policy order.
+func ApplyRules(rules []ScalingRule, rec recommendation.SingleResourceRecommendation, originalRequest model.ResourceAmount) recommendation.SingleResourceRecommendation {
 	for _, rule := range rules {
 		rec = rule.Apply(rec, originalRequest)
 	}
