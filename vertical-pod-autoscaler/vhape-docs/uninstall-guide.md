@@ -21,6 +21,16 @@ kubectl delete crd vhapeignorednamespaces.autoscaling.vhape.io
 kubectl delete crd vhapeignoredworkloads.autoscaling.vhape.io
 ```
 
+## VHAPE kube-state-metrics
+
+Uninstall the Helm release:
+
+```bash
+helm uninstall vhape-kube-state-metrics -n kube-system
+```
+
+This chart installs no CRDs, so there is nothing else to remove.
+
 ## VHAPE Recommender
 
 Uninstall the Helm release:
