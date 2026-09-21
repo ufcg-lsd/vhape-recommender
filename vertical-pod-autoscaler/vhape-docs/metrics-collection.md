@@ -41,7 +41,7 @@ kubectl get pods -n kube-system -l app=vhape-kube-state-metrics
 
 Because it runs with `--custom-resource-state-only`, this instance exports **only** the VPA recommendation metrics below. It never exports `kube_pod_*`, `kube_deployment_*` or any other series from the cluster's own kube-state-metrics, so both instances can run side by side without duplicating data.
 
-## Exported metrics
+## About the exported metrics
 
 | Metric | Source field |
 |---|---|
@@ -60,18 +60,11 @@ Each metric is exported twice per container, once per resource, and carries the 
 | `target_api_version`, `target_kind`, `target_name` | the workload referenced by `spec.targetRef` |
 | `container` | container name |
 
-## Configure scraping
+## About the scraping
 
-The chart's Service is annotated with:
+The chart's Service carries `prometheus.io/scrape: "true"` and `prometheus.io/port: "8080"`, so collectors that discover targets through annotations, such as the usual `kubernetes-service-endpoints` job in Prometheus and `vmagent`, pick it up with no extra setup.
 
-```yaml
-prometheus.io/scrape: "true"
-prometheus.io/port: "8080"
-```
-
-If your collector discovers targets through these annotations, which is the common `kubernetes-service-endpoints` job in Prometheus and `vmagent` configurations, no further setup is needed.
-
-If your collector discovers targets through the Prometheus Operator instead, create a `ServiceMonitor` for the Service:
+With the Prometheus Operator, create a `ServiceMonitor` instead. The VictoriaMetrics Operator converts it into a `VMServiceScrape` automatically.
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
@@ -88,9 +81,7 @@ spec:
       interval: 60s
 ```
 
-The VictoriaMetrics Operator converts `ServiceMonitor` objects into `VMServiceScrape` automatically, so the same manifest works there.
-
-## Verify
+## Verify the installation
 
 Check that the metrics are exposed:
 
@@ -113,32 +104,6 @@ Two behaviors are expected and do not indicate a problem:
 
 - **No series at all** while no VPA has a recommendation yet. The metrics are generated from `status.recommendation`, so they only appear once the VHAPE Recommender has written one.
 - **`target`, `lowerbound` and `upperbound` with identical values** right after a VPA is created. Until the policy's `minimumCoverageWindow` is reached, the recommender falls back to the container's current request for all three fields. They diverge once enough samples are collected. See [Recommendations stay equal to current requests](recommender-guide.md#recommendations-stay-equal-to-current-requests).
-
-## Configuration
-
-The main chart values are:
-
-| Value | Default | Description |
-|---|---|---|
-| `image.repository` | `registry.k8s.io/kube-state-metrics/kube-state-metrics` | kube-state-metrics image. |
-| `image.tag` | `""` | Empty tag falls back to `v<appVersion>` (`v2.20.0`). |
-| `resources` | requests `100m` / `256Mi`, memory limit `300Mi` | Container resources. There is no CPU limit. |
-| `service.annotations` | `prometheus.io/scrape` and `prometheus.io/port` | Annotations used for scrape discovery. |
-| `crsConfig` | VPA target, lower bound and upper bound | The Custom Resource State configuration. |
-
-Changing `crsConfig` restarts the Pod automatically, because its checksum is stored as a Pod annotation.
-
-If you override the image, keep kube-state-metrics at **v2.9 or later**. Earlier versions label custom resource metrics differently, and the metric names above would change.
-
-## Operational notes
-
-### The `job` label differs from the cluster's kube-state-metrics
-
-These series are scraped from a separate target, so their `job` label is not the one used by the cluster's own kube-state-metrics. With annotation-based discovery, they usually arrive as `job="kubernetes-service-endpoints"` and `service="vhape-kube-state-metrics"`. Dashboards and alerts that filter on `job="kube-state-metrics"` need to be updated.
-
-### Keep the release outside namespaces managed by the VHAPE Watcher
-
-If the VHAPE Watcher is installed with a broad `VhapeWatchedNamespaceRegex`, it creates a VPA for every Deployment in the matching namespaces, including this one. Install the chart in `kube-system`, which the watcher chart ignores by default, or create a `VhapeIgnoredNamespace` for the namespace you choose. See the [VHAPE Watcher guide](watcher-guide.md).
 
 ## Troubleshooting
 
