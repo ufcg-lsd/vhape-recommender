@@ -28,7 +28,10 @@ Before publishing a new chart, update its `Chart.yaml`.
 Both charts are under `vertical-pod-autoscaler/charts`:
 
 - `vhape-recommender` for the VHAPE Recommender;
-- `vhape-watcher` for the VHAPE Watcher.
+- `vhape-watcher` for the VHAPE Watcher;
+- `vhape-kube-state-metrics` for the dedicated kube-state-metrics instance.
+
+The `vhape-kube-state-metrics` chart uses the upstream kube-state-metrics image, so it has no image to build: only the chart is published. Its `appVersion` tracks the kube-state-metrics version.
 
 Update the chart version and application version as needed:
 

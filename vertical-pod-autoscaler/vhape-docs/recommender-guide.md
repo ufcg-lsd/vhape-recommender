@@ -104,6 +104,8 @@ status:
         uncappedTarget: ...
 ```
 
+To collect these recommendations as Prometheus metrics, see [Enabling VHAPE metrics collection with kube-state-metrics](metrics-collection.md).
+
 ## Operational notes
 
 ### Changes to the associated VHAPE policy restart estimators
