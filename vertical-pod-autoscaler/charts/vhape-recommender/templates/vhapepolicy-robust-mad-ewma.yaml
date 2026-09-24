@@ -1,0 +1,17 @@
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapePolicy
+metadata:
+  name: robust-mad-ewma
+spec:
+  resources:
+    cpu:
+      percentile-hysteresis:
+        percentile: 0.93
+        headroom: 0.10
+        slidingWindow: 24h
+        minimumCoverageWindow: 30m
+    memory:
+      robust-mad-ewma:
+        slidingWindow: 24h
+        minimumCoverageWindow: 30m
+  scalingRule: ""

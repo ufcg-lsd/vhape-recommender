@@ -86,6 +86,16 @@ spec:
                               type: string
                             minimumCoverageWindow:
                               type: string
+                        robust-mad-ewma:
+                          type: object
+                          required:
+                            - slidingWindow
+                            - minimumCoverageWindow
+                          properties:
+                            slidingWindow:
+                              type: string
+                            minimumCoverageWindow:
+                              type: string
                 scalingRule:
                   type: string
                   enum:
