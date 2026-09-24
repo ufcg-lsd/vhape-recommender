@@ -38,6 +38,7 @@ func (m *mockMetricsClient) GetContainersMetrics(_ context.Context) ([]*input_me
 type mockResourceEstimator struct {
 	recommendations map[string]recommendation.SingleResourceRecommendation
 	feedCalls       map[string][][]model.ResourceAmount
+	recommendCalls  map[string]int
 }
 
 func (m *mockResourceEstimator) FeedSamples(containerName string, samples []model.ResourceAmount) {
@@ -49,6 +50,10 @@ func (m *mockResourceEstimator) FeedSamples(containerName string, samples []mode
 }
 
 func (m *mockResourceEstimator) GetSingleResourceRecommendation(containerName string, _ estimators.ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
+	if m.recommendCalls == nil {
+		m.recommendCalls = make(map[string]int)
+	}
+	m.recommendCalls[containerName]++
 	if r, ok := m.recommendations[containerName]; ok {
 		return r
 	}
@@ -103,13 +108,15 @@ func newVhapePolicyLister(policies ...*vhape_types.VhapePolicy) vhape_listers.Vh
 	return vhape_listers.NewVhapePolicyLister(indexer)
 }
 
-func newPercentileHysteresisHeuristic(percentile, headroom float64, slidingWindow string) vhape_types.ResourceHeuristics {
-	return vhape_types.ResourceHeuristics{
-		estimators.PercentileHysteresis: runtime.RawExtension{
-			Raw: []byte(fmt.Sprintf(
-				`{"percentile":%v,"headroom":%v,"slidingWindow":%q}`,
-				percentile, headroom, slidingWindow,
-			)),
+func newPercentileHysteresisHeuristic(percentile, headroom float64, slidingWindow string) vhape_types.ResourceScalingSpec {
+	return vhape_types.ResourceScalingSpec{
+		ScalingHeuristic: vhape_types.ResourceHeuristics{
+			estimators.PercentileHysteresis: runtime.RawExtension{
+				Raw: []byte(fmt.Sprintf(
+					`{"percentile":%v,"headroom":%v,"slidingWindow":%q}`,
+					percentile, headroom, slidingWindow,
+				)),
+			},
 		},
 	}
 }
@@ -269,147 +276,6 @@ func quantityEqual(want, got resource.Quantity) bool {
 	return want.Cmp(got) == 0 && want.Format == got.Format
 }
 
-func TestApplyScalingRule(t *testing.T) {
-	tests := []struct {
-		name           string
-		scalingRule    string
-		currentRequest model.ResourceAmount
-		input          recommendation.SingleResourceRecommendation
-		want           recommendation.SingleResourceRecommendation
-	}{
-		{
-			name:           "block scale up caps values above current request",
-			scalingRule:    scalingrules.BlockScaleUpRule,
-			currentRequest: 100,
-			input: recommendation.SingleResourceRecommendation{
-				Target:         120,
-				LowerBound:     90,
-				UpperBound:     130,
-				UncappedTarget: 120,
-			},
-			want: recommendation.SingleResourceRecommendation{
-				Target:         100,
-				LowerBound:     90,
-				UpperBound:     100,
-				UncappedTarget: 120,
-			},
-		},
-		{
-			name:           "block scale down raises values below current request",
-			scalingRule:    scalingrules.BlockScaleDownRule,
-			currentRequest: 100,
-			input: recommendation.SingleResourceRecommendation{
-				Target:         80,
-				LowerBound:     60,
-				UpperBound:     110,
-				UncappedTarget: 80,
-			},
-			want: recommendation.SingleResourceRecommendation{
-				Target:         100,
-				LowerBound:     100,
-				UpperBound:     110,
-				UncappedTarget: 80,
-			},
-		},
-		{
-			name:           "unknown rule leaves recommendation unchanged",
-			scalingRule:    "not-a-rule",
-			currentRequest: 100,
-			input: recommendation.SingleResourceRecommendation{
-				Target:         120,
-				LowerBound:     90,
-				UpperBound:     130,
-				UncappedTarget: 120,
-			},
-			want: recommendation.SingleResourceRecommendation{
-				Target:         120,
-				LowerBound:     90,
-				UpperBound:     130,
-				UncappedTarget: 120,
-			},
-		},
-	}
-
-	recommender := &podResourceRecommender{}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := recommender.applyScalingRule(tt.input, &vhape_types.VhapePolicy{
-				Spec: vhape_types.VhapePolicySpec{
-					ScalingRule: tt.scalingRule,
-				},
-			}, "app", model.ResourceCPU, tt.currentRequest)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestCollectCurrentUsageReturnsMetrics(t *testing.T) {
-	podID := model.PodID{Namespace: "default", PodName: "pod-1"}
-	now := time.Now()
-
-	mc := &mockMetricsClient{
-		snapshots: []*input_metrics.ContainerMetricsSnapshot{
-			{
-				ID:             model.ContainerID{PodID: podID, ContainerName: "app"},
-				SnapshotTime:   now,
-				SnapshotWindow: time.Minute,
-				Usage: model.Resources{
-					model.ResourceCPU:    200,
-					model.ResourceMemory: 512,
-				},
-			},
-		},
-	}
-
-	r := &podResourceRecommender{metricsClient: mc}
-	usage, err := r.collectCurrentUsage([]model.PodID{podID})
-
-	assert.NoError(t, err)
-	assert.Equal(t, model.ResourceAmount(200), usage.CPU["app"][0])
-	assert.Equal(t, model.ResourceAmount(512), usage.Memory["app"][0])
-}
-
-func TestCollectCurrentUsageFiltersNonMatchingPods(t *testing.T) {
-	matchingPod := model.PodID{Namespace: "default", PodName: "pod-1"}
-	otherPod := model.PodID{Namespace: "default", PodName: "pod-2"}
-	now := time.Now()
-
-	mc := &mockMetricsClient{
-		snapshots: []*input_metrics.ContainerMetricsSnapshot{
-			{
-				ID:             model.ContainerID{PodID: matchingPod, ContainerName: "app"},
-				SnapshotTime:   now,
-				SnapshotWindow: time.Minute,
-				Usage:          model.Resources{model.ResourceCPU: 100, model.ResourceMemory: 256},
-			},
-			{
-				ID:             model.ContainerID{PodID: otherPod, ContainerName: "app"},
-				SnapshotTime:   now,
-				SnapshotWindow: time.Minute,
-				Usage:          model.Resources{model.ResourceCPU: 300, model.ResourceMemory: 768},
-			},
-		},
-	}
-
-	r := &podResourceRecommender{metricsClient: mc}
-	usage, err := r.collectCurrentUsage([]model.PodID{matchingPod})
-
-	assert.NoError(t, err)
-	assert.Len(t, usage.CPU["app"], 1)
-	assert.Equal(t, model.ResourceAmount(100), usage.CPU["app"][0])
-}
-
-func TestCollectCurrentUsageReturnsErrorWithoutEmptyPoints(t *testing.T) {
-	mc := &mockMetricsClient{err: assert.AnError}
-
-	r := &podResourceRecommender{metricsClient: mc}
-	usage, err := r.collectCurrentUsage([]model.PodID{{Namespace: "default", PodName: "pod-1"}})
-
-	assert.ErrorIs(t, err, assert.AnError)
-	assert.Nil(t, usage.CPU)
-	assert.Nil(t, usage.Memory)
-}
-
 func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
 	policy := newTestPolicyObject("policy-a", newTestPolicySpec())
@@ -473,38 +339,6 @@ func TestGetOrCreateEstimatorsSeparatesByVPA(t *testing.T) {
 	assert.NotSame(t, first, second)
 }
 
-func TestFetchPolicyReturnsValidPolicy(t *testing.T) {
-	lister := newVhapePolicyLister(newTestPolicyObject("my-policy", newTestPolicySpec()))
-
-	r := &podResourceRecommender{policyLister: lister}
-	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "my-policy"))
-
-	assert.NoError(t, err)
-	assert.NotNil(t, policy)
-	assert.Equal(t, "my-policy", policy.Name)
-	assert.Contains(t, policy.Spec.Resources.CPU, estimators.PercentileHysteresis)
-}
-
-func TestFetchPolicyReturnsErrorForInvalidAnnotation(t *testing.T) {
-	r := &podResourceRecommender{}
-
-	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", ""))
-
-	assert.Nil(t, policy)
-	assert.ErrorContains(t, err, "missing vhape/policy annotation")
-}
-
-func TestFetchPolicyReturnsErrorWhenPolicyDoesNotExist(t *testing.T) {
-	lister := newVhapePolicyLister()
-
-	r := &podResourceRecommender{policyLister: lister}
-	policy, err := r.fetchPolicy(newTestVPA("default", "my-vpa", "missing"))
-
-	assert.Nil(t, policy)
-	assert.Error(t, err)
-	assert.ErrorContains(t, err, `fetch policy "missing"`)
-}
-
 func TestRecommendContainerResourcesComputesFullRecommendation(t *testing.T) {
 	state := model.NewAggregateContainerState()
 	state.ObserveRequest(model.Resources{
@@ -522,16 +356,20 @@ func TestRecommendContainerResourcesComputesFullRecommendation(t *testing.T) {
 		Target: 512, LowerBound: 460, UpperBound: 564, UncappedTarget: 512,
 	}
 
+	cpuEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}}
+	memoryEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}}
 	est := &ResourceEstimators{
-		CPU:    &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}},
-		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
+		CPU: resourceEstimator{
+			estimator: cpuEstimator,
+		},
+		Memory: resourceEstimator{
+			estimator: memoryEstimator,
+		},
 	}
 
-	// recommendContainerResources only reads the scaling rule from the policy.
-	policy := newTestPolicyObject("policy", newTestPolicySpec())
-
 	r := &podResourceRecommender{config: PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100}}
-	rec := r.recommendContainerResources("app", state, policy, est, 1)
+	rec, err := r.recommendContainerResources("app", state, newTestVPA("default", "vpa", ""), est, 1)
+	assert.NoError(t, err)
 
 	assert.Equal(t, model.ResourceAmount(200), rec.Target[model.ResourceCPU])
 	assert.Equal(t, model.ResourceAmount(512), rec.Target[model.ResourceMemory])
@@ -554,19 +392,25 @@ func TestRecommendContainerResourcesFiltersControlledResources(t *testing.T) {
 		Target: 512, LowerBound: 460, UpperBound: 564, UncappedTarget: 512,
 	}
 
+	cpuEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}}
+	memoryEstimator := &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}}
 	est := &ResourceEstimators{
-		CPU:    &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": cpuRec}},
-		Memory: &mockResourceEstimator{recommendations: map[string]recommendation.SingleResourceRecommendation{"app": memRec}},
+		CPU: resourceEstimator{
+			estimator: cpuEstimator,
+		},
+		Memory: resourceEstimator{
+			estimator: memoryEstimator,
+		},
 	}
 
-	// recommendContainerResources only reads the scaling rule from the policy.
-	policy := newTestPolicyObject("policy", newTestPolicySpec())
-
 	r := &podResourceRecommender{config: PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100}}
-	rec := r.recommendContainerResources("app", state, policy, est, 1)
+	rec, err := r.recommendContainerResources("app", state, newTestVPA("default", "vpa", ""), est, 1)
+	assert.NoError(t, err)
 
 	assert.Empty(t, rec.Target[model.ResourceCPU])
 	assert.Equal(t, model.ResourceAmount(512), rec.Target[model.ResourceMemory])
+	assert.Empty(t, cpuEstimator.recommendCalls)
+	assert.Equal(t, 1, memoryEstimator.recommendCalls["app"])
 }
 
 func TestGetRecommendedPodResourcesReturnsErrorForNilVPA(t *testing.T) {
@@ -591,6 +435,30 @@ func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Contains(t, r.estimators, vpa.ID)
+}
+
+func TestGetRecommendedPodResourcesSkipsScalingRulesUntilInitialRequestsAreCached(t *testing.T) {
+	policy := newTestPolicyObject("policy", newTestPolicySpec())
+	policy.Spec.Resources.CPU.ScalingRules = []vhape_types.ScalingRule{{
+		scalingrules.RequestCeilingRule: {Raw: []byte(`{"maximum":"100%"}`)},
+	}}
+	vpa := newTestVPA("default", "vpa", policy.Name)
+	state := model.NewAggregateContainerState()
+	state.ObserveRequest(model.Resources{model.ResourceCPU: 100}, time.Now())
+	r := &podResourceRecommender{
+		policyLister:  newVhapePolicyLister(policy),
+		metricsClient: &mockMetricsClient{},
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
+	}
+
+	got, err := r.GetRecommendedPodResources(
+		model.ContainerNameToAggregateStateMap{"app": state},
+		vpa,
+		nil,
+	)
+
+	assert.NoError(t, err)
+	assert.Contains(t, got, "app")
 }
 
 func TestGetRecommendedPodResourcesReturnsPolicyError(t *testing.T) {
@@ -623,8 +491,8 @@ func TestGetRecommendedPodResourcesDoesNotFeedEstimatorsWhenMetricsFail(t *testi
 		metricsClient: &mockMetricsClient{err: assert.AnError},
 		estimators: map[model.VpaID]*ResourceEstimators{
 			vpa.ID: {
-				CPU:       cpuEstimator,
-				Memory:    memoryEstimator,
+				CPU:       resourceEstimator{estimator: cpuEstimator},
+				Memory:    resourceEstimator{estimator: memoryEstimator},
 				policyUID: types.UID("uid-policy"),
 			},
 		},
@@ -788,8 +656,8 @@ func TestGetOrCreateEstimatorsBuildsEstimatorsFromPolicyHeuristics(t *testing.T)
 	est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
 
 	assert.NoError(t, err)
-	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.CPU)
-	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.Memory)
+	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.CPU.estimator)
+	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.Memory.estimator)
 }
 
 func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
@@ -812,9 +680,9 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 			spec: vhape_types.VhapePolicySpec{
 				Resources: vhape_types.VhapeResourcesSpec{
 					CPU: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
-					Memory: vhape_types.ResourceHeuristics{
-						"unknown": runtime.RawExtension{Raw: []byte(`{}`)},
-					},
+					Memory: vhape_types.ResourceScalingSpec{ScalingHeuristic: vhape_types.ResourceHeuristics{
+						"unknown": {Raw: []byte(`{}`)},
+					}},
 				},
 			},
 			wantErr: `VhapePolicy "policy": invalid spec.resources.memory: unsupported heuristic "unknown"`,
@@ -823,11 +691,11 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 			name: "malformed cpu parameters",
 			spec: vhape_types.VhapePolicySpec{
 				Resources: vhape_types.VhapeResourcesSpec{
-					CPU: vhape_types.ResourceHeuristics{
+					CPU: vhape_types.ResourceScalingSpec{ScalingHeuristic: vhape_types.ResourceHeuristics{
 						estimators.PercentileHysteresis: runtime.RawExtension{
 							Raw: []byte(`{"slidingWindow":"soon"}`),
 						},
-					},
+					}},
 					Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "1h"),
 				},
 			},

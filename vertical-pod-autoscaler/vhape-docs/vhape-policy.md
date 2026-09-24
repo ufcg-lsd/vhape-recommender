@@ -4,9 +4,7 @@ A `VhapePolicy` defines how the VHAPE Recommender calculates CPU and memory reco
 
 `VhapePolicy` is a cluster-scoped resource. A policy is identified only by its name, which must be unique across the cluster.
 
-Each policy configures one heuristic for CPU and one heuristic for memory. CPU and memory can use different heuristic configurations.
-
-A policy can also define an optional scaling rule that constrains the recommendation after it is calculated.
+Each policy configures one heuristic for CPU and one heuristic for memory. CPU and memory can use different heuristic configurations and independent, ordered scaling rules.
 
 This repository provides an example at:
 
@@ -22,28 +20,29 @@ metadata:
 spec:
   resources:
     cpu:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.10
-        slidingWindow: 24h
-        minimumCoverageWindow: 30m
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.93
+          headroom: 0.10
+          slidingWindow: 24h
+          minimumCoverageWindow: 30m
     memory:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.05
-        slidingWindow: 24h
-        minimumCoverageWindow: 30m
-  scalingRule: ""
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.93
+          headroom: 0.05
+          slidingWindow: 24h
+          minimumCoverageWindow: 30m
 ```
 
-`VhapePolicy.spec` is immutable. After a policy is created, its CPU heuristic, memory heuristic, parameters, and scaling rule cannot be edited in place. To change policy behavior, create another `VhapePolicy`.
+`VhapePolicy.spec` is immutable. After a policy is created, its CPU and memory heuristics, parameters, and scaling rules cannot be edited in place. To change policy behavior, create another `VhapePolicy`.
 
 
 ## Resource heuristics
 
 `spec.resources` must define both `cpu` and `memory`.
 
-Each resource (`cpu` and `memory`) must define exactly one heuristic. Currently, the supported heuristic is [`percentile-hysteresis`](#percentile-hysteresis).
+Each resource (`cpu` and `memory`) must define `scalingHeuristic` with exactly one heuristic. Currently, the supported heuristic is [`percentile-hysteresis`](#percentile-hysteresis).
 
 Example:
 
@@ -51,35 +50,33 @@ Example:
 spec:
   resources:
     cpu:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.10
-        slidingWindow: 24h
-        minimumCoverageWindow: 30m
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.93
+          headroom: 0.10
+          slidingWindow: 24h
+          minimumCoverageWindow: 30m
     memory:
-      percentile-hysteresis:
-        percentile: 0.95
-        headroom: 0.20
-        slidingWindow: 12h
-        minimumCoverageWindow: 30m
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.95
+          headroom: 0.20
+          slidingWindow: 12h
+          minimumCoverageWindow: 30m
 ```
 
 ## Scaling rules
 
-`spec.scalingRule` is optional. Valid values are:
+`spec.resources.cpu.scalingRules` and `spec.resources.memory.scalingRules` are optional lists of rules. Each list item must contain exactly one rule and its parameters. Rules run in list order after the resource heuristic has produced a recommendation. They adjust `target`, `lowerBound`, and `upperBound`; `uncappedTarget` remains the heuristic output.
 
-| Value              | Meaning                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `""`               | No scaling rule. The estimator recommendation is used as-is, subject to normal constraints and post-processors. |
-| `block-scale-up`   | Prevents the final visible recommendation from going above the current request.                                 |
-| `block-scale-down` | Prevents the final visible recommendation from going below the current request.                                 |
+Rules compare the recommendation with the workload request captured when the VPA is first observed, rather than with a request that may already have been updated by VPA. The recommender stores that snapshot in the `autoscaling.vhape.io/initial-requests` annotation. If the snapshot is not available yet, the recommender emits the heuristic recommendation and skips the affected resource's rules for that cycle.
 
-Example:
+| Rule | Parameters | Meaning |
+| --- | --- | --- |
+| `request-ceiling` | `maximum` | Caps `target`, `lowerBound`, and `upperBound` at a percentage of the captured initial request. |
+| `request-floor` | `minimum` | Raises `target`, `lowerBound`, and `upperBound` to a percentage of the captured initial request. |
 
-```yaml
-spec:
-  scalingRule: block-scale-up
-```
+Percentages are non-negative strings with a `%` suffix. For example, `200%` is twice the captured request, `100%` is the captured request, and `50%` is half of it.
 
 ## Percentile hysteresis
 

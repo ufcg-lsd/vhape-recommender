@@ -2,7 +2,7 @@
 
 VHAPE is a custom Kubernetes Vertical Pod Autoscaler Recommender built on top of the v1.6.0 VPA Recommender codebase. It keeps the original VPA integration points, such as VPA objects, the VPA Admission Controller, and the VPA Updater, while replacing the core recommendation logic with a policy-driven architecture.
 
-The central idea is that each VPA object can reference a `VhapePolicy`. The policy defines which heuristic should be used for CPU, which heuristic should be used for memory, and whether a scaling rule should constrain the final recommendation.
+The central idea is that each VPA object can reference a `VhapePolicy`. The policy defines which heuristic to use for CPU and memory and can add scaling rules to either resource's recommendation.
 
 ## Goals
 
@@ -11,7 +11,7 @@ VHAPE is designed to make recommender behavior easier to experiment with and ext
 - make heuristics configurable through Kubernetes custom resources;
 - allow CPU and memory to use different heuristics;
 - allow estimators (heuristics) to configure their own sample storage strategy;
-- support policy-level scaling constraints, such as blocking scale-up or blocking scale-down;
+- support resource-level scaling constraints relative to the workload's initial requests;
 - preserve compatibility with the VPA API output format.
 
 ## How it works
@@ -25,7 +25,7 @@ A typical VHAPE setup includes:
 
 The VPA object selects the VHAPE Recommender through `spec.recommenders[].name` and selects a `VhapePolicy` through the `vhape/policy` annotation.
 
-The selected policy defines the heuristic configuration used for CPU and memory and can optionally apply a scaling rule to constrain the recommendation.
+The selected policy defines the heuristic configuration used for CPU and memory and can optionally apply per-resource scaling rules to constrain a recommendation.
 
 For policy configuration, heuristics, scaling rules, and recommendation constraints, see [VhapePolicy](vhape-policy.md).
 
@@ -141,19 +141,17 @@ This can happen when the estimator does not have enough sample coverage yet.
 
 The default `percentile-hysteresis` heuristic requires samples to span the configured `minimumCoverageWindow` before using percentile-based recommendations. Until then, it falls back to the current request or to the configured minimum.
 
-It can also happen when a scaling rule is configured in the selected `VhapePolicy`:
+It can also happen when a scaling rule is configured for a resource in the selected `VhapePolicy`. For example, the following prevents CPU from exceeding its initial request:
 
 ```yaml
-scalingRule: block-scale-up
+resources:
+  cpu:
+    scalingRules:
+      - request-ceiling:
+          maximum: "100%"
 ```
 
-or:
-
-```yaml
-scalingRule: block-scale-down
-```
-
-Check the VHAPE Recommender logs to identify why a recommendation is being constrained or falling back to the current request. The logs indicate when there is insufficient sample coverage and when a scaling rule is blocking scale-up or scale-down:
+Check the VHAPE Recommender logs to identify why a recommendation is being constrained, falling back to the current request, or having its scaling rules skipped while the initial-request snapshot is unavailable:
 
 ```bash
 kubectl logs deployment/vhape-recommender -n kube-system
