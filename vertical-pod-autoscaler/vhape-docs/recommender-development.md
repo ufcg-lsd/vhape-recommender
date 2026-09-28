@@ -2,7 +2,7 @@
 
 This guide explains how to extend the VHAPE Recommender with new recommendation heuristics and scaling rules.
 
-A heuristic is responsible for producing resource recommendations from usage data. A scaling rule is applied later, after the heuristic runs, to optionally constrain how the recommendation moves relative to the current request.
+A heuristic is responsible for producing resource recommendations from usage data. A scaling rule is applied later, after the heuristic runs, to constrain one resource relative to the request captured when the VPA was first observed.
 
 For image builds and Helm chart publishing, see the [release guide](release-guide.md).
 
@@ -55,7 +55,7 @@ For example:
 
 ```go
 // MyHeuristic is the name used to select this heuristic in a VhapePolicy.
-// This string is the YAML key used under spec.resources.cpu and spec.resources.memory.
+// This string is the YAML key used under scalingHeuristic for either resource.
 const MyHeuristic = "my-heuristic"
 
 type MyHeuristicSpec struct {
@@ -91,7 +91,7 @@ func init() {
 
 ### Step 4. Update the CRD schema
 
-Update `charts/vhape-recommender/crds/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic. This step is not optional: the schema is structural, so parameters the CRD does not declare are pruned by the API server before the recommender sees them, and the policy then fails with `must define exactly one heuristic`.
+Update `charts/vhape-recommender/crds/vhapepolicy-crd.yaml` so Kubernetes accepts the new heuristic under `scalingHeuristic` for both `cpu` and `memory`. This step is not optional: the schema is structural, so parameters the CRD does not declare are pruned by the API server before the recommender sees them, and the policy then fails with `must define exactly one heuristic`.
 
 Example:
 
@@ -116,20 +116,21 @@ metadata:
 spec:
   resources:
     cpu:
-      my-heuristic:
-        someParameter: 1.0
+      scalingHeuristic:
+        my-heuristic:
+          someParameter: 1.0
     memory:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.10
-        slidingWindow: 24h
-        minimumCoverageWindow: 30m
-  scalingRule: ""
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.93
+          headroom: 0.10
+          slidingWindow: 24h
+          minimumCoverageWindow: 30m
 ```
 
 ## Adding a new scaling rule
 
-A scaling rule transforms one `SingleResourceRecommendation` after the estimator runs and before CPU and memory are combined into a full container recommendation.
+A scaling rule transforms one `SingleResourceRecommendation` after the estimator runs and before CPU and memory are combined into a full container recommendation. It receives the original request captured in the VPA's `autoscaling.vhape.io/initial-requests` annotation, not the current workload request.
 
 ### Step 1. Create the rule
 
@@ -145,61 +146,78 @@ Implement `ScalingRule`:
 type ScalingRule interface {
 	Apply(
 		resourceRecommendation recommendation.SingleResourceRecommendation,
-		containerName string,
-		resourceName model.ResourceName,
-		currentRequest model.ResourceAmount,
+		originalRequest model.ResourceAmount,
 	) recommendation.SingleResourceRecommendation
 }
 ```
 
 A rule usually adjusts `Target`, `LowerBound`, and/or `UpperBound`. `UncappedTarget` should normally remain unchanged so callers can still inspect the estimator output before policy-level adjustment.
 
-### Step 2. Add the rule name
+### Step 2. Decode parameters and register the rule
 
-In `logic/scalingrules/types.go`:
-
-```go
-const (
-	BlockScaleUpRule   = "block-scale-up"
-	BlockScaleDownRule = "block-scale-down"
-	MyRuleName         = "my-rule"
-)
-```
-
-### Step 3. Register it in `SelectScalingRule`
+Rules self-register from their implementation file. Define a stable name, a parameter struct, a factory, and an `init` function. `Factory` has the signature `func([]byte) (ScalingRule, error)`.
 
 ```go
-func SelectScalingRule(name string) ScalingRule {
-	switch name {
-	case BlockScaleUpRule:
-		return &BlockScaleUp{}
-	case BlockScaleDownRule:
-		return &BlockScaleDown{}
-	case MyRuleName:
-		return &MyRule{}
-	default:
-		return nil
+const MyRule = "my-rule"
+
+type myRule struct{ factor float64 }
+
+func init() {
+	Register(MyRule, newMyRule)
+}
+
+func newMyRule(raw []byte) (ScalingRule, error) {
+	var parameters struct {
+		Factor float64 `json:"factor"`
 	}
+	if err := json.Unmarshal(raw, &parameters); err != nil {
+		return nil, fmt.Errorf("decode parameters: %w", err)
+	}
+	return myRule{factor: parameters.Factor}, nil
+}
+
+func (r myRule) Apply(
+	rec recommendation.SingleResourceRecommendation,
+	originalRequest model.ResourceAmount,
+) recommendation.SingleResourceRecommendation {
+	// Transform rec using originalRequest.
+	return rec
 }
 ```
 
-### Step 4. Update the CRD enum
+`Register` rejects duplicate names at startup. `Build` decodes rules once when VHAPE creates its estimators, then applies them in the order written in the policy.
 
-In `charts/vhape-recommender/crds/vhapepolicy-crd.yaml`, add the new rule to the `scalingRule` enum:
+### Step 3. Update the CRD schema
+
+In `charts/vhape-recommender/crds/vhapepolicy-crd.yaml`, add the rule and its parameter schema to `scalingRules.items.properties` for both `cpu` and `memory`. Each `scalingRules` item is an object with exactly one rule name.
 
 ```yaml
-scalingRule:
-  type: string
-  enum:
-    - ""
-    - block-scale-up
-    - block-scale-down
-    - my-rule
+scalingRules:
+  type: array
+  items:
+    type: object
+    minProperties: 1
+    maxProperties: 1
+    properties:
+      my-rule:
+        type: object
+        required:
+          - factor
+        properties:
+          factor:
+            type: number
+            minimum: 0
 ```
 
-### Step 5. Use it in a VHAPE policy
+### Step 4. Use it in a VHAPE policy
+
+Configure rules below the resource they affect. Multiple entries are applied in list order.
 
 ```yaml
 spec:
-  scalingRule: my-rule
+  resources:
+    cpu:
+      scalingRules:
+        - my-rule:
+            factor: 1.5
 ```

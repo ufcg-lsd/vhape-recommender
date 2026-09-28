@@ -1,136 +1,68 @@
 package scalingrules
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
+	"k8s.io/apimachinery/pkg/runtime"
+	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
 
-func TestSelectScalingRule(t *testing.T) {
-	assert.IsType(t, &BlockScaleUp{}, SelectScalingRule(BlockScaleUpRule))
-	assert.IsType(t, &BlockScaleDown{}, SelectScalingRule(BlockScaleDownRule))
-	assert.Nil(t, SelectScalingRule("unknown"))
+func registerTestRule(t *testing.T, name string, factory Factory) {
+	t.Helper()
+	Register(name, factory)
+	t.Cleanup(func() { delete(registeredRules, name) })
 }
 
-func TestBlockScaleUp(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         120,
-		LowerBound:     90,
-		UpperBound:     130,
-		UncappedTarget: 140,
-	}
-
-	got := (&BlockScaleUp{}).Apply(rec, "app", model.ResourceCPU, 100)
-
-	assert.Equal(t, model.ResourceAmount(100), got.Target)
-	assert.Equal(t, model.ResourceAmount(90), got.LowerBound)
-	assert.Equal(t, model.ResourceAmount(100), got.UpperBound)
-	assert.Equal(t, model.ResourceAmount(140), got.UncappedTarget)
+func TestBuiltInScalingRulesAreRegistered(t *testing.T) {
+	assert.Contains(t, registeredRules, RequestCeilingRule)
+	assert.Contains(t, registeredRules, RequestFloorRule)
 }
 
-func TestBlockScaleUpLeavesRecommendationWithoutCurrentRequest(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         120,
-		LowerBound:     90,
-		UpperBound:     130,
-		UncappedTarget: 140,
-	}
+func TestBuildResolvesRegisteredRule(t *testing.T) {
+	registerTestRule(t, "fake", func([]byte) (ScalingRule, error) {
+		return requestFloor{minimum: 0.5}, nil
+	})
 
-	got := (&BlockScaleUp{}).Apply(rec, "app", model.ResourceCPU, 0)
-
-	assert.Equal(t, rec, got)
+	rules, err := Build([]vhape_types.ScalingRule{{"fake": runtime.RawExtension{Raw: []byte(`{}`)}}})
+	assert.NoError(t, err)
+	assert.Equal(t, []ScalingRule{requestFloor{minimum: 0.5}}, rules)
 }
 
-func TestBlockScaleDown(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         80,
-		LowerBound:     70,
-		UpperBound:     130,
-		UncappedTarget: 60,
-	}
-
-	got := (&BlockScaleDown{}).Apply(rec, "app", model.ResourceCPU, 100)
-
-	assert.Equal(t, model.ResourceAmount(100), got.Target)
-	assert.Equal(t, model.ResourceAmount(100), got.LowerBound)
-	assert.Equal(t, model.ResourceAmount(130), got.UpperBound)
-	assert.Equal(t, model.ResourceAmount(60), got.UncappedTarget)
+func TestBuildRejectsUnknownRule(t *testing.T) {
+	_, err := Build([]vhape_types.ScalingRule{{"unknown": runtime.RawExtension{Raw: []byte(`{}`)}}})
+	assert.ErrorContains(t, err, `unsupported scaling rule "unknown"`)
 }
 
-func TestBlockScaleDownLeavesRecommendationWithoutCurrentRequest(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         80,
-		LowerBound:     70,
-		UpperBound:     130,
-		UncappedTarget: 60,
-	}
-
-	got := (&BlockScaleDown{}).Apply(rec, "app", model.ResourceCPU, 0)
-
-	assert.Equal(t, rec, got)
+func TestBuildPreservesPolicyOrder(t *testing.T) {
+	rules, err := Build([]vhape_types.ScalingRule{
+		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"maximum":"100%"}`)}},
+		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"minimum":"150%"}`)}},
+	})
+	assert.NoError(t, err)
+	assert.IsType(t, requestCeiling{}, rules[0])
+	assert.IsType(t, requestFloor{}, rules[1])
 }
 
-func TestBlockScaleUpAllValuesAboveCurrentRequest(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         150,
-		LowerBound:     120,
-		UpperBound:     200,
-		UncappedTarget: 150,
-	}
+func TestApplyRulesExecutesRulesInPolicyOrder(t *testing.T) {
+	rules, err := Build([]vhape_types.ScalingRule{
+		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"maximum":"100%"}`)}},
+		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"minimum":"150%"}`)}},
+	})
+	assert.NoError(t, err)
 
-	got := (&BlockScaleUp{}).Apply(rec, "app", model.ResourceCPU, 100)
-
-	assert.Equal(t, model.ResourceAmount(100), got.Target)
-	assert.Equal(t, model.ResourceAmount(100), got.LowerBound)
-	assert.Equal(t, model.ResourceAmount(100), got.UpperBound)
-	assert.Equal(t, model.ResourceAmount(150), got.UncappedTarget)
+	got := ApplyRules(rules, recommendation.SingleResourceRecommendation{
+		Target: 125, LowerBound: 125, UpperBound: 125,
+	}, model.ResourceAmount(100))
+	assert.Equal(t, model.ResourceAmount(150), got.Target)
 }
 
-func TestBlockScaleDownAllValuesBelowCurrentRequest(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         30,
-		LowerBound:     20,
-		UpperBound:     50,
-		UncappedTarget: 30,
-	}
-
-	got := (&BlockScaleDown{}).Apply(rec, "app", model.ResourceCPU, 100)
-
-	assert.Equal(t, model.ResourceAmount(100), got.Target)
-	assert.Equal(t, model.ResourceAmount(100), got.LowerBound)
-	assert.Equal(t, model.ResourceAmount(100), got.UpperBound)
-	assert.Equal(t, model.ResourceAmount(30), got.UncappedTarget)
-}
-
-func TestBlockScaleUpNegativeCurrentRequest(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         150,
-		LowerBound:     120,
-		UpperBound:     200,
-		UncappedTarget: 150,
-	}
-
-	got := (&BlockScaleUp{}).Apply(rec, "app", model.ResourceCPU, -5)
-
-	assert.Equal(t, rec, got)
-}
-
-func TestSelectScalingRuleEmptyString(t *testing.T) {
-	assert.Nil(t, SelectScalingRule(""))
-}
-
-func TestBlockScaleUpNoChangeWhenAlreadyAtCurrentRequest(t *testing.T) {
-	rec := recommendation.SingleResourceRecommendation{
-		Target:         100,
-		LowerBound:     80,
-		UpperBound:     100,
-		UncappedTarget: 120,
-	}
-
-	got := (&BlockScaleUp{}).Apply(rec, "app", model.ResourceCPU, 100)
-
-	assert.Equal(t, rec, got)
+func TestRegisterPanicsOnDuplicatedName(t *testing.T) {
+	registerTestRule(t, "fake", func([]byte) (ScalingRule, error) { return requestFloor{}, nil })
+	assert.PanicsWithValue(t, `scaling rule "fake" registered twice`, func() {
+		Register("fake", func([]byte) (ScalingRule, error) { return nil, fmt.Errorf("unreachable") })
+	})
 }

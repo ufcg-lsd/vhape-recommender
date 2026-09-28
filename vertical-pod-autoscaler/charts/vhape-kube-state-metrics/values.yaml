@@ -1,0 +1,112 @@
+image:
+  repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
+  # Empty tag falls back to "v<appVersion>".
+  tag: ""
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 300Mi
+
+service:
+  # vmagent's kubernetes-service-endpoints job discovers targets through these.
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+
+# Custom Resource State config. Exports target, lowerbound and upperbound for
+# cpu and memory from every VerticalPodAutoscaler.
+crsConfig:
+  kind: CustomResourceStateMetrics
+  spec:
+    resources:
+      - groupVersionKind:
+          group: autoscaling.k8s.io
+          version: v1
+          kind: VerticalPodAutoscaler
+        metricNamePrefix: kube_customresource
+        labelsFromPath:
+          namespace: [metadata, namespace]
+          verticalpodautoscaler: [metadata, name]
+          target_api_version: [spec, targetRef, apiVersion]
+          target_kind: [spec, targetRef, kind]
+          target_name: [spec, targetRef, name]
+        metrics:
+          # ---- target ----
+          - name: vpa_containerrecommendations_target
+            help: "VPA container recommendations target for cpu."
+            each:
+              type: Gauge
+              gauge:
+                path: [status, recommendation, containerRecommendations]
+                valueFrom: [target, cpu]
+                labelsFromPath:
+                  container: [containerName]
+            commonLabels:
+              resource: cpu
+              unit: core
+          - name: vpa_containerrecommendations_target
+            help: "VPA container recommendations target for memory."
+            each:
+              type: Gauge
+              gauge:
+                path: [status, recommendation, containerRecommendations]
+                valueFrom: [target, memory]
+                labelsFromPath:
+                  container: [containerName]
+            commonLabels:
+              resource: memory
+              unit: byte
+          # ---- lowerbound ----
+          - name: vpa_containerrecommendations_lowerbound
+            help: "VPA container recommendations lowerbound for cpu."
+            each:
+              type: Gauge
+              gauge:
+                path: [status, recommendation, containerRecommendations]
+                valueFrom: [lowerBound, cpu]
+                labelsFromPath:
+                  container: [containerName]
+            commonLabels:
+              resource: cpu
+              unit: core
+          - name: vpa_containerrecommendations_lowerbound
+            help: "VPA container recommendations lowerbound for memory."
+            each:
+              type: Gauge
+              gauge:
+                path: [status, recommendation, containerRecommendations]
+                valueFrom: [lowerBound, memory]
+                labelsFromPath:
+                  container: [containerName]
+            commonLabels:
+              resource: memory
+              unit: byte
+          # ---- upperbound ----
+          - name: vpa_containerrecommendations_upperbound
+            help: "VPA container recommendations upperbound for cpu."
+            each:
+              type: Gauge
+              gauge:
+                path: [status, recommendation, containerRecommendations]
+                valueFrom: [upperBound, cpu]
+                labelsFromPath:
+                  container: [containerName]
+            commonLabels:
+              resource: cpu
+              unit: core
+          - name: vpa_containerrecommendations_upperbound
+            help: "VPA container recommendations upperbound for memory."
+            each:
+              type: Gauge
+              gauge:
+                path: [status, recommendation, containerRecommendations]
+                valueFrom: [upperBound, memory]
+                labelsFromPath:
+                  container: [containerName]
+            commonLabels:
+              resource: memory
+              unit: byte

@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vhape-kube-state-metrics
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vhape-kube-state-metrics
+  template:
+    metadata:
+      labels:
+        app: vhape-kube-state-metrics
+      annotations:
+        checksum/crs-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: vhape-kube-state-metrics
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vhape-kube-state-metrics
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (printf "v%s" .Chart.AppVersion) }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --port=8080
+            - --telemetry-port=8081
+            - --custom-resource-state-only
+            - --custom-resource-state-config-file=/etc/vhape-kube-state-metrics/crs-config.yaml
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+            - name: telemetry
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http-metrics
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: telemetry
+          volumeMounts:
+            - name: crs-config
+              mountPath: /etc/vhape-kube-state-metrics
+              readOnly: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: crs-config
+          configMap:
+            name: vhape-kube-state-metrics-crs-config

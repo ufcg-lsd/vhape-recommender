@@ -149,18 +149,23 @@ type VhapePolicySpec struct {
 	// ManageHPA determines whether VHAPE manages the Horizontal Pod Autoscaler.
 	ManageHPA bool `json:"manageHpa"`
 
-	// Resources configures the heuristic used for each supported resource.
+	// Resources configures the heuristic and scaling rules used for each supported resource.
 	Resources VhapeResourcesSpec `json:"resources"`
-
-	// ScalingRule optionally restricts the direction of the recommendations.
-	// +optional
-	ScalingRule string `json:"scalingRule,omitempty"`
 }
 
-// VhapeResourcesSpec contains the heuristic configuration for each supported resource.
+// VhapeResourcesSpec contains the scaling configuration for each supported resource.
 type VhapeResourcesSpec struct {
-	CPU    ResourceHeuristics `json:"cpu"`
-	Memory ResourceHeuristics `json:"memory"`
+	CPU    ResourceScalingSpec `json:"cpu"`
+	Memory ResourceScalingSpec `json:"memory"`
+}
+
+// ResourceScalingSpec contains one heuristic and an ordered list of scaling
+// rules for a resource. Scaling rules are intentionally kept raw until their
+// implementations are added to the recommender.
+type ResourceScalingSpec struct {
+	ScalingHeuristic ResourceHeuristics `json:"scalingHeuristic"`
+	// +optional
+	ScalingRules []ScalingRule `json:"scalingRules,omitempty"`
 }
 
 // ResourceHeuristics maps a heuristic name to its parameters.
@@ -170,6 +175,10 @@ type VhapeResourcesSpec struct {
 // new heuristics can be added without touching this package. See
 // pkg/recommender/logic/estimators/heuristics.go.
 type ResourceHeuristics map[string]runtime.RawExtension
+
+// ScalingRule maps a scaling rule name to its parameters. Each item in a
+// resource's scalingRules list must contain exactly one rule.
+type ScalingRule map[string]runtime.RawExtension
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
