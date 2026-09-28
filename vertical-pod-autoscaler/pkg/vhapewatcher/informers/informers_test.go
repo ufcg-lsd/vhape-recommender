@@ -31,6 +31,9 @@ func TestNew(t *testing.T) {
 	if informers.Namespace == nil {
 		t.Fatal("Namespace informer is nil")
 	}
+	if informers.HPA == nil {
+		t.Fatal("HPA informer is nil")
+	}
 	if informers.VPA == nil {
 		t.Fatal("VPA informer is nil")
 	}
