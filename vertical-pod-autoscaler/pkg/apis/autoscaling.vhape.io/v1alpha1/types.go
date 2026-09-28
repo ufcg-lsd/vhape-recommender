@@ -146,6 +146,9 @@ type VhapePolicy struct {
 
 // VhapePolicySpec describes the recommendation behavior configured by a VhapePolicy.
 type VhapePolicySpec struct {
+	// ManageHPA determines whether VHAPE manages the Horizontal Pod Autoscaler.
+	ManageHPA bool `json:"manageHpa"`
+
 	// Resources configures the heuristic used for each supported resource.
 	Resources VhapeResourcesSpec `json:"resources"`
 
