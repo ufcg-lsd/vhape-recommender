@@ -66,6 +66,61 @@ func TestDeploymentHandlers(t *testing.T) {
 	})
 }
 
+func TestHPAHandlers(t *testing.T) {
+	t.Run("add enqueues target deployment", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAAdd(testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName))
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+	})
+
+	t.Run("add ignores unexpected object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAAdd("not-an-hpa")
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("add ignores non Deployment target", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		hpa := testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName)
+		hpa.Spec.ScaleTargetRef.Kind = "StatefulSet"
+		handler.onHPAAdd(hpa)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("update enqueues old and new targets", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAUpdate(
+			testutil.NewHPA("api-hpa", testutil.TestNamespace, "old-api"),
+			testutil.NewHPA("api-hpa", testutil.TestNamespace, "new-api"),
+		)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/old-api", "producao/new-api"})
+	})
+
+	t.Run("update ignores invalid old and enqueues new", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAUpdate("not-an-hpa", testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName))
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+	})
+
+	t.Run("delete is ignored", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPADelete(testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName))
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+}
+
 func TestVPAHandlers(t *testing.T) {
 	t.Run("add enqueues target deployment", func(t *testing.T) {
 		handler, sink := newHandler(t)

@@ -4,6 +4,7 @@ import (
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	"k8s.io/client-go/tools/cache"
@@ -36,6 +37,44 @@ func (h *Handler) onDeploymentUpdate(_, _ interface{}) {
 // generated VPA if needed.
 func (h *Handler) onDeploymentDelete(_ interface{}) {
 	klog.V(4).InfoS("Ignoring Deployment delete event")
+}
+
+// A new HPA may affect how its target Deployment is managed.
+func (h *Handler) onHPAAdd(obj interface{}) {
+	klog.V(4).InfoS("HPA add event")
+
+	hpa, ok := hpaFromObject(obj)
+	if !ok {
+		klog.V(4).InfoS("Ignoring HPA add event with unexpected object type")
+		return
+	}
+
+	h.enqueueDeploymentFromHPA(hpa)
+}
+
+// An HPA update may change its scaleTargetRef. Enqueue both the old and new
+// target identities so the reconciler can evaluate each affected Deployment.
+func (h *Handler) onHPAUpdate(oldObj, newObj interface{}) {
+	klog.V(4).InfoS("HPA update event")
+
+	oldHPA, ok := hpaFromObject(oldObj)
+	if ok {
+		h.enqueueDeploymentFromHPA(oldHPA)
+	} else {
+		klog.V(4).InfoS("Ignoring old object from HPA update event with unexpected object type")
+	}
+
+	newHPA, ok := hpaFromObject(newObj)
+	if ok {
+		h.enqueueDeploymentFromHPA(newHPA)
+	} else {
+		klog.V(4).InfoS("Ignoring new object from HPA update event with unexpected object type")
+	}
+}
+
+// HPA deletion does not require reconciling its target Deployment.
+func (h *Handler) onHPADelete(_ interface{}) {
+	klog.V(4).InfoS("Ignoring HPA delete event")
 }
 
 // A new VPA may create a conflict with a generated VPA or with a watched Deployment.
@@ -275,6 +314,21 @@ func (h *Handler) enqueueDeploymentFromVPA(vpa *vpav1.VerticalPodAutoscaler) {
 	h.sink.EnqueueDeployment(vpa.Namespace, ref.Name)
 }
 
+func (h *Handler) enqueueDeploymentFromHPA(hpa *autoscalingv2.HorizontalPodAutoscaler) {
+	if hpa == nil {
+		return
+	}
+
+	ref := hpa.Spec.ScaleTargetRef
+	if !vpaservice.IsDeploymentTarget(ref.APIVersion, ref.Kind, ref.Name) {
+		klog.V(4).InfoS("Ignoring HPA event for non-Deployment target", "hpa", klog.KObj(hpa), "apiVersion", ref.APIVersion, "kind", ref.Kind, "name", ref.Name)
+		return
+	}
+
+	klog.V(4).InfoS("Enqueuing Deployment from HPA event", "deployment", klog.KRef(hpa.Namespace, ref.Name), "hpa", klog.KObj(hpa))
+	h.sink.EnqueueDeployment(hpa.Namespace, ref.Name)
+}
+
 func (h *Handler) enqueueDeploymentFromIgnoredWorkload(ignored *vhapev1alpha1.VhapeIgnoredWorkload) {
 	if ignored == nil {
 		return
@@ -308,6 +362,11 @@ func (h *Handler) enqueueDeploymentFromIgnoredWorkload(ignored *vhapev1alpha1.Vh
 func deploymentFromObject(obj interface{}) (*appsv1.Deployment, bool) {
 	dep, ok := obj.(*appsv1.Deployment)
 	return dep, ok
+}
+
+func hpaFromObject(obj interface{}) (*autoscalingv2.HorizontalPodAutoscaler, bool) {
+	hpa, ok := obj.(*autoscalingv2.HorizontalPodAutoscaler)
+	return hpa, ok
 }
 
 func vpaFromObject(obj interface{}) (*vpav1.VerticalPodAutoscaler, bool) {

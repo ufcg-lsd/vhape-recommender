@@ -64,6 +64,15 @@ func (h *Handler) RegisterHandlerFunctionsOnInformers(informerSet *watcherinform
 			},
 		},
 		{
+			name:     "hpa",
+			receiver: informerReceiver(informerSet.HPA),
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    h.onHPAAdd,
+				UpdateFunc: h.onHPAUpdate,
+				DeleteFunc: h.onHPADelete,
+			},
+		},
+		{
 			name:     "vpa",
 			receiver: informerReceiver(informerSet.VPA),
 			handler: cache.ResourceEventHandlerFuncs{
