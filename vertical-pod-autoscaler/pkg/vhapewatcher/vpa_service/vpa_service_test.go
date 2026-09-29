@@ -19,7 +19,7 @@ import (
 )
 
 func TestNewVPAService(t *testing.T) {
-	client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
+	client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil, nil)
 	informer := informers.VPA
 
 	if _, err := vpaservice.NewVPAService(informer, client); err != nil {
@@ -665,6 +665,7 @@ func newTestService(t *testing.T, vpas ...*vpav1.VerticalPodAutoscaler) (*vpaser
 		nil,
 		nil,
 		vpas,
+		nil,
 	)
 
 	service, err := vpaservice.NewVPAService(informers.VPA, client)
