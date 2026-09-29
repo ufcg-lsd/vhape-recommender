@@ -15,7 +15,7 @@ For installation instructions, see [VHAPE Watcher installation](watcher-installa
 
 ## How it works
 
-The VHAPE Watcher continuously reconciles Deployments, VPAs, and watcher configuration resources.
+The VHAPE Watcher continuously reconciles Deployments, VPAs, HPAs, and watcher configuration resources.
 
 For each Deployment, the watcher resolves its scope and configuration in the following order:
 
@@ -39,8 +39,38 @@ A manual VPA provides workload-specific configuration. `VhapeWatchedNamespace` p
 
 When a deployment is not managed by Vhape Watcher or a manual VPA is present, any previously automatically created VPAs are thus deleted.
 
-Creating, updating or deleting any resource listed above causes affected deployments to be reconciled again.
+Changes to Deployments, VPAs, or watcher configuration resources cause affected Deployments to be reconciled again. HPA-specific event behavior is described below.
 
+## HPA management
+
+The `VhapePolicy` selected by a `VhapeWatchedNamespace` or `VhapeWatchedNamespaceRegex` contains the `spec.manageHpa` field:
+
+```yaml
+spec:
+  manageHpa: true
+```
+
+When it is `false`, the watcher manages the Deployment's VPA and leaves its HPAs unchanged. When it is `true`, the watcher also finds HPAs in the same namespace whose `scaleTargetRef` is the reconciled Deployment. Having no matching HPA is valid and requires no action.
+
+For matching HPAs, the watcher converts only `Resource` and `ContainerResource` metrics whose target type is `Utilization`. Targets already using `AverageValue` and all other metric types remain unchanged.
+
+The conversion uses the request currently declared in the Deployment's Pod template:
+
+```text
+averageValue = request * averageUtilization / 100
+```
+
+For example, a CPU target of `75%` and a total CPU request of `400m` become an `AverageValue` target of `300m`. The watcher patches the HPA target, clears `averageUtilization`, and records the percentage used for the conversion in the `autoscaling.vhape.io/original-hpa-utilization` annotation:
+
+```yaml
+metadata:
+  annotations:
+    autoscaling.vhape.io/original-hpa-utilization: '{"resource/cpu":75,"container/api/cpu":60}'
+```
+
+The map key identifies either a Pod-level resource metric (`resource/<resource>`) or a container resource metric (`container/<container>/<resource>`).
+
+The conversion is one-way: setting `manageHpa` to `false`, changing Deployment requests, or deleting the watcher does not restore an HPA target to `Utilization`.
 
 ## Watch namespaces by regex
 
