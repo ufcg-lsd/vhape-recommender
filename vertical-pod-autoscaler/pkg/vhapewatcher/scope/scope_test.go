@@ -16,7 +16,7 @@ import (
 )
 
 func TestNewScopeResolverFromCaches(t *testing.T) {
-	_, informerSet := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
+	_, informerSet := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	t.Run("returns scope with valid caches", func(t *testing.T) {
 		scope, err := New(informerSet)
@@ -54,6 +54,12 @@ func TestNewScopeResolverFromCaches(t *testing.T) {
 			name: "rejects nil VhapeWatchedNamespaceRegex informer",
 			clear: func(informers *watcherinformers.Informers) {
 				informers.VhapeWatchedNamespaceRegex = nil
+			},
+		},
+		{
+			name: "rejects nil VhapePolicy informer",
+			clear: func(informers *watcherinformers.Informers) {
+				informers.VhapePolicy = nil
 			},
 		},
 		{
@@ -454,6 +460,31 @@ func TestShouldManageDeploymentRejectsNilDeployment(t *testing.T) {
 	}
 }
 
+func TestShouldManageDeploymentCopiesManageHPAFromPolicy(t *testing.T) {
+	watched := testutil.NewWatchedNamespace(testutil.TestNamespace)
+	policy := &vhapev1alpha1.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: watched.Spec.VhapePolicyName},
+		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
+	}
+	scope := newScope(
+		t,
+		nil,
+		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		nil,
+		nil,
+		nil,
+		policy,
+	)
+
+	decision, err := scope.ShouldManageDeployment(testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName))
+	if err != nil {
+		t.Fatalf("ShouldManageDeployment() error = %v", err)
+	}
+	if !decision.ManageHPA {
+		t.Fatal("ShouldManageDeployment().ManageHPA = false, want true")
+	}
+}
+
 func TestGetIgnoredWorkload(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -515,6 +546,7 @@ func newScope(
 	watchedNamespaceRegexes []*vhapev1alpha1.VhapeWatchedNamespaceRegex,
 	ignoredNamespaces []*vhapev1alpha1.VhapeIgnoredNamespace,
 	ignoredWorkloads []*vhapev1alpha1.VhapeIgnoredWorkload,
+	policies ...*vhapev1alpha1.VhapePolicy,
 ) *Scope {
 	t.Helper()
 
@@ -527,6 +559,7 @@ func newScope(
 		ignoredNamespaces,
 		ignoredWorkloads,
 		nil,
+		policies,
 	)
 
 	scope, err := New(informers)

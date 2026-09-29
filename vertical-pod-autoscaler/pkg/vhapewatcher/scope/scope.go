@@ -24,6 +24,7 @@ const (
 // Decision describes whether VHAPE Watcher should manage a workload.
 type Decision struct {
 	ShouldManage  bool
+	ManageHPA     bool
 	Reason        string
 	DesiredConfig vhapev1alpha1.VhapeWatchedNamespaceSpec
 }
@@ -49,6 +50,9 @@ func New(informerSet *watcherinformers.Informers) (*Scope, error) {
 	}
 	if informerSet.VhapeWatchedNamespaceRegex == nil {
 		return nil, fmt.Errorf("vhape watched namespace regex informer is nil")
+	}
+	if informerSet.VhapePolicy == nil {
+		return nil, fmt.Errorf("vhape policy informer is nil")
 	}
 	if informerSet.VhapeIgnoredNamespace == nil {
 		return nil, fmt.Errorf("vhape ignored namespace informer is nil")
@@ -172,11 +176,7 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 	}
 
 	if watchedNamespace != nil {
-		return Decision{
-			ShouldManage:  true,
-			Reason:        ReasonWatched,
-			DesiredConfig: watchedNamespace.Spec,
-		}, nil
+		return s.managedDecision(ReasonWatched, watchedNamespace.Spec)
 	}
 
 	// Checks if namespace has a regex-selected configuration.
@@ -187,17 +187,43 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 	}
 
 	if oldestRegex := oldestWatchedNamespaceRegex(regexes); oldestRegex != nil {
-		return Decision{
-			ShouldManage:  true,
-			Reason:        ReasonRegexWatched,
-			DesiredConfig: oldestRegex.Spec.VhapeWatchedNamespaceSpec,
-		}, nil
+		return s.managedDecision(ReasonRegexWatched, oldestRegex.Spec.VhapeWatchedNamespaceSpec)
 	}
 
 	return Decision{
 		ShouldManage: false,
 		Reason:       ReasonNotWatched,
 	}, nil
+}
+
+// managedDecision resolves the VhapePolicy referenced by a watched namespace
+// configuration.
+func (s *Scope) managedDecision(reason string, config vhapev1alpha1.VhapeWatchedNamespaceSpec) (Decision, error) {
+	policy, err := s.GetVhapePolicy(config.VhapePolicyName)
+	if err != nil {
+		return Decision{}, err
+	}
+
+	return Decision{
+		ShouldManage:  true,
+		ManageHPA:     policy.Spec.ManageHPA,
+		Reason:        reason,
+		DesiredConfig: config,
+	}, nil
+}
+
+// GetVhapePolicy returns a VhapePolicy from the informer cache.
+func (s *Scope) GetVhapePolicy(name string) (*vhapev1alpha1.VhapePolicy, error) {
+	if name == "" {
+		return nil, fmt.Errorf("vhape policy name is empty")
+	}
+
+	policy, err := s.informers.VhapePolicy.Lister().Get(name)
+	if err != nil {
+		return nil, fmt.Errorf("get VhapePolicy %q from cache: %w", name, err)
+	}
+
+	return policy, nil
 }
 
 // GetWatchedNamespace returns a VhapeWatchedNamespace.
