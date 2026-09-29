@@ -141,13 +141,15 @@ func (r *Reconciler) runWorker(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 
 	for {
-		if shouldContinue := r.processNextWorkItem(ctx); !shouldContinue {
+		if shouldContinue := r.ProcessNextWorkItem(ctx); !shouldContinue {
 			return
 		}
 	}
 }
 
-func (r *Reconciler) processNextWorkItem(ctx context.Context) bool {
+// ProcessNextWorkItem processes one queued Deployment. It returns false when
+// the queue has been shut down and the worker should stop.
+func (r *Reconciler) ProcessNextWorkItem(ctx context.Context) bool {
 	key, queueClosed := r.queue.Get()
 	if queueClosed {
 		return false

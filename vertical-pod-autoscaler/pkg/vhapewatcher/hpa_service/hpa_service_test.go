@@ -195,6 +195,20 @@ func TestEnsureAverageValueValidatesConversionInputs(t *testing.T) {
 			deployment: validDeployment,
 		},
 		{
+			name: "rejects zero request",
+			hpa:  resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75),
+			deployment: deployment("production", "api", map[string]corev1.ResourceList{
+				"api": {corev1.ResourceCPU: resource.MustParse("0")},
+			}),
+		},
+		{
+			name: "rejects request multiplication overflow",
+			hpa:  resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 2),
+			deployment: deployment("production", "api", map[string]corev1.ResourceList{
+				"api": {corev1.ResourceCPU: resource.MustParse("9223372036854775807")},
+			}),
+		},
+		{
 			name: "rejects invalid saved utilization annotation",
 			hpa: func() *autoscalingv2.HorizontalPodAutoscaler {
 				hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
@@ -219,6 +233,18 @@ func TestEnsureAverageValueForDeploymentRejectsNilDeployment(t *testing.T) {
 	service, _ := newService(t)
 	if err := service.EnsureAverageValueForDeployment(context.Background(), nil); err == nil {
 		t.Fatal("EnsureAverageValueForDeployment() error = nil, want error")
+	}
+}
+
+func TestEnsureAverageValueForDeploymentReturnsConversionError(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {},
+	})
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
+	service, _ := newService(t, hpa)
+
+	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err == nil {
+		t.Fatal("EnsureAverageValueForDeployment() error = nil, want conversion error")
 	}
 }
 

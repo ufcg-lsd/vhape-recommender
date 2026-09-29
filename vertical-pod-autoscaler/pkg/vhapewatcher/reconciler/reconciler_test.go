@@ -2,9 +2,15 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
@@ -14,6 +20,7 @@ import (
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	kubefake "k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func TestNewReconciler(t *testing.T) {
@@ -73,6 +80,18 @@ func TestEnqueueDeploymentIgnoresEmptyIdentity(t *testing.T) {
 	r.EnqueueDeployment(testutil.TestNamespace, "")
 
 	assertQueuedKeys(t, r, nil)
+}
+
+func TestRunShutsDownQueueWhenContextIsCanceled(t *testing.T) {
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	r.Run(ctx, 0)
+
+	if !r.queue.ShuttingDown() {
+		t.Fatal("queue is not shutting down after canceled context")
+	}
 }
 
 func TestEnqueueDeploymentsInNamespace(t *testing.T) {
@@ -138,8 +157,8 @@ func TestProcessNextWorkItemReconcilesQueuedDeployment(t *testing.T) {
 
 	r.EnqueueDeployment(dep.Namespace, dep.Name)
 
-	if shouldContinue := r.processNextWorkItem(ctx); !shouldContinue {
-		t.Fatal("processNextWorkItem() returned false")
+	if shouldContinue := r.ProcessNextWorkItem(ctx); !shouldContinue {
+		t.Fatal("ProcessNextWorkItem() returned false")
 	}
 
 	createdVPA := testutil.GetVPA(t, client, dep.Namespace, vpaservice.NameForDeployment(dep))
@@ -161,8 +180,8 @@ func TestProcessNextWorkItemForgetsInvalidQueueKey(t *testing.T) {
 	key := "invalid/key/with/too/many/parts"
 	r.queue.Add(key)
 
-	if shouldContinue := r.processNextWorkItem(ctx); !shouldContinue {
-		t.Fatal("processNextWorkItem() returned false")
+	if shouldContinue := r.ProcessNextWorkItem(ctx); !shouldContinue {
+		t.Fatal("ProcessNextWorkItem() returned false")
 	}
 
 	if got := r.queue.Len(); got != 0 {
@@ -181,12 +200,21 @@ func TestProcessNextWorkItemRequeuesOnReconcileError(t *testing.T) {
 	key := testutil.TestNamespace + "/"
 	r.queue.Add(key)
 
-	if shouldContinue := r.processNextWorkItem(ctx); !shouldContinue {
-		t.Fatal("processNextWorkItem() returned false")
+	if shouldContinue := r.ProcessNextWorkItem(ctx); !shouldContinue {
+		t.Fatal("ProcessNextWorkItem() returned false")
 	}
 
 	if got := r.queue.NumRequeues(key); got != 1 {
 		t.Fatalf("NumRequeues(%q) = %d, want 1", key, got)
+	}
+}
+
+func TestProcessNextWorkItemStopsWhenQueueIsShutDown(t *testing.T) {
+	r, _ := newTestReconcilerWithState(t, nil, nil, nil, nil)
+	r.queue.ShutDown()
+
+	if shouldContinue := r.ProcessNextWorkItem(context.Background()); shouldContinue {
+		t.Fatal("ProcessNextWorkItem() returned true after queue shutdown")
 	}
 }
 
@@ -207,6 +235,42 @@ func TestReconcileDeploymentIgnoresMissingDeployment(t *testing.T) {
 
 	if err := r.ReconcileDeployment(context.Background(), testutil.TestNamespace, testutil.TestDeploymentName); err != nil {
 		t.Fatalf("ReconcileDeployment() returned error: %v", err)
+	}
+}
+
+func TestReconcileDeploymentReturnsScopeError(t *testing.T) {
+	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
+	watched := testutil.NewWatchedNamespace(dep.Namespace)
+	watched.Spec.VhapePolicyName = ""
+	r, _ := newTestReconcilerWithState(
+		t,
+		[]*appsv1.Deployment{dep},
+		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		nil,
+		nil,
+	)
+
+	if err := r.ReconcileDeployment(context.Background(), dep.Namespace, dep.Name); err == nil {
+		t.Fatal("ReconcileDeployment() error = nil, want scope error")
+	}
+}
+
+func TestReconcileDeploymentReturnsVPAEnsureError(t *testing.T) {
+	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
+	watched := testutil.NewWatchedNamespace(dep.Namespace)
+	r, client := newTestReconcilerWithState(
+		t,
+		[]*appsv1.Deployment{dep},
+		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		nil,
+		nil,
+	)
+	client.PrependReactor("create", "verticalpodautoscalers", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("create failed")
+	})
+
+	if err := r.ReconcileDeployment(context.Background(), dep.Namespace, dep.Name); err == nil {
+		t.Fatal("ReconcileDeployment() error = nil, want VPA ensure error")
 	}
 }
 
@@ -289,6 +353,83 @@ func TestReconcileDeploymentCreatesGeneratedVPAForWatchedDeployment(t *testing.T
 		vpaservice.NameForDeployment(dep),
 		watched.Spec,
 	)
+}
+
+func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagement(t *testing.T) {
+	ctx := context.Background()
+	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
+	dep.Spec.Template.Spec.Containers = []corev1.Container{{
+		Name: "api",
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("200m"),
+		}},
+	}}
+	watched := testutil.NewWatchedNamespace(dep.Namespace)
+	policy := &vhapev1alpha1.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: watched.Spec.VhapePolicyName},
+		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
+	}
+	utilization := int32(50)
+	hpa := &autoscalingv2.HorizontalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Name: "api-hpa", Namespace: dep.Namespace},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: appsv1.SchemeGroupVersion.String(),
+				Kind:       "Deployment",
+				Name:       dep.Name,
+			},
+			Metrics: []autoscalingv2.MetricSpec{{
+				Type: autoscalingv2.ResourceMetricSourceType,
+				Resource: &autoscalingv2.ResourceMetricSource{
+					Name: corev1.ResourceCPU,
+					Target: autoscalingv2.MetricTarget{
+						Type:               autoscalingv2.UtilizationMetricType,
+						AverageUtilization: &utilization,
+					},
+				},
+			}},
+		},
+	}
+
+	vpaClient, informers := testutil.NewInformers(
+		t,
+		[]*appsv1.Deployment{dep},
+		nil,
+		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		nil,
+		nil,
+		nil,
+		nil,
+		[]*vhapev1alpha1.VhapePolicy{policy},
+	)
+	testutil.AddToIndexer(t, informers.HPA.Informer().GetIndexer(), hpa)
+	kubeClient := kubefake.NewSimpleClientset(hpa.DeepCopy())
+	hpaService, err := hpaservice.NewHPAService(informers.HPA, kubeClient)
+	if err != nil {
+		t.Fatalf("NewHPAService() error = %v", err)
+	}
+	r, err := New(
+		informers.Deployment.Lister(),
+		newScopeResolver(t, informers),
+		hpaService,
+		newVPAService(t, informers, vpaClient),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); err != nil {
+		t.Fatalf("ReconcileDeployment() error = %v", err)
+	}
+
+	updated, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get patched HPA: %v", err)
+	}
+	target := updated.Spec.Metrics[0].Resource.Target
+	if target.Type != autoscalingv2.AverageValueMetricType || target.AverageValue == nil || target.AverageValue.MilliValue() != 100 {
+		t.Fatalf("HPA target = %#v, want AverageValue 100m", target)
+	}
 }
 
 func TestReconcileDeploymentPreservesManualVPAAndDeletesGeneratedVPA(t *testing.T) {
