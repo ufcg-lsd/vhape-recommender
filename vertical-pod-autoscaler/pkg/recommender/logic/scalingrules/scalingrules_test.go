@@ -39,8 +39,8 @@ func TestBuildRejectsUnknownRule(t *testing.T) {
 
 func TestBuildPreservesPolicyOrder(t *testing.T) {
 	rules, err := Build([]vhape_types.ScalingRule{
-		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"maximum":"100%"}`)}},
-		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"minimum":"150%"}`)}},
+		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"value":"100%"}`)}},
+		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"value":"150%"}`)}},
 	})
 	assert.NoError(t, err)
 	assert.IsType(t, requestCeiling{}, rules[0])
@@ -49,8 +49,8 @@ func TestBuildPreservesPolicyOrder(t *testing.T) {
 
 func TestApplyRulesExecutesRulesInPolicyOrder(t *testing.T) {
 	rules, err := Build([]vhape_types.ScalingRule{
-		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"maximum":"100%"}`)}},
-		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"minimum":"150%"}`)}},
+		{RequestCeilingRule: runtime.RawExtension{Raw: []byte(`{"value":"100%"}`)}},
+		{RequestFloorRule: runtime.RawExtension{Raw: []byte(`{"value":"150%"}`)}},
 	})
 	assert.NoError(t, err)
 

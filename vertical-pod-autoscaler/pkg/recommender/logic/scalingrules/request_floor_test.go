@@ -9,7 +9,7 @@ import (
 )
 
 func TestRequestFloor(t *testing.T) {
-	rule, err := newRequestFloor([]byte(`{"minimum":"150%"}`))
+	rule, err := newRequestFloor([]byte(`{"value":"150%"}`))
 	assert.NoError(t, err)
 
 	got := rule.Apply(recommendation.SingleResourceRecommendation{
@@ -22,7 +22,7 @@ func TestRequestFloor(t *testing.T) {
 }
 
 func TestRequestFloorLeavesValuesAboveLimit(t *testing.T) {
-	rule, err := newRequestFloor([]byte(`{"minimum":"150%"}`))
+	rule, err := newRequestFloor([]byte(`{"value":"150%"}`))
 	assert.NoError(t, err)
 
 	want := recommendation.SingleResourceRecommendation{
@@ -38,10 +38,10 @@ func TestRequestFloorRejectsInvalidParameters(t *testing.T) {
 		wantErr string
 	}{
 		{name: "malformed JSON", config: `{`, wantErr: "decode parameters"},
-		{name: "missing minimum", config: `{}`, wantErr: `missing "minimum"`},
-		{name: "additional field", config: `{"minimum":"150%","extra":"value"}`, wantErr: `unknown field "extra"`},
-		{name: "not a percentage", config: `{"minimum":"2"}`, wantErr: "must be a percentage"},
-		{name: "negative percentage", config: `{"minimum":"-1%"}`, wantErr: "invalid"},
+		{name: "missing value", config: `{}`, wantErr: `missing "value"`},
+		{name: "additional field", config: `{"value":"150%","extra":"value"}`, wantErr: `unknown field "extra"`},
+		{name: "not a percentage", config: `{"value":"2"}`, wantErr: "must be a percentage"},
+		{name: "negative percentage", config: `{"value":"-1%"}`, wantErr: "invalid"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
