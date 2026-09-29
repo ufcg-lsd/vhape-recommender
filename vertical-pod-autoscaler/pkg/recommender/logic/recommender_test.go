@@ -440,7 +440,7 @@ func TestGetRecommendedPodResourcesEmptyContainerStates(t *testing.T) {
 func TestGetRecommendedPodResourcesSkipsScalingRulesUntilInitialRequestsAreCached(t *testing.T) {
 	policy := newTestPolicyObject("policy", newTestPolicySpec())
 	policy.Spec.Resources.CPU.ScalingRules = []vhape_types.ScalingRule{{
-		scalingrules.RequestCeilingRule: {Raw: []byte(`{"maximum":"100%"}`)},
+		scalingrules.RequestCeilingRule: {Raw: []byte(`{"value":"100%"}`)},
 	}}
 	vpa := newTestVPA("default", "vpa", policy.Name)
 	state := model.NewAggregateContainerState()

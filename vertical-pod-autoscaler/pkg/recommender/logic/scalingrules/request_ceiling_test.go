@@ -9,7 +9,7 @@ import (
 )
 
 func TestRequestCeiling(t *testing.T) {
-	rule, err := newRequestCeiling([]byte(`{"maximum":"200%"}`))
+	rule, err := newRequestCeiling([]byte(`{"value":"200%"}`))
 	assert.NoError(t, err)
 
 	got := rule.Apply(recommendation.SingleResourceRecommendation{
@@ -22,7 +22,7 @@ func TestRequestCeiling(t *testing.T) {
 }
 
 func TestRequestCeilingLeavesValuesWithinLimit(t *testing.T) {
-	rule, err := newRequestCeiling([]byte(`{"maximum":"200%"}`))
+	rule, err := newRequestCeiling([]byte(`{"value":"200%"}`))
 	assert.NoError(t, err)
 
 	want := recommendation.SingleResourceRecommendation{
@@ -38,10 +38,10 @@ func TestRequestCeilingRejectsInvalidParameters(t *testing.T) {
 		wantErr string
 	}{
 		{name: "malformed JSON", config: `{`, wantErr: "decode parameters"},
-		{name: "missing maximum", config: `{}`, wantErr: `missing "maximum"`},
-		{name: "additional field", config: `{"maximum":"200%","extra":"value"}`, wantErr: `unknown field "extra"`},
-		{name: "not a percentage", config: `{"maximum":"2"}`, wantErr: "must be a percentage"},
-		{name: "negative percentage", config: `{"maximum":"-1%"}`, wantErr: "invalid"},
+		{name: "missing value", config: `{}`, wantErr: `missing "value"`},
+		{name: "additional field", config: `{"value":"200%","extra":"value"}`, wantErr: `unknown field "extra"`},
+		{name: "not a percentage", config: `{"value":"2"}`, wantErr: "must be a percentage"},
+		{name: "negative percentage", config: `{"value":"-1%"}`, wantErr: "invalid"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

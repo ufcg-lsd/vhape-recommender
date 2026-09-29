@@ -73,8 +73,8 @@ Rules compare the recommendation with the workload request captured when the VPA
 
 | Rule | Parameters | Meaning |
 | --- | --- | --- |
-| `request-ceiling` | `maximum` | Caps `target`, `lowerBound`, and `upperBound` at a percentage of the captured initial request. |
-| `request-floor` | `minimum` | Raises `target`, `lowerBound`, and `upperBound` to a percentage of the captured initial request. |
+| `request-ceiling` | `value` | Caps `target`, `lowerBound`, and `upperBound` at a percentage of the captured initial request. |
+| `request-floor` | `value` | Raises `target`, `lowerBound`, and `upperBound` to a percentage of the captured initial request. |
 
 Percentages are non-negative strings with a `%` suffix. For example, `200%` is twice the captured request, `100%` is the captured request, and `50%` is half of it.
 

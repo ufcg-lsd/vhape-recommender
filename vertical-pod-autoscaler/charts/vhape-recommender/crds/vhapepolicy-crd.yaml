@@ -73,17 +73,17 @@ spec:
                               request-ceiling:
                                 type: object
                                 required:
-                                  - maximum
+                                  - value
                                 properties:
-                                  maximum:
+                                  value:
                                     type: string
                                     pattern: '^[0-9]+(\.[0-9]+)?%$'
                               request-floor:
                                 type: object
                                 required:
-                                  - minimum
+                                  - value
                                 properties:
-                                  minimum:
+                                  value:
                                     type: string
                                     pattern: '^[0-9]+(\.[0-9]+)?%$'
                     memory:
@@ -125,16 +125,16 @@ spec:
                               request-ceiling:
                                 type: object
                                 required:
-                                  - maximum
+                                  - value
                                 properties:
-                                  maximum:
+                                  value:
                                     type: string
                                     pattern: '^[0-9]+(\.[0-9]+)?%$'
                               request-floor:
                                 type: object
                                 required:
-                                  - minimum
+                                  - value
                                 properties:
-                                  minimum:
+                                  value:
                                     type: string
                                     pattern: '^[0-9]+(\.[0-9]+)?%$'

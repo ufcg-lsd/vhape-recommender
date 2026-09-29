@@ -148,7 +148,7 @@ resources:
   cpu:
     scalingRules:
       - request-ceiling:
-          maximum: "100%"
+          value: "100%"
 ```
 
 Check the VHAPE Recommender logs to identify why a recommendation is being constrained, falling back to the current request, or having its scaling rules skipped while the initial-request snapshot is unavailable:

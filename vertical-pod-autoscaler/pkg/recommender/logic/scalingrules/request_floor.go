@@ -19,14 +19,14 @@ func init() {
 
 func newRequestFloor(raw []byte) (ScalingRule, error) {
 	var parameters struct {
-		Minimum string `json:"minimum"`
+		Value string `json:"value"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&parameters); err != nil {
 		return nil, fmt.Errorf("decode parameters: %w", err)
 	}
-	minimum, err := parsePercentage(parameters.Minimum, "minimum")
+	minimum, err := parsePercentage(parameters.Value, "value")
 	if err != nil {
 		return nil, err
 	}

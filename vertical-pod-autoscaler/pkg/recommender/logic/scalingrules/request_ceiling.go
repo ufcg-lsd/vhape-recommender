@@ -19,14 +19,14 @@ func init() {
 
 func newRequestCeiling(raw []byte) (ScalingRule, error) {
 	var parameters struct {
-		Maximum string `json:"maximum"`
+		Value string `json:"value"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&parameters); err != nil {
 		return nil, fmt.Errorf("decode parameters: %w", err)
 	}
-	maximum, err := parsePercentage(parameters.Maximum, "maximum")
+	maximum, err := parsePercentage(parameters.Value, "value")
 	if err != nil {
 		return nil, err
 	}
