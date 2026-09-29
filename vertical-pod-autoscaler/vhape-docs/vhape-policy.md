@@ -18,7 +18,7 @@ kind: VhapePolicy
 metadata:
   name: p93-percentile-hysteresis
 spec:
-  manageHpa: true
+  manageHpa: false
   resources:
     cpu:
       scalingHeuristic:
