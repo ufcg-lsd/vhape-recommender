@@ -9,6 +9,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	hpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/hpa_service"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	appslisters "k8s.io/client-go/listers/apps/v1"
@@ -26,6 +27,7 @@ const (
 type Reconciler struct {
 	deploymentLister appslisters.DeploymentLister
 	scope            *watcherscope.Scope
+	hpaService       *hpaservice.HPAService
 	vpaService       *vpaservice.VPAService
 
 	queue workqueue.TypedRateLimitingInterface[string]
@@ -34,6 +36,7 @@ type Reconciler struct {
 func New(
 	deploymentLister appslisters.DeploymentLister,
 	scopeResolver *watcherscope.Scope,
+	hpaService *hpaservice.HPAService,
 	vpaService *vpaservice.VPAService,
 ) (*Reconciler, error) {
 	if deploymentLister == nil {
@@ -41,6 +44,9 @@ func New(
 	}
 	if scopeResolver == nil {
 		return nil, fmt.Errorf("scope resolver is nil")
+	}
+	if hpaService == nil {
+		return nil, fmt.Errorf("hpa service is nil")
 	}
 	if vpaService == nil {
 		return nil, fmt.Errorf("vpa service is nil")
@@ -56,6 +62,7 @@ func New(
 	return &Reconciler{
 		deploymentLister: deploymentLister,
 		scope:            scopeResolver,
+		hpaService:       hpaService,
 		vpaService:       vpaService,
 		queue:            queue,
 	}, nil
@@ -264,7 +271,15 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		"generatedVPAs", managedCount,
 	)
 
-	return r.vpaService.EnsureOneGeneratedVPAForDeployment(ctx, dep, vpas, decision.DesiredConfig)
+	if err := r.vpaService.EnsureOneGeneratedVPAForDeployment(ctx, dep, vpas, decision.DesiredConfig); err != nil {
+		return err
+	}
+
+	if !decision.ManageHPA {
+		return nil
+	}
+
+	return r.hpaService.EnsureAverageValueForDeployment(ctx, dep)
 }
 
 func namespacedKey(namespace, name string) string {

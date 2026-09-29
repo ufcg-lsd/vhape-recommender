@@ -8,20 +8,23 @@ import (
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vpafake "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/clientset/versioned/fake"
+	hpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/hpa_service"
 	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 )
 
 func TestNewReconciler(t *testing.T) {
-	client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil)
+	client, informers := testutil.NewInformers(t, nil, nil, nil, nil, nil, nil, nil, nil)
 	deploymentLister := informers.Deployment.Lister()
 	scopeResolver := newScopeResolver(t, informers)
 	vpaService := newVPAService(t, informers, client)
+	hpaService := newHPAService(t, informers)
 
 	t.Run("returns reconciler with valid dependencies", func(t *testing.T) {
-		r, err := New(deploymentLister, scopeResolver, vpaService)
+		r, err := New(deploymentLister, scopeResolver, hpaService, vpaService)
 		if err != nil {
 			t.Fatalf("New() returned error: %v", err)
 		}
@@ -31,20 +34,26 @@ func TestNewReconciler(t *testing.T) {
 	})
 
 	t.Run("rejects nil deployment lister", func(t *testing.T) {
-		if _, err := New(nil, scopeResolver, vpaService); err == nil {
+		if _, err := New(nil, scopeResolver, hpaService, vpaService); err == nil {
 			t.Fatal("expected error for nil deployment lister")
 		}
 	})
 
 	t.Run("rejects nil scope resolver", func(t *testing.T) {
-		if _, err := New(deploymentLister, nil, vpaService); err == nil {
+		if _, err := New(deploymentLister, nil, hpaService, vpaService); err == nil {
 			t.Fatal("expected error for nil scope resolver")
 		}
 	})
 
 	t.Run("rejects nil vpa service", func(t *testing.T) {
-		if _, err := New(deploymentLister, scopeResolver, nil); err == nil {
+		if _, err := New(deploymentLister, scopeResolver, hpaService, nil); err == nil {
 			t.Fatal("expected error for nil vpa service")
+		}
+	})
+
+	t.Run("rejects nil hpa service", func(t *testing.T) {
+		if _, err := New(deploymentLister, scopeResolver, nil, vpaService); err == nil {
+			t.Fatal("expected error for nil hpa service")
 		}
 	})
 }
@@ -428,12 +437,14 @@ func newTestReconcilerWithState(
 		nil,
 		ignoredWorkloads,
 		vpas,
+		nil,
 	)
 
 	scopeResolver := newScopeResolver(t, informers)
 	vpaService := newVPAService(t, informers, client)
 
-	r, err := New(informers.Deployment.Lister(), scopeResolver, vpaService)
+	hpaService := newHPAService(t, informers)
+	r, err := New(informers.Deployment.Lister(), scopeResolver, hpaService, vpaService)
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
@@ -462,6 +473,17 @@ func newVPAService(
 	service, err := vpaservice.NewVPAService(informers.VPA, client)
 	if err != nil {
 		t.Fatalf("NewVPAService() returned error: %v", err)
+	}
+
+	return service
+}
+
+func newHPAService(t *testing.T, informers *watcherinformers.Informers) *hpaservice.HPAService {
+	t.Helper()
+
+	service, err := hpaservice.NewHPAService(informers.HPA, kubefake.NewSimpleClientset())
+	if err != nil {
+		t.Fatalf("NewHPAService() returned error: %v", err)
 	}
 
 	return service
