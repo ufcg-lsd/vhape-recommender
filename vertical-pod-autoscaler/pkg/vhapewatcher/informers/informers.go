@@ -26,6 +26,7 @@ type Informers struct {
 	Namespace                  coreinformers.NamespaceInformer
 	HPA                        hpainformers.HorizontalPodAutoscalerInformer
 	VPA                        autoscalinginformers.VerticalPodAutoscalerInformer
+	VhapePolicy                vhapev1alpha1informers.VhapePolicyInformer
 	VhapeWatchedNamespace      vhapev1alpha1informers.VhapeWatchedNamespaceInformer
 	VhapeWatchedNamespaceRegex vhapev1alpha1informers.VhapeWatchedNamespaceRegexInformer
 	VhapeIgnoredNamespace      vhapev1alpha1informers.VhapeIgnoredNamespaceInformer
@@ -67,6 +68,11 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1().
 		VerticalPodAutoscalers()
 
+	policyInformer := vhapeFactory.
+		VhapeAutoscaling().
+		V1alpha1().
+		VhapePolicies()
+
 	watchedNamespaceInformer := vhapeFactory.
 		VhapeAutoscaling().
 		V1alpha1().
@@ -94,6 +100,7 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		Namespace:                  namespaceInformer,
 		HPA:                        hpaInformer,
 		VPA:                        vpaInformer,
+		VhapePolicy:                policyInformer,
 		VhapeWatchedNamespace:      watchedNamespaceInformer,
 		VhapeWatchedNamespaceRegex: watchedNamespaceRegexInformer,
 		VhapeIgnoredNamespace:      ignoredNamespaceInformer,
@@ -105,6 +112,7 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 	informerSet.Namespace.Informer()
 	informerSet.HPA.Informer()
 	informerSet.VPA.Informer()
+	informerSet.VhapePolicy.Informer()
 	informerSet.VhapeWatchedNamespace.Informer()
 	informerSet.VhapeWatchedNamespaceRegex.Informer()
 	informerSet.VhapeIgnoredNamespace.Informer()
@@ -136,6 +144,7 @@ func (i *Informers) WaitForCacheSync(stopCh <-chan struct{}) error {
 		i.Namespace.Informer().HasSynced,
 		i.HPA.Informer().HasSynced,
 		i.VPA.Informer().HasSynced,
+		i.VhapePolicy.Informer().HasSynced,
 		i.VhapeWatchedNamespace.Informer().HasSynced,
 		i.VhapeWatchedNamespaceRegex.Informer().HasSynced,
 		i.VhapeIgnoredNamespace.Informer().HasSynced,

@@ -37,6 +37,9 @@ func TestNew(t *testing.T) {
 	if informers.VPA == nil {
 		t.Fatal("VPA informer is nil")
 	}
+	if informers.VhapePolicy == nil {
+		t.Fatal("VhapePolicy informer is nil")
+	}
 	if informers.VhapeWatchedNamespace == nil {
 		t.Fatal("VhapeWatchedNamespace informer is nil")
 	}

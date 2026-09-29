@@ -60,6 +60,7 @@ rules:
       - vhapewatchednamespaceregexes
       - vhapeignorednamespaces
       - vhapeignoredworkloads
+      - vhapepolicies
     verbs:
       - get
       - list
