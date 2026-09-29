@@ -29,7 +29,7 @@ rules:
       - list
       - watch
 
-  # HPAs watched by VHAPE Watcher.
+  # HPAs watched and adjusted by VHAPE Watcher.
   - apiGroups:
       - autoscaling
     resources:
@@ -38,6 +38,7 @@ rules:
       - get
       - list
       - watch
+      - patch
 
   # VPA objects created and maintained by VHAPE Watcher.
   - apiGroups:
