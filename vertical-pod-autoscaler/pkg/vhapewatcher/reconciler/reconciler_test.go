@@ -274,6 +274,68 @@ func TestReconcileDeploymentReturnsVPAEnsureError(t *testing.T) {
 	}
 }
 
+func TestReconcileDeploymentEnsuresVPAWhenHPAManagementFails(t *testing.T) {
+	ctx := context.Background()
+	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
+	dep.Spec.Template.Spec.Containers = []corev1.Container{{
+		Name: "api",
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("200m"),
+		}},
+	}}
+	watched := testutil.NewWatchedNamespace(dep.Namespace)
+	policy := &vhapev1alpha1.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: watched.Spec.VhapePolicyName},
+		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
+	}
+	utilization := int32(50)
+	hpa := testutil.NewHPA("api-hpa", dep.Namespace, dep.Name)
+	hpa.Spec.Metrics = []autoscalingv2.MetricSpec{{
+		Type: autoscalingv2.ResourceMetricSourceType,
+		Resource: &autoscalingv2.ResourceMetricSource{
+			Name: corev1.ResourceCPU,
+			Target: autoscalingv2.MetricTarget{
+				Type:               autoscalingv2.UtilizationMetricType,
+				AverageUtilization: &utilization,
+			},
+		},
+	}}
+
+	vpaClient, informers := testutil.NewInformers(
+		t,
+		[]*appsv1.Deployment{dep},
+		nil,
+		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		nil,
+		nil,
+		nil,
+		nil,
+		[]*vhapev1alpha1.VhapePolicy{policy},
+	)
+	testutil.AddToIndexer(t, informers.HPA.Informer().GetIndexer(), hpa)
+	kubeClient := kubefake.NewSimpleClientset(hpa.DeepCopy())
+	wantErr := errors.New("update HPA failed")
+	kubeClient.PrependReactor("update", "horizontalpodautoscalers", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, wantErr
+	})
+	hpaService, err := hpaservice.NewHPAService(informers.HPA, kubeClient)
+	if err != nil {
+		t.Fatalf("NewHPAService() error = %v", err)
+	}
+	r, err := New(informers.Deployment.Lister(), newScopeResolver(t, informers), hpaService, newVPAService(t, informers, vpaClient))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	err = r.ReconcileDeployment(ctx, dep.Namespace, dep.Name)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("ReconcileDeployment() error = %v, want wrapped %v", err, wantErr)
+	}
+
+	createdVPA := testutil.GetVPA(t, vpaClient, dep.Namespace, vpaservice.NameForDeployment(dep))
+	testutil.AssertGeneratedVPA(t, createdVPA, dep, vpaservice.NameForDeployment(dep), watched.Spec)
+}
+
 func TestReconcileDeploymentOutsideWatchedNamespaceDeletesGeneratedVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
@@ -355,7 +417,7 @@ func TestReconcileDeploymentCreatesGeneratedVPAForWatchedDeployment(t *testing.T
 	)
 }
 
-func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagement(t *testing.T) {
+func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagementWithManualVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
 	dep.Spec.Template.Spec.Containers = []corev1.Container{{
@@ -390,6 +452,7 @@ func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagement(t *testing.T)
 			}},
 		},
 	}
+	manualVPA := testutil.NewVPA("manual-api", dep.Namespace, dep.Name)
 
 	vpaClient, informers := testutil.NewInformers(
 		t,
@@ -399,7 +462,7 @@ func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagement(t *testing.T)
 		nil,
 		nil,
 		nil,
-		nil,
+		[]*vpav1.VerticalPodAutoscaler{manualVPA},
 		[]*vhapev1alpha1.VhapePolicy{policy},
 	)
 	testutil.AddToIndexer(t, informers.HPA.Informer().GetIndexer(), hpa)
@@ -424,12 +487,13 @@ func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagement(t *testing.T)
 
 	updated, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get patched HPA: %v", err)
+		t.Fatalf("get updated HPA: %v", err)
 	}
 	target := updated.Spec.Metrics[0].Resource.Target
 	if target.Type != autoscalingv2.AverageValueMetricType || target.AverageValue == nil || target.AverageValue.MilliValue() != 100 {
 		t.Fatalf("HPA target = %#v, want AverageValue 100m", target)
 	}
+	testutil.AssertVPAExists(t, vpaClient, manualVPA.Namespace, manualVPA.Name)
 }
 
 func TestReconcileDeploymentPreservesManualVPAAndDeletesGeneratedVPA(t *testing.T) {

@@ -2,9 +2,11 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -208,6 +210,29 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		return err
 	}
 
+	return errors.Join(
+		r.reconcileHPA(ctx, dep, decision),
+		r.reconcileVPA(ctx, dep, decision),
+	)
+}
+
+func (r *Reconciler) reconcileHPA(
+	ctx context.Context,
+	dep *appsv1.Deployment,
+	decision watcherscope.Decision,
+) error {
+	if !decision.ShouldManage || !decision.ManageHPA {
+		return nil
+	}
+
+	return r.hpaService.EnsureAverageValueForDeployment(ctx, dep)
+}
+
+func (r *Reconciler) reconcileVPA(
+	ctx context.Context,
+	dep *appsv1.Deployment,
+	decision watcherscope.Decision,
+) error {
 	vpas, err := r.vpaService.ListForDeployment(dep)
 	if err != nil {
 		return err
@@ -277,11 +302,7 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		return err
 	}
 
-	if !decision.ManageHPA {
-		return nil
-	}
-
-	return r.hpaService.EnsureAverageValueForDeployment(ctx, dep)
+	return nil
 }
 
 func namespacedKey(namespace, name string) string {
