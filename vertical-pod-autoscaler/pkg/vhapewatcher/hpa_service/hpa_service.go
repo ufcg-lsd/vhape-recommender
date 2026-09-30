@@ -231,15 +231,17 @@ func averageValueForRequest(
 
 // deploymentRequest returns the current request represented by an HPA metric.
 // For a Resource metric (containerName empty), it sums the resource request of
-// every regular container in the Deployment template. For a ContainerResource
-// metric, it returns the request of that named container only.
+// every regular container and restartable init container in the Deployment
+// template. For a ContainerResource metric, it returns the request of that
+// named container only.
 func deploymentRequest(dep *appsv1.Deployment, resourceName corev1.ResourceName, containerName string) (resource.Quantity, error) {
 	if dep == nil {
 		return resource.Quantity{}, fmt.Errorf("deployment is nil")
 	}
 
+	containers := hpaContainers(dep)
 	if containerName != "" {
-		for _, container := range dep.Spec.Template.Spec.Containers {
+		for _, container := range containers {
 			if container.Name != containerName {
 				continue
 			}
@@ -256,7 +258,7 @@ func deploymentRequest(dep *appsv1.Deployment, resourceName corev1.ResourceName,
 
 	var total resource.Quantity
 	found := false
-	for _, container := range dep.Spec.Template.Spec.Containers {
+	for _, container := range containers {
 		request, exists := container.Resources.Requests[resourceName]
 		if !exists {
 			continue
@@ -271,6 +273,22 @@ func deploymentRequest(dep *appsv1.Deployment, resourceName corev1.ResourceName,
 	}
 
 	return total, nil
+}
+
+// hpaContainers returns the containers that remain running while an HPA
+// evaluates a Pod: regular containers and native sidecars, represented as
+// init containers with restartPolicy Always.
+func hpaContainers(dep *appsv1.Deployment) []corev1.Container {
+	containers := append([]corev1.Container(nil), dep.Spec.Template.Spec.Containers...)
+	for _, initContainer := range dep.Spec.Template.Spec.InitContainers {
+		if initContainer.RestartPolicy == nil || *initContainer.RestartPolicy != corev1.ContainerRestartPolicyAlways {
+			continue
+		}
+
+		containers = append(containers, initContainer)
+	}
+
+	return containers
 }
 
 // originalUtilizations decodes the utilizations previously written by this

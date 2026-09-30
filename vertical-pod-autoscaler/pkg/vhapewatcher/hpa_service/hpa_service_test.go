@@ -131,6 +131,34 @@ func TestEnsureAverageValueForDeploymentConvertsContainerResourceMetric(t *testi
 	}
 }
 
+func TestEnsureAverageValueForDeploymentIncludesRestartableInitContainer(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
+	})
+	restartAlways := corev1.ContainerRestartPolicyAlways
+	dep.Spec.Template.Spec.InitContainers = []corev1.Container{{
+		Name:          "proxy",
+		RestartPolicy: &restartAlways,
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("300m"),
+		}},
+	}}
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
+
+	service, client := newService(t, hpa)
+	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureAverageValueForDeployment() error = %v", err)
+	}
+
+	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated HPA: %v", err)
+	}
+	if got := updated.Spec.Metrics[0].Resource.Target.AverageValue.MilliValue(); got != 300 {
+		t.Fatalf("AverageValue = %dm, want 300m", got)
+	}
+}
+
 func TestEnsureAverageValueForDeploymentDoesNothingWithoutMatchingHPA(t *testing.T) {
 	dep := deployment("production", "api", map[string]corev1.ResourceList{
 		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
