@@ -6,14 +6,12 @@ import (
 	"fmt"
 	"math"
 
-	jsonpatch "gopkg.in/evanphx/json-patch.v4"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	hpainformers "k8s.io/client-go/informers/autoscaling/v2"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/klog/v2"
@@ -112,14 +110,17 @@ func (s *HPAService) EnsureAverageValue(
 	var savedUtilizations map[string]int32
 	for index := range modified.Spec.Metrics {
 		metric := &modified.Spec.Metrics[index]
-		info, ok := metricTarget(metric)
+		metricInfo, ok := metricTarget(metric)
 		if !ok {
 			continue
 		}
-		if info.target.Type != autoscalingv2.UtilizationMetricType || info.target.AverageUtilization == nil {
+		if metricInfo.target.Type != autoscalingv2.UtilizationMetricType || metricInfo.target.AverageUtilization == nil {
 			continue
 		}
 		if savedUtilizations == nil {
+			// The annotation is needed only when converting a Utilization target.
+			// Decode it once at the first conversion, avoiding an error from a
+			// malformed annotation even though this HPA has nothing to convert.
 			var err error
 			savedUtilizations, err = originalUtilizations(hpa.Annotations)
 			if err != nil {
@@ -127,18 +128,18 @@ func (s *HPAService) EnsureAverageValue(
 			}
 		}
 
-		utilization := *info.target.AverageUtilization
+		utilization := *metricInfo.target.AverageUtilization
 
-		averageValue, err := averageValueForRequest(dep, info.resourceName, info.containerName, utilization)
+		averageValue, err := averageValueForRequest(dep, metricInfo.resourceName, metricInfo.containerName, utilization)
 		if err != nil {
-			return nil, fmt.Errorf("convert HPA %q/%q metric %q: %w", hpa.Namespace, hpa.Name, info.annotationKey, err)
+			return nil, fmt.Errorf("convert HPA %q/%q metric %q: %w", hpa.Namespace, hpa.Name, metricInfo.annotationKey, err)
 		}
 
-		savedUtilizations[info.annotationKey] = utilization
+		savedUtilizations[metricInfo.annotationKey] = utilization
 
-		info.target.Type = autoscalingv2.AverageValueMetricType
-		info.target.AverageValue = &averageValue
-		info.target.AverageUtilization = nil
+		metricInfo.target.Type = autoscalingv2.AverageValueMetricType
+		metricInfo.target.AverageValue = &averageValue
+		metricInfo.target.AverageUtilization = nil
 		changed = true
 	}
 
@@ -155,32 +156,17 @@ func (s *HPAService) EnsureAverageValue(
 	}
 	modified.Annotations[OriginalUtilizationAnnotation] = string(payload)
 
-	currentJSON, err := json.Marshal(hpa)
-	if err != nil {
-		return nil, fmt.Errorf("marshal current HPA: %w", err)
-	}
-	modifiedJSON, err := json.Marshal(modified)
-	if err != nil {
-		return nil, fmt.Errorf("marshal modified HPA: %w", err)
-	}
-	patch, err := jsonpatch.CreateMergePatch(currentJSON, modifiedJSON)
-	if err != nil {
-		return nil, fmt.Errorf("create HPA merge patch: %w", err)
-	}
-
-	patched, err := s.client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Patch(
+	updated, err := s.client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Update(
 		ctx,
-		hpa.Name,
-		types.MergePatchType,
-		patch,
-		metav1.PatchOptions{},
+		modified,
+		metav1.UpdateOptions{},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("patch HPA %q/%q: %w", hpa.Namespace, hpa.Name, err)
+		return nil, fmt.Errorf("update HPA %q/%q: %w", hpa.Namespace, hpa.Name, err)
 	}
 
-	klog.InfoS("Converted HPA utilization targets to average values", "hpa", klog.KObj(patched), "deployment", klog.KObj(dep))
-	return patched, nil
+	klog.InfoS("Converted HPA utilization targets to average values", "hpa", klog.KObj(updated), "deployment", klog.KObj(dep))
+	return updated, nil
 }
 
 // metricTarget extracts the target and request data from resource-based
@@ -299,6 +285,11 @@ func originalUtilizations(annotations map[string]string) (map[string]int32, erro
 
 	if err := json.Unmarshal([]byte(annotations[OriginalUtilizationAnnotation]), &utilizations); err != nil {
 		return nil, err
+	}
+	// json.Unmarshal accepts the valid JSON literal "null" and, in that case,
+	// sets the utilization map to nil. Reinitialize it because the caller adds converted metrics to it.
+	if utilizations == nil {
+		utilizations = make(map[string]int32)
 	}
 	return utilizations, nil
 }

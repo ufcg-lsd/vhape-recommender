@@ -38,7 +38,7 @@ rules:
       - get
       - list
       - watch
-      - patch
+      - update
 
   # VPA objects created and maintained by VHAPE Watcher.
   - apiGroups:

@@ -30,16 +30,33 @@ func TestEnsureAverageValueForDeploymentConvertsUtilizationMetrics(t *testing.T)
 		},
 	})
 	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
-	hpa.Annotations = map[string]string{hpaservice.OriginalUtilizationAnnotation: `{"resource/cpu":50}`}
+	hpa.Annotations = map[string]string{hpaservice.OriginalUtilizationAnnotation: `{"resource/cpu":50,"resource/memory":60}`}
+	hpa.ResourceVersion = "7"
 
 	service, client := newService(t, hpa)
 	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureAverageValueForDeployment() error = %v", err)
 	}
 
+	actions := client.Actions()
+	if len(actions) != 1 {
+		t.Fatalf("client actions = %#v, want one update action", actions)
+	}
+	updateAction, ok := actions[0].(k8stesting.UpdateAction)
+	if !ok {
+		t.Fatalf("client action = %T, want UpdateAction", actions[0])
+	}
+	updatedRequest, ok := updateAction.GetObject().(*autoscalingv2.HorizontalPodAutoscaler)
+	if !ok {
+		t.Fatalf("update object = %T, want HorizontalPodAutoscaler", updateAction.GetObject())
+	}
+	if updatedRequest.ResourceVersion != hpa.ResourceVersion {
+		t.Fatalf("updated resourceVersion = %q, want %q", updatedRequest.ResourceVersion, hpa.ResourceVersion)
+	}
+
 	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get patched HPA: %v", err)
+		t.Fatalf("get updated HPA: %v", err)
 	}
 	target := updated.Spec.Metrics[0].Resource.Target
 	if target.Type != autoscalingv2.AverageValueMetricType {
@@ -58,6 +75,34 @@ func TestEnsureAverageValueForDeploymentConvertsUtilizationMetrics(t *testing.T)
 	}
 	if got := originals["resource/cpu"]; got != 75 {
 		t.Fatalf("original CPU utilization = %d, want 75", got)
+	}
+	if got := originals["resource/memory"]; got != 60 {
+		t.Fatalf("original memory utilization = %d, want 60", got)
+	}
+}
+
+func TestEnsureAverageValueTreatsNullOriginalUtilizationAsEmpty(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {corev1.ResourceCPU: resource.MustParse("200m")},
+	})
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 50)
+	hpa.Annotations = map[string]string{hpaservice.OriginalUtilizationAnnotation: "null"}
+
+	service, client := newService(t, hpa)
+	if _, err := service.EnsureAverageValue(context.Background(), hpa, dep); err != nil {
+		t.Fatalf("EnsureAverageValue() error = %v", err)
+	}
+
+	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated HPA: %v", err)
+	}
+	var originals map[string]int32
+	if err := json.Unmarshal([]byte(updated.Annotations[hpaservice.OriginalUtilizationAnnotation]), &originals); err != nil {
+		t.Fatalf("decode original utilization annotation: %v", err)
+	}
+	if got := originals["resource/cpu"]; got != 50 {
+		t.Fatalf("original CPU utilization = %d, want 50", got)
 	}
 }
 
@@ -79,7 +124,7 @@ func TestEnsureAverageValueForDeploymentConvertsContainerResourceMetric(t *testi
 
 	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("get patched HPA: %v", err)
+		t.Fatalf("get updated HPA: %v", err)
 	}
 	if got := updated.Spec.Metrics[0].ContainerResource.Target.AverageValue.MilliValue(); got != 200 {
 		t.Fatalf("AverageValue = %dm, want 200m", got)
@@ -248,18 +293,18 @@ func TestEnsureAverageValueForDeploymentReturnsConversionError(t *testing.T) {
 	}
 }
 
-func TestEnsureAverageValueReturnsPatchError(t *testing.T) {
+func TestEnsureAverageValueReturnsUpdateError(t *testing.T) {
 	dep := deployment("production", "api", map[string]corev1.ResourceList{
 		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
 	})
 	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
 	service, client := newService(t, hpa)
-	client.PrependReactor("patch", "horizontalpodautoscalers", func(k8stesting.Action) (bool, runtime.Object, error) {
-		return true, nil, errors.New("patch failed")
+	client.PrependReactor("update", "horizontalpodautoscalers", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("update failed")
 	})
 
 	if _, err := service.EnsureAverageValue(context.Background(), hpa, dep); err == nil {
-		t.Fatal("EnsureAverageValue() error = nil, want patch error")
+		t.Fatal("EnsureAverageValue() error = nil, want update error")
 	}
 }
 
