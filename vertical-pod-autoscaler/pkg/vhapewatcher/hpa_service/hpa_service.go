@@ -3,6 +3,7 @@ package hpaservice
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 
@@ -80,13 +81,14 @@ func (s *HPAService) EnsureAverageValueForDeployment(ctx context.Context, dep *a
 		return nil
 	}
 
+	var errs []error
 	for _, hpa := range targetHPAs {
 		if _, err := s.EnsureAverageValue(ctx, hpa, dep); err != nil {
-			return err
+			errs = append(errs, err)
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // EnsureAverageValue converts utilization targets in hpa using the requests in dep.

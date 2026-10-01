@@ -151,6 +151,26 @@ func TestEnsureAverageValueForDeploymentUsesMinimumOneMilliunit(t *testing.T) {
 	}
 }
 
+func TestEnsureAverageValueForDeploymentRoundsDownToMilliunit(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {corev1.ResourceCPU: resource.MustParse("101m")},
+	})
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
+
+	service, client := newService(t, hpa)
+	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureAverageValueForDeployment() error = %v", err)
+	}
+
+	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated HPA: %v", err)
+	}
+	if got := updated.Spec.Metrics[0].Resource.Target.AverageValue.MilliValue(); got != 75 {
+		t.Fatalf("AverageValue = %dm, want floor(101m * 75%%) = 75m", got)
+	}
+}
+
 func TestEnsureAverageValueForDeploymentIncludesRestartableInitContainer(t *testing.T) {
 	dep := deployment("production", "api", map[string]corev1.ResourceList{
 		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
@@ -176,6 +196,53 @@ func TestEnsureAverageValueForDeploymentIncludesRestartableInitContainer(t *test
 	}
 	if got := updated.Spec.Metrics[0].Resource.Target.AverageValue.MilliValue(); got != 300 {
 		t.Fatalf("AverageValue = %dm, want 300m", got)
+	}
+}
+
+func TestEnsureAverageValueForDeploymentExcludesRegularInitContainer(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
+	})
+	dep.Spec.Template.Spec.InitContainers = []corev1.Container{{
+		Name: "setup",
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("300m"),
+		}},
+	}}
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
+
+	service, client := newService(t, hpa)
+	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureAverageValueForDeployment() error = %v", err)
+	}
+
+	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated HPA: %v", err)
+	}
+	if got := updated.Spec.Metrics[0].Resource.Target.AverageValue.MilliValue(); got != 75 {
+		t.Fatalf("AverageValue = %dm, want 75m without regular init-container request", got)
+	}
+}
+
+func TestEnsureAverageValueForDeploymentIgnoresContainersWithoutResourceRequest(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api":     {corev1.ResourceCPU: resource.MustParse("100m")},
+		"sidecar": {},
+	})
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
+
+	service, client := newService(t, hpa)
+	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureAverageValueForDeployment() error = %v", err)
+	}
+
+	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated HPA: %v", err)
+	}
+	if got := updated.Spec.Metrics[0].Resource.Target.AverageValue.MilliValue(); got != 75 {
+		t.Fatalf("AverageValue = %dm, want 75m from containers that declare the request", got)
 	}
 }
 
@@ -208,6 +275,27 @@ func TestEnsureAverageValueForDeploymentLeavesAverageValueMetricsUnchanged(t *te
 	service, client := newService(t, hpa)
 	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err != nil {
 		t.Fatalf("EnsureAverageValueForDeployment() error = %v", err)
+	}
+	if actions := client.Actions(); len(actions) != 0 {
+		t.Fatalf("client actions = %#v, want none", actions)
+	}
+}
+
+func TestEnsureAverageValueIgnoresMalformedAnnotationWithoutUtilizationTarget(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
+	})
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 75)
+	average := resource.MustParse("75m")
+	hpa.Spec.Metrics[0].Resource.Target = autoscalingv2.MetricTarget{
+		Type:         autoscalingv2.AverageValueMetricType,
+		AverageValue: &average,
+	}
+	hpa.Annotations = map[string]string{hpaservice.OriginalUtilizationAnnotation: "not-json"}
+
+	service, client := newService(t, hpa)
+	if _, err := service.EnsureAverageValue(context.Background(), hpa, dep); err != nil {
+		t.Fatalf("EnsureAverageValue() error = %v, want malformed unused annotation to be ignored", err)
 	}
 	if actions := client.Actions(); len(actions) != 0 {
 		t.Fatalf("client actions = %#v, want none", actions)
@@ -338,6 +426,44 @@ func TestEnsureAverageValueForDeploymentReturnsConversionError(t *testing.T) {
 
 	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err == nil {
 		t.Fatal("EnsureAverageValueForDeployment() error = nil, want conversion error")
+	}
+}
+
+func TestEnsureAverageValueForDeploymentAttemptsEveryHPA(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
+	})
+	firstHPA := resourceHPA("production", "first-hpa", "api", corev1.ResourceCPU, 75)
+	secondHPA := resourceHPA("production", "second-hpa", "api", corev1.ResourceCPU, 80)
+	validHPA := resourceHPA("production", "valid-hpa", "api", corev1.ResourceCPU, 50)
+	service, client := newService(t, firstHPA, secondHPA, validHPA)
+	firstErr := errors.New("first update failed")
+	secondErr := errors.New("second update failed")
+	client.PrependReactor("update", "horizontalpodautoscalers", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		updated := action.(k8stesting.UpdateAction).GetObject().(*autoscalingv2.HorizontalPodAutoscaler)
+		switch updated.Name {
+		case firstHPA.Name:
+			return true, nil, firstErr
+		case secondHPA.Name:
+			return true, nil, secondErr
+		default:
+			return false, nil, nil
+		}
+	})
+
+	err := service.EnsureAverageValueForDeployment(context.Background(), dep)
+	if !errors.Is(err, firstErr) || !errors.Is(err, secondErr) {
+		t.Fatalf("EnsureAverageValueForDeployment() error = %v, want both update errors", err)
+	}
+	if actions := client.Actions(); len(actions) != 3 {
+		t.Fatalf("client actions = %#v, want one update attempt for each HPA", actions)
+	}
+	updated, getErr := client.AutoscalingV2().HorizontalPodAutoscalers(validHPA.Namespace).Get(context.Background(), validHPA.Name, metav1.GetOptions{})
+	if getErr != nil {
+		t.Fatalf("get valid HPA: %v", getErr)
+	}
+	if got := updated.Spec.Metrics[0].Resource.Target.Type; got != autoscalingv2.AverageValueMetricType {
+		t.Fatalf("valid HPA target type = %q, want %q despite errors from other HPAs", got, autoscalingv2.AverageValueMetricType)
 	}
 }
 
