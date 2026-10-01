@@ -226,7 +226,12 @@ func averageValueForRequest(
 		return resource.Quantity{}, fmt.Errorf("request is too large to apply utilization %d", utilization)
 	}
 
-	return *resource.NewMilliQuantity(milliValue*int64(utilization)/100, request.Format), nil
+	averageMilliValue := milliValue * int64(utilization) / 100
+	if averageMilliValue < 1 {
+		averageMilliValue = 1
+	}
+
+	return *resource.NewMilliQuantity(averageMilliValue, request.Format), nil
 }
 
 // deploymentRequest returns the current request represented by an HPA metric.

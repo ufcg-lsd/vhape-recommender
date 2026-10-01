@@ -131,6 +131,26 @@ func TestEnsureAverageValueForDeploymentConvertsContainerResourceMetric(t *testi
 	}
 }
 
+func TestEnsureAverageValueForDeploymentUsesMinimumOneMilliunit(t *testing.T) {
+	dep := deployment("production", "api", map[string]corev1.ResourceList{
+		"api": {corev1.ResourceCPU: resource.MustParse("1m")},
+	})
+	hpa := resourceHPA("production", "api-hpa", "api", corev1.ResourceCPU, 1)
+
+	service, client := newService(t, hpa)
+	if err := service.EnsureAverageValueForDeployment(context.Background(), dep); err != nil {
+		t.Fatalf("EnsureAverageValueForDeployment() error = %v", err)
+	}
+
+	updated, err := client.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(context.Background(), hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated HPA: %v", err)
+	}
+	if got := updated.Spec.Metrics[0].Resource.Target.AverageValue.MilliValue(); got != 1 {
+		t.Fatalf("AverageValue = %dm, want minimum 1m", got)
+	}
+}
+
 func TestEnsureAverageValueForDeploymentIncludesRestartableInitContainer(t *testing.T) {
 	dep := deployment("production", "api", map[string]corev1.ResourceList{
 		"api": {corev1.ResourceCPU: resource.MustParse("100m")},
