@@ -7,6 +7,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
+	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/klog/v2"
 )
@@ -281,6 +282,29 @@ func (h *Handler) onIgnoredWorkloadUpdate(oldObj, newObj interface{}) {
 	}
 }
 
+func (h *Handler) onVhapePolicyAdd(obj interface{}) {
+	klog.V(4).InfoS("VhapePolicy add event")
+
+	vhapePolicy, ok := vhapePolicyFromObj(obj)
+	if !ok {
+		klog.V(4).InfoS("Ignoring VhapePolicy add event with unexpected object type")
+		return
+	}
+
+	h.enqueueDeploymentFromVhapePolicy(vhapePolicy)
+}
+
+// VhapePolicy specs are immutable, so an update cannot change the desired
+// watcher configuration.
+func (h *Handler) onVhapePolicyUpdate(_, _ interface{}) {
+	klog.V(4).InfoS("Ignoring VhapePolicy update event")
+}
+
+// VhapePolicy deletion does not require reconciliation.
+func (h *Handler) onVhapePolicyDelete(_ interface{}) {
+	klog.V(4).InfoS("Ignoring VhapePolicy delete event")
+}
+
 // When a workload stops being ignored, the target Deployment may need a generated
 // VPA if it is still in a watched namespace.
 func (h *Handler) onIgnoredWorkloadDelete(obj interface{}) {
@@ -357,6 +381,33 @@ func (h *Handler) enqueueDeploymentFromIgnoredWorkload(ignored *vhapev1alpha1.Vh
 		"ignoredReason", ignored.Spec.Reason,
 	)
 	h.sink.EnqueueDeployment(ref.Namespace, ref.Name)
+}
+
+func (h *Handler) enqueueDeploymentFromVhapePolicy(vhapePolicy *vhapev1alpha1.VhapePolicy) {
+	if vhapePolicy == nil {
+		return
+	}
+
+	if h.vpaIndexer == nil {
+		klog.ErrorS(nil, "Cannot enqueue Deployments from VhapePolicy event without a VPA index", "vhapePolicy", klog.KObj(vhapePolicy))
+		return
+	}
+
+	items, err := h.vpaIndexer.ByIndex(watcherinformers.VPAByVhapePolicyIndex, vhapePolicy.Name)
+	if err != nil {
+		klog.ErrorS(err, "List VPAs by VhapePolicy index", "vhapePolicy", klog.KObj(vhapePolicy))
+		return
+	}
+
+	for _, item := range items {
+		vpa, ok := item.(*vpav1.VerticalPodAutoscaler)
+		if !ok {
+			klog.V(4).InfoS("Ignoring non-VPA object returned by VhapePolicy index", "vhapePolicy", klog.KObj(vhapePolicy))
+			continue
+		}
+
+		h.enqueueDeploymentFromVPA(vpa)
+	}
 }
 
 func deploymentFromObject(obj interface{}) (*appsv1.Deployment, bool) {
@@ -437,4 +488,18 @@ func ignoredWorkloadFromObject(obj interface{}) (*vhapev1alpha1.VhapeIgnoredWork
 
 	ignored, ok := tombstone.Obj.(*vhapev1alpha1.VhapeIgnoredWorkload)
 	return ignored, ok
+}
+
+func vhapePolicyFromObj(obj interface{}) (*vhapev1alpha1.VhapePolicy, bool) {
+	if vhapePolicy, ok := obj.(*vhapev1alpha1.VhapePolicy); ok {
+		return vhapePolicy, true
+	}
+
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return nil, false
+	}
+
+	vhapePolicy, ok := tombstone.Obj.(*vhapev1alpha1.VhapePolicy)
+	return vhapePolicy, ok
 }

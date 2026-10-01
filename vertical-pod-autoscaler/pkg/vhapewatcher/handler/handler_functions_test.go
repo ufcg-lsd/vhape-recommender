@@ -3,6 +3,9 @@ package handler
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
+	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	"k8s.io/client-go/tools/cache"
 )
@@ -490,6 +493,50 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 	})
 }
 
+func TestVhapePolicyHandlers(t *testing.T) {
+	t.Run("add enqueues Deployments targeted by VPAs using the policy", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		matchingVPA := testutil.NewVPA("matching", testutil.TestNamespace, testutil.TestDeploymentName)
+		matchingVPA.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
+		addVPAForPolicy(t, handler, matchingVPA)
+
+		otherVPA := testutil.NewVPA("other", testutil.TestNamespace, "other-api")
+		otherVPA.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: "other-policy"}
+		addVPAForPolicy(t, handler, otherVPA)
+
+		handler.onVhapePolicyAdd(&vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: testutil.TestPolicyName}})
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+	})
+
+	t.Run("add ignores unexpected object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onVhapePolicyAdd("not-a-vhape-policy")
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("update and delete are ignored because policy spec is immutable", func(t *testing.T) {
+		handler, sink := newHandler(t)
+		policy := &vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: testutil.TestPolicyName}}
+
+		handler.onVhapePolicyUpdate(policy, policy)
+		handler.onVhapePolicyDelete(policy)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+}
+
+func addVPAForPolicy(t *testing.T, handler *Handler, vpa interface{}) {
+	t.Helper()
+
+	if err := handler.vpaIndexer.Add(vpa); err != nil {
+		t.Fatalf("add VPA to policy index: %v", err)
+	}
+}
+
 func newHandler(t *testing.T) (*Handler, *fakeDeploymentSink) {
 	t.Helper()
 
@@ -498,6 +545,9 @@ func newHandler(t *testing.T) (*Handler, *fakeDeploymentSink) {
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
+	handler.vpaIndexer = cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{
+		watcherinformers.VPAByVhapePolicyIndex: watcherinformers.GetAssociatedVPAVhapePolicyKey,
+	})
 
 	return handler, sink
 }

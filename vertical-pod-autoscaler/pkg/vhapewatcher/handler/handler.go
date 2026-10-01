@@ -18,7 +18,8 @@ type DeploymentSink interface {
 
 // Handler registers event handlers on informers.
 type Handler struct {
-	sink DeploymentSink
+	sink       DeploymentSink
+	vpaIndexer cache.Indexer
 }
 
 // New creates a Handler instance.
@@ -53,6 +54,11 @@ func (h *Handler) RegisterHandlerFunctionsOnInformers(informerSet *watcherinform
 		return fmt.Errorf("informers is nil")
 	}
 
+	if informerSet.VPA == nil {
+		return fmt.Errorf("vpa informer is nil")
+	}
+	h.vpaIndexer = informerSet.VPA.Informer().GetIndexer()
+
 	return registerHandlers([]handlerRegistration{
 		{
 			name:     "deployment",
@@ -79,6 +85,15 @@ func (h *Handler) RegisterHandlerFunctionsOnInformers(informerSet *watcherinform
 				AddFunc:    h.onVPAAdd,
 				UpdateFunc: h.onVPAUpdate,
 				DeleteFunc: h.onVPADelete,
+			},
+		},
+		{
+			name:     "vhapepolicy",
+			receiver: informerReceiver(informerSet.VhapePolicy),
+			handler: cache.ResourceEventHandlerFuncs{
+				AddFunc:    h.onVhapePolicyAdd,
+				UpdateFunc: h.onVhapePolicyUpdate,
+				DeleteFunc: h.onVhapePolicyDelete,
 			},
 		},
 		{
