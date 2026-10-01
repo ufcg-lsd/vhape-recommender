@@ -48,12 +48,24 @@ func TestDeploymentHandlers(t *testing.T) {
 		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
 	})
 
-	t.Run("update is ignored", func(t *testing.T) {
+	t.Run("update enqueues current deployment", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
 		handler.onDeploymentUpdate(
 			testutil.NewDeployment(testutil.TestNamespace, "old"),
 			testutil.NewDeployment(testutil.TestNamespace, "new"),
+		)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, "new")})
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
+	})
+
+	t.Run("update ignores unexpected new object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onDeploymentUpdate(
+			testutil.NewDeployment(testutil.TestNamespace, "old"),
+			"not-a-deployment",
 		)
 
 		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
@@ -510,6 +522,11 @@ func TestVhapePolicyHandlers(t *testing.T) {
 		vpaWithoutVhapeLabel := testutil.NewVPA("unlabeled", testutil.TestNamespace, "default-api")
 		vpaWithoutVhapeLabel.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
 		addVPAForPolicy(t, handler, vpaWithoutVhapeLabel)
+
+		vpaWithEmptyVhapeLabel := testutil.NewVPA("empty-label", testutil.TestNamespace, "empty-label-api")
+		vpaWithEmptyVhapeLabel.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
+		vpaWithEmptyVhapeLabel.Labels = map[string]string{vpaservice.VhapeLabel: ""}
+		addVPAForPolicy(t, handler, vpaWithEmptyVhapeLabel)
 
 		nonDeploymentVPA := testutil.NewVPA("stateful", testutil.TestNamespace, "stateful-api")
 		nonDeploymentVPA.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
