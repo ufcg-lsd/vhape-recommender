@@ -92,6 +92,26 @@ func LabelsForVPA() map[string]string {
 	}
 }
 
+// HasVhapeRecommenderLabel reports whether the VPA is associated with a VHAPE
+// recommender.
+func HasVhapeRecommenderLabel(vpa *vpav1.VerticalPodAutoscaler) bool {
+	if vpa == nil {
+		return false
+	}
+
+	_, found := vpa.Labels[VhapeLabel]
+	return found
+}
+
+// VhapePolicyName returns the VhapePolicy selected by the VPA, if any.
+func VhapePolicyName(vpa *vpav1.VerticalPodAutoscaler) string {
+	if vpa == nil {
+		return ""
+	}
+
+	return vpa.Annotations[VhapePolicyAnnotation]
+}
+
 func OwnerReferencesForDeployment(dep *appsv1.Deployment) []metav1.OwnerReference {
 	controller := true
 	return []metav1.OwnerReference{

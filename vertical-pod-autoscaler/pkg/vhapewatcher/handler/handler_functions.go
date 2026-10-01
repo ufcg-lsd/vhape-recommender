@@ -405,6 +405,10 @@ func (h *Handler) enqueueDeploymentFromVhapePolicy(vhapePolicy *vhapev1alpha1.Vh
 			klog.V(4).InfoS("Ignoring non-VPA object returned by VhapePolicy index", "vhapePolicy", klog.KObj(vhapePolicy))
 			continue
 		}
+		if !vpaservice.HasVhapeRecommenderLabel(vpa) {
+			klog.V(4).InfoS("Ignoring VPA without the VHAPE recommender label", "vpa", klog.KObj(vpa), "vhapePolicy", klog.KObj(vhapePolicy))
+			continue
+		}
 
 		h.enqueueDeploymentFromVPA(vpa)
 	}

@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
@@ -91,6 +93,55 @@ func TestOwnerReferencesForDeployment(t *testing.T) {
 
 	refs := vpaservice.OwnerReferencesForDeployment(dep)
 	testutil.AssertOwnerReferenceForDeployment(t, refs, dep)
+}
+
+func TestHasVhapeRecommenderLabel(t *testing.T) {
+	tests := []struct {
+		name        string
+		vpa         *vpav1.VerticalPodAutoscaler
+		wantLabeled bool
+	}{
+		{
+			name: "nil VPA",
+		},
+		{
+			name: "no labels",
+			vpa:  &vpav1.VerticalPodAutoscaler{},
+		},
+		{
+			name: "unrelated label",
+			vpa:  &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"example.com/recommender": "other"}}},
+		},
+		{
+			name:        "VHAPE label with custom recommender name",
+			vpa:         &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{vpaservice.VhapeLabel: "team-a-recommender"}}},
+			wantLabeled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := vpaservice.HasVhapeRecommenderLabel(tt.vpa); got != tt.wantLabeled {
+				t.Fatalf("HasVhapeRecommenderLabel() = %v, want %v", got, tt.wantLabeled)
+			}
+		})
+	}
+}
+
+func TestVhapePolicyName(t *testing.T) {
+	if got := vpaservice.VhapePolicyName(nil); got != "" {
+		t.Fatalf("VhapePolicyName(nil) = %q, want empty", got)
+	}
+
+	vpa := &vpav1.VerticalPodAutoscaler{}
+	if got := vpaservice.VhapePolicyName(vpa); got != "" {
+		t.Fatalf("VhapePolicyName() without annotation = %q, want empty", got)
+	}
+
+	vpa.Annotations = map[string]string{vpaservice.VhapePolicyAnnotation: "test-policy"}
+	if got := vpaservice.VhapePolicyName(vpa); got != "test-policy" {
+		t.Fatalf("VhapePolicyName() = %q, want test-policy", got)
+	}
 }
 
 func newDesiredConfig() vhapev1alpha1.VhapeWatchedNamespaceSpec {
