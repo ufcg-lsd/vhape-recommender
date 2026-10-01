@@ -19,7 +19,7 @@ const (
 
 	GeneratedVPANamePrefix = "" // empty for now
 
-	VhapePolicyAnnotation = "vhape/policy"
+	VhapePolicyAnnotation = vhapev1alpha1.VhapePolicyAnnotation
 
 	VhapeRecommenderName = "vhape-recommender"
 )

@@ -25,6 +25,9 @@ import (
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 )
 
+// VhapePolicyAnnotation identifies the VhapePolicy selected by a VPA.
+const VhapePolicyAnnotation = "vhape/policy"
+
 // +genclient
 // +genclient:nonNamespaced
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
