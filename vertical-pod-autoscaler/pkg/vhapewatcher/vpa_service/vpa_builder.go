@@ -19,7 +19,7 @@ const (
 
 	GeneratedVPANamePrefix = "" // empty for now
 
-	VhapePolicyAnnotation = "vhape/policy"
+	VhapePolicyAnnotation = vhapev1alpha1.VhapePolicyAnnotation
 
 	VhapeRecommenderName = "vhape-recommender"
 )
@@ -90,6 +90,45 @@ func LabelsForVPA() map[string]string {
 		ManagedByLabel: ManagedByValue,
 		VhapeLabel:     VhapeRecommenderName,
 	}
+}
+
+// HasVhapeRecommenderLabel reports whether the VPA identifies a VHAPE
+// recommender with a non-empty label value.
+func HasVhapeRecommenderLabel(vpa *vpav1.VerticalPodAutoscaler) bool {
+	if vpa == nil {
+		return false
+	}
+
+	return vpa.Labels[VhapeLabel] != ""
+}
+
+// VhapePolicyName returns the VhapePolicy selected by the VPA, if any.
+func VhapePolicyName(vpa *vpav1.VerticalPodAutoscaler) string {
+	if vpa == nil {
+		return ""
+	}
+
+	return vpa.Annotations[VhapePolicyAnnotation]
+}
+
+// LatestVhapeVPA returns the most recently created VPA that carries both the
+// VHAPE recommender label and policy annotation. Name is used as a stable
+// tiebreaker when creation timestamps are equal.
+func LatestVhapeVPA(vpas []*vpav1.VerticalPodAutoscaler) *vpav1.VerticalPodAutoscaler {
+	var latest *vpav1.VerticalPodAutoscaler
+	for _, vpa := range vpas {
+		if !HasVhapeRecommenderLabel(vpa) || VhapePolicyName(vpa) == "" {
+			continue
+		}
+
+		if latest == nil ||
+			latest.CreationTimestamp.Time.Before(vpa.CreationTimestamp.Time) ||
+			(latest.CreationTimestamp.Equal(&vpa.CreationTimestamp) && latest.Name < vpa.Name) {
+			latest = vpa
+		}
+	}
+
+	return latest
 }
 
 func OwnerReferencesForDeployment(dep *appsv1.Deployment) []metav1.OwnerReference {

@@ -50,6 +50,9 @@ func New(informerSet *watcherinformers.Informers) (*Scope, error) {
 	if informerSet.VhapeWatchedNamespaceRegex == nil {
 		return nil, fmt.Errorf("vhape watched namespace regex informer is nil")
 	}
+	if informerSet.VhapePolicy == nil {
+		return nil, fmt.Errorf("vhape policy informer is nil")
+	}
 	if informerSet.VhapeIgnoredNamespace == nil {
 		return nil, fmt.Errorf("vhape ignored namespace informer is nil")
 	}
@@ -194,10 +197,21 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 		}, nil
 	}
 
-	return Decision{
-		ShouldManage: false,
-		Reason:       ReasonNotWatched,
-	}, nil
+	return Decision{Reason: ReasonNotWatched}, nil
+}
+
+// GetVhapePolicy returns a VhapePolicy from the informer cache.
+func (s *Scope) GetVhapePolicy(name string) (*vhapev1alpha1.VhapePolicy, error) {
+	if name == "" {
+		return nil, fmt.Errorf("vhape policy name is empty")
+	}
+
+	policy, err := s.informers.VhapePolicy.Lister().Get(name)
+	if err != nil {
+		return nil, fmt.Errorf("get VhapePolicy %q from cache: %w", name, err)
+	}
+
+	return policy, nil
 }
 
 // GetWatchedNamespace returns a VhapeWatchedNamespace.

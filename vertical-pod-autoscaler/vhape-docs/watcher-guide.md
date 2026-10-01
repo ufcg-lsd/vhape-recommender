@@ -15,32 +15,72 @@ For installation instructions, see [VHAPE Watcher installation](watcher-installa
 
 ## How it works
 
-The VHAPE Watcher continuously reconciles Deployments, VPAs, and watcher configuration resources.
+The VHAPE Watcher continuously reconciles Deployments, VPAs, HPAs, and watcher configuration resources.
 
-For each Deployment, the watcher resolves its scope and configuration in the following order:
+For each Deployment, the watcher resolves automatic VPA management in the following order:
 
 ```text
 Deployment
 ├── Manually configured VPA
-│   └── Manual VPA is preserved
+│   └── Preserve it and remove any watcher-generated VPA
 ├── VhapeIgnoredWorkload
-│   └── Deployment is not managed
+│   └── Automatic VPA management is disabled
 ├── VhapeIgnoredNamespace
-│   └── Deployment is not managed
+│   └── Automatic VPA management is disabled
 ├── VhapeWatchedNamespace
 │   └── Namespace-specific configuration is used
 ├── VhapeWatchedNamespaceRegex
 │   └── Matching regex configuration is used
 └── No matching configuration
-    └── Deployment is not managed
+    └── Automatic VPA management is disabled
 ```
 
 A manual VPA provides workload-specific configuration. `VhapeWatchedNamespace` provides namespace-specific configuration. `VhapeWatchedNamespaceRegex` provides a shared default for multiple namespaces. If multiple `VhapeWatchedNamespaceRegex` resources match the same namespace, the oldest matching resource is used.
 
-When a deployment is not managed by Vhape Watcher or a manual VPA is present, any previously automatically created VPAs are thus deleted.
+When automatic management is disabled or a manual VPA is present, any previously automatically created VPAs are deleted.
 
-Creating, updating or deleting any resource listed above causes affected deployments to be reconciled again.
+Changes to Deployments, VPAs, or watcher configuration resources cause affected Deployments to be reconciled again. HPA-specific event behavior is described below.
 
+## HPA management
+
+HPA management is selected from VPAs, independently from automatic VPA management. The watcher considers VPAs that target the reconciled Deployment and contain both:
+
+```yaml
+metadata:
+  labels:
+    autoscaling.vhape.io/recommender: <vhape-recommender-name>
+  annotations:
+    vhape/policy: <vhape-policy-name>
+```
+
+It chooses the eligible VPA with the greatest `metadata.creationTimestamp`. If timestamps are equal, it chooses the lexicographically greatest VPA name. It then retrieves the `VhapePolicy` named by `vhape/policy` and reads `spec.manageHpa`:
+
+```yaml
+spec:
+  manageHpa: true
+```
+
+When the selected policy is absent or `manageHpa` is `false`, the watcher leaves HPAs unchanged. When it is `true`, the watcher finds HPAs in the same namespace whose `scaleTargetRef` is the reconciled Deployment. Having no matching HPA is valid and requires no action.
+
+For matching HPAs, the watcher converts only `Resource` and `ContainerResource` metrics whose target type is `Utilization`. Targets already using `AverageValue` and all other metric types remain unchanged.
+
+The conversion uses the request currently declared in the Deployment's Pod template:
+
+```text
+averageValue = max(1m, floor(request * averageUtilization / 100))
+```
+
+For example, a CPU target of `75%` and a total CPU request of `400m` become an `AverageValue` target of `300m`. Values smaller than one milli-unit are rounded up to `1m`. The watcher updates the HPA target, clears `averageUtilization`, and records the percentage used for the conversion in the `autoscaling.vhape.io/original-hpa-utilization` annotation:
+
+```yaml
+metadata:
+  annotations:
+    autoscaling.vhape.io/original-hpa-utilization: '{"resource/cpu":75,"container/api/cpu":60}'
+```
+
+The map key identifies either a Pod-level resource metric (`resource/<resource>`) or a container resource metric (`container/<container>/<resource>`).
+
+The conversion is one-way: setting `manageHpa` to `false`, changing Deployment requests, or deleting the watcher does not restore an HPA target to `Utilization`.
 
 ## Watch namespaces by regex
 
@@ -81,7 +121,7 @@ A `VhapeWatchedNamespace` takes precedence over any `VhapeWatchedNamespaceRegex`
 
 ## Ignore a namespace
 
-Create a `VhapeIgnoredNamespace` to exclude a namespace from automatic watcher management. This is especially useful for excluding individual namespaces selected by a broad regex rule.
+Create a `VhapeIgnoredNamespace` to exclude a namespace from automatic watcher management. This is especially useful for excluding individual namespaces selected by a broad regex rule. It does not directly prevent HPA management selected by an eligible VPA.
 
 The resource is cluster-scoped, and its `metadata.name` identifies the namespace to ignore.
 
@@ -96,7 +136,7 @@ metadata:
 
 ## Ignore a workload
 
-Create a `VhapeIgnoredWorkload` when a Deployment should remain outside automatic watcher management.
+Create a `VhapeIgnoredWorkload` when a Deployment should remain outside automatic watcher management. It does not directly prevent HPA management selected by an eligible VPA.
 
 Example at `vertical-pod-autoscaler/pkg/vhapewatcher/yamls/vhapeignoredworkload_example.yaml`:
 
@@ -116,9 +156,9 @@ spec:
 
 ## Manual VPA configuration
 
-A manually managed VPA targeting a Deployment has the highest configuration precedence. The watcher preserves the manual VPA and removes any watcher-generated VPA targeting the same Deployment.
+A manually managed VPA targeting a Deployment has the highest configuration precedence for VPA lifecycle. The watcher preserves the manual VPA and removes any watcher-generated VPA targeting the same Deployment.
 
-For more information about configuring VPA objects, see the [VHAPE Recommender guide](recommender-guide.md).
+A manually managed VPA must always carry the `autoscaling.vhape.io/recommender` label. This identifies it as a VPA served by a VHAPE recommender, as explained in the [VHAPE Recommender guide](recommender-guide.md).
 
 ## VPA ownership
 

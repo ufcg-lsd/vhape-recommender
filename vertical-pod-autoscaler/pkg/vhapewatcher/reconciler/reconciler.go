@@ -2,13 +2,17 @@ package reconciler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	hpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/hpa_service"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
 	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	appslisters "k8s.io/client-go/listers/apps/v1"
@@ -26,6 +30,7 @@ const (
 type Reconciler struct {
 	deploymentLister appslisters.DeploymentLister
 	scope            *watcherscope.Scope
+	hpaService       *hpaservice.HPAService
 	vpaService       *vpaservice.VPAService
 
 	queue workqueue.TypedRateLimitingInterface[string]
@@ -34,6 +39,7 @@ type Reconciler struct {
 func New(
 	deploymentLister appslisters.DeploymentLister,
 	scopeResolver *watcherscope.Scope,
+	hpaService *hpaservice.HPAService,
 	vpaService *vpaservice.VPAService,
 ) (*Reconciler, error) {
 	if deploymentLister == nil {
@@ -41,6 +47,9 @@ func New(
 	}
 	if scopeResolver == nil {
 		return nil, fmt.Errorf("scope resolver is nil")
+	}
+	if hpaService == nil {
+		return nil, fmt.Errorf("hpa service is nil")
 	}
 	if vpaService == nil {
 		return nil, fmt.Errorf("vpa service is nil")
@@ -56,6 +65,7 @@ func New(
 	return &Reconciler{
 		deploymentLister: deploymentLister,
 		scope:            scopeResolver,
+		hpaService:       hpaService,
 		vpaService:       vpaService,
 		queue:            queue,
 	}, nil
@@ -134,13 +144,15 @@ func (r *Reconciler) runWorker(ctx context.Context) {
 	defer utilruntime.HandleCrash()
 
 	for {
-		if shouldContinue := r.processNextWorkItem(ctx); !shouldContinue {
+		if shouldContinue := r.ProcessNextWorkItem(ctx); !shouldContinue {
 			return
 		}
 	}
 }
 
-func (r *Reconciler) processNextWorkItem(ctx context.Context) bool {
+// ProcessNextWorkItem processes one queued Deployment. It returns false when
+// the queue has been shut down and the worker should stop.
+func (r *Reconciler) ProcessNextWorkItem(ctx context.Context) bool {
 	key, queueClosed := r.queue.Get()
 	if queueClosed {
 		return false
@@ -204,9 +216,50 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		return err
 	}
 
+	vpaStateStable, vpaErr := r.reconcileVPA(ctx, dep, decision, vpas)
+	if !vpaStateStable {
+		return vpaErr
+	}
+
+	return errors.Join(vpaErr, r.reconcileHPA(ctx, dep, vpas))
+}
+
+func (r *Reconciler) reconcileHPA(
+	ctx context.Context,
+	dep *appsv1.Deployment,
+	vpas []*vpav1.VerticalPodAutoscaler,
+) error {
+	vpa := vpaservice.LatestVhapeVPA(vpas)
+	if vpa == nil {
+		return nil
+	}
+
+	policy, err := r.scope.GetVhapePolicy(vpaservice.VhapePolicyName(vpa))
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !policy.Spec.ManageHPA {
+		return nil
+	}
+
+	return r.hpaService.EnsureAverageValueForDeployment(ctx, dep)
+}
+
+// reconcileVPA returns true when the cached VPA set already represents the
+// desired lifecycle state and can therefore be used to decide HPA management.
+func (r *Reconciler) reconcileVPA(
+	ctx context.Context,
+	dep *appsv1.Deployment,
+	decision watcherscope.Decision,
+	vpas []*vpav1.VerticalPodAutoscaler,
+) (bool, error) {
 	var total int
 	var notManagedCount int
 	var managedCount int
+	var generatedVPA *vpav1.VerticalPodAutoscaler
 	for _, vpa := range vpas {
 		if vpa == nil {
 			continue
@@ -216,6 +269,7 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 
 		if vpaservice.IsManagedByWatcher(vpa) {
 			managedCount++
+			generatedVPA = vpa
 			continue
 		}
 
@@ -245,7 +299,7 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 
 	if !decision.ShouldManage {
 		klog.V(3).InfoS("Deployment is outside VHAPE Watcher scope; ensuring generated VPA is absent", "deployment", klog.KObj(dep), "reason", decision.Reason)
-		return r.vpaService.EnsureNoGeneratedVPAForDeployment(ctx, vpas, decision.Reason)
+		return managedCount == 0, r.vpaService.EnsureNoGeneratedVPAForDeployment(ctx, vpas, decision.Reason)
 	}
 
 	if notManagedCount > 0 {
@@ -255,7 +309,7 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 			dep.Name,
 		)
 
-		return r.vpaService.EnsureNoGeneratedVPAForDeployment(ctx, vpas, reasonNotManagedVPAPresent)
+		return managedCount == 0, r.vpaService.EnsureNoGeneratedVPAForDeployment(ctx, vpas, reasonNotManagedVPAPresent)
 	}
 
 	klog.V(3).InfoS(
@@ -264,7 +318,13 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 		"generatedVPAs", managedCount,
 	)
 
-	return r.vpaService.EnsureOneGeneratedVPAForDeployment(ctx, dep, vpas, decision.DesiredConfig)
+	desiredVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, decision.DesiredConfig)
+	if err != nil {
+		return false, err
+	}
+	stateStable := total == 1 && managedCount == 1 && vpaservice.IsDesiredGeneratedVPA(generatedVPA, desiredVPA)
+
+	return stateStable, r.vpaService.EnsureOneGeneratedVPAForDeployment(ctx, dep, vpas, decision.DesiredConfig)
 }
 
 func namespacedKey(namespace, name string) string {

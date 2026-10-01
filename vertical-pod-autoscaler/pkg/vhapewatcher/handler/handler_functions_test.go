@@ -3,7 +3,11 @@ package handler
 import (
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
+	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
+	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 	"k8s.io/client-go/tools/cache"
 )
 
@@ -31,7 +35,7 @@ func TestDeploymentHandlers(t *testing.T) {
 
 		handler.onDeploymentAdd(testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName))
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
 	})
 
@@ -44,12 +48,24 @@ func TestDeploymentHandlers(t *testing.T) {
 		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
 	})
 
-	t.Run("update is ignored", func(t *testing.T) {
+	t.Run("update enqueues current deployment", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
 		handler.onDeploymentUpdate(
 			testutil.NewDeployment(testutil.TestNamespace, "old"),
 			testutil.NewDeployment(testutil.TestNamespace, "new"),
+		)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, "new")})
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, nil)
+	})
+
+	t.Run("update ignores unexpected new object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onDeploymentUpdate(
+			testutil.NewDeployment(testutil.TestNamespace, "old"),
+			"not-a-deployment",
 		)
 
 		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
@@ -66,13 +82,68 @@ func TestDeploymentHandlers(t *testing.T) {
 	})
 }
 
+func TestHPAHandlers(t *testing.T) {
+	t.Run("add enqueues target deployment", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAAdd(testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName))
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
+	})
+
+	t.Run("add ignores unexpected object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAAdd("not-an-hpa")
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("add ignores non Deployment target", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		hpa := testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName)
+		hpa.Spec.ScaleTargetRef.Kind = "StatefulSet"
+		handler.onHPAAdd(hpa)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("update enqueues old and new targets", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAUpdate(
+			testutil.NewHPA("api-hpa", testutil.TestNamespace, "old-api"),
+			testutil.NewHPA("api-hpa", testutil.TestNamespace, "new-api"),
+		)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, "old-api"), deploymentKey(testutil.TestNamespace, "new-api")})
+	})
+
+	t.Run("update ignores invalid old and enqueues new", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPAUpdate("not-an-hpa", testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName))
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
+	})
+
+	t.Run("delete is ignored", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onHPADelete(testutil.NewHPA("api-hpa", testutil.TestNamespace, testutil.TestDeploymentName))
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+}
+
 func TestVPAHandlers(t *testing.T) {
 	t.Run("add enqueues target deployment", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
 		handler.onVPAAdd(testutil.NewVPA(testutil.TestVPAName, testutil.TestNamespace, testutil.TestDeploymentName))
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("add ignores unexpected object", func(t *testing.T) {
@@ -120,7 +191,7 @@ func TestVPAHandlers(t *testing.T) {
 			testutil.NewVPA(testutil.TestVPAName, testutil.TestNamespace, "new-api"),
 		)
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/old-api", "producao/new-api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, "old-api"), deploymentKey(testutil.TestNamespace, "new-api")})
 	})
 
 	t.Run("update ignores invalid old and still enqueues new", func(t *testing.T) {
@@ -128,7 +199,7 @@ func TestVPAHandlers(t *testing.T) {
 
 		handler.onVPAUpdate("not-a-vpa", testutil.NewVPA(testutil.TestVPAName, testutil.TestNamespace, testutil.TestDeploymentName))
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("delete enqueues target deployment", func(t *testing.T) {
@@ -136,7 +207,7 @@ func TestVPAHandlers(t *testing.T) {
 
 		handler.onVPADelete(testutil.NewVPA(testutil.TestVPAName, testutil.TestNamespace, testutil.TestDeploymentName))
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("delete handles tombstone", func(t *testing.T) {
@@ -146,7 +217,7 @@ func TestVPAHandlers(t *testing.T) {
 			Obj: testutil.NewVPA(testutil.TestVPAName, testutil.TestNamespace, testutil.TestDeploymentName),
 		})
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("delete ignores tombstone with unexpected object", func(t *testing.T) {
@@ -164,7 +235,7 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 
 		handler.onWatchedNamespaceAdd(testutil.NewWatchedNamespace(testutil.TestNamespace))
 
-		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{"producao"})
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{testutil.TestNamespace})
 		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
 	})
 
@@ -185,7 +256,7 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 			testutil.NewWatchedNamespace(testutil.TestNamespace),
 		)
 
-		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{"producao"})
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{testutil.TestNamespace})
 	})
 
 	t.Run("update ignores unexpected new object", func(t *testing.T) {
@@ -201,7 +272,7 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 
 		handler.onWatchedNamespaceDelete(testutil.NewWatchedNamespace(testutil.TestNamespace))
 
-		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{"producao"})
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{testutil.TestNamespace})
 	})
 
 	t.Run("delete handles tombstone", func(t *testing.T) {
@@ -211,7 +282,7 @@ func TestWatchedNamespaceHandlers(t *testing.T) {
 			Obj: testutil.NewWatchedNamespace(testutil.TestNamespace),
 		})
 
-		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{"producao"})
+		testutil.AssertStringSlicesEqual(t, sink.namespaces, []string{testutil.TestNamespace})
 	})
 
 	t.Run("delete ignores tombstone with unexpected object", func(t *testing.T) {
@@ -352,7 +423,7 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 
 		handler.onIgnoredWorkloadAdd(testutil.NewIgnoredWorkload("ignored", testutil.TestNamespace, testutil.TestDeploymentName))
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("add ignores unexpected object", func(t *testing.T) {
@@ -397,7 +468,7 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 			testutil.NewIgnoredWorkload("ignored-new", testutil.TestNamespace, "new-api"),
 		)
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/old-api", "producao/new-api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, "old-api"), deploymentKey(testutil.TestNamespace, "new-api")})
 	})
 
 	t.Run("update ignores invalid old and still enqueues new", func(t *testing.T) {
@@ -405,7 +476,7 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 
 		handler.onIgnoredWorkloadUpdate("not-an-ignored-workload", testutil.NewIgnoredWorkload("ignored", testutil.TestNamespace, testutil.TestDeploymentName))
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("delete enqueues target deployment", func(t *testing.T) {
@@ -413,7 +484,7 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 
 		handler.onIgnoredWorkloadDelete(testutil.NewIgnoredWorkload("ignored", testutil.TestNamespace, testutil.TestDeploymentName))
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("delete handles tombstone", func(t *testing.T) {
@@ -423,7 +494,7 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 			Obj: testutil.NewIgnoredWorkload("ignored", testutil.TestNamespace, testutil.TestDeploymentName),
 		})
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{"producao/api"})
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
 	})
 
 	t.Run("delete ignores tombstone with unexpected object", func(t *testing.T) {
@@ -435,6 +506,82 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 	})
 }
 
+func TestVhapePolicyHandlers(t *testing.T) {
+	t.Run("enqueueDeploymentFromVhapePolicy enqueues only selected Deployment VPAs", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		matchingVPA := testutil.NewVPA("matching", testutil.TestNamespace, testutil.TestDeploymentName)
+		matchingVPA.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
+		matchingVPA.Labels = map[string]string{vpaservice.VhapeLabel: "team-a-recommender"}
+		addVPAForPolicy(t, handler, matchingVPA)
+
+		otherVPA := testutil.NewVPA("other", testutil.TestNamespace, "other-api")
+		otherVPA.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: "other-policy"}
+		addVPAForPolicy(t, handler, otherVPA)
+
+		vpaWithoutVhapeLabel := testutil.NewVPA("unlabeled", testutil.TestNamespace, "default-api")
+		vpaWithoutVhapeLabel.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
+		addVPAForPolicy(t, handler, vpaWithoutVhapeLabel)
+
+		vpaWithEmptyVhapeLabel := testutil.NewVPA("empty-label", testutil.TestNamespace, "empty-label-api")
+		vpaWithEmptyVhapeLabel.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
+		vpaWithEmptyVhapeLabel.Labels = map[string]string{vpaservice.VhapeLabel: ""}
+		addVPAForPolicy(t, handler, vpaWithEmptyVhapeLabel)
+
+		nonDeploymentVPA := testutil.NewVPA("stateful", testutil.TestNamespace, "stateful-api")
+		nonDeploymentVPA.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: testutil.TestPolicyName}
+		nonDeploymentVPA.Spec.TargetRef.Kind = "StatefulSet"
+		nonDeploymentVPA.Labels = map[string]string{vpaservice.VhapeLabel: "team-b-recommender"}
+		addVPAForPolicy(t, handler, nonDeploymentVPA)
+
+		handler.enqueueDeploymentFromVhapePolicy(&vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: testutil.TestPolicyName}})
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
+	})
+
+	t.Run("enqueueDeploymentFromVhapePolicy without index does nothing", func(t *testing.T) {
+		sink := &fakeDeploymentSink{}
+		handler, err := New(sink)
+		if err != nil {
+			t.Fatalf("New() returned error: %v", err)
+		}
+
+		handler.enqueueDeploymentFromVhapePolicy(&vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: testutil.TestPolicyName}})
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("add ignores unexpected object", func(t *testing.T) {
+		handler, sink := newHandler(t)
+
+		handler.onVhapePolicyAdd("not-a-vhape-policy")
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+
+	t.Run("update and delete are ignored because policy spec is immutable", func(t *testing.T) {
+		handler, sink := newHandler(t)
+		policy := &vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: testutil.TestPolicyName}}
+
+		handler.onVhapePolicyUpdate(policy, policy)
+		handler.onVhapePolicyDelete(policy)
+
+		testutil.AssertStringSlicesEqual(t, sink.deployments, nil)
+	})
+}
+
+func addVPAForPolicy(t *testing.T, handler *Handler, vpa interface{}) {
+	t.Helper()
+
+	if err := handler.vpaIndexer.Add(vpa); err != nil {
+		t.Fatalf("add VPA to policy index: %v", err)
+	}
+}
+
+func deploymentKey(namespace, name string) string {
+	return namespace + "/" + name
+}
+
 func newHandler(t *testing.T) (*Handler, *fakeDeploymentSink) {
 	t.Helper()
 
@@ -443,6 +590,9 @@ func newHandler(t *testing.T) (*Handler, *fakeDeploymentSink) {
 	if err != nil {
 		t.Fatalf("New() returned error: %v", err)
 	}
+	handler.vpaIndexer = cache.NewIndexer(cache.MetaNamespaceKeyFunc, cache.Indexers{
+		watcherinformers.VPAByVhapePolicyIndex: watcherinformers.GetAssociatedVPAVhapePolicyKey,
+	})
 
 	return handler, sink
 }
