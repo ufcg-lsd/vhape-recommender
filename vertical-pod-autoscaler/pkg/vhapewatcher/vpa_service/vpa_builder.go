@@ -92,15 +92,14 @@ func LabelsForVPA() map[string]string {
 	}
 }
 
-// HasVhapeRecommenderLabel reports whether the VPA is associated with a VHAPE
-// recommender.
+// HasVhapeRecommenderLabel reports whether the VPA identifies a VHAPE
+// recommender with a non-empty label value.
 func HasVhapeRecommenderLabel(vpa *vpav1.VerticalPodAutoscaler) bool {
 	if vpa == nil {
 		return false
 	}
 
-	_, found := vpa.Labels[VhapeLabel]
-	return found
+	return vpa.Labels[VhapeLabel] != ""
 }
 
 // VhapePolicyName returns the VhapePolicy selected by the VPA, if any.

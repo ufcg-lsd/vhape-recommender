@@ -114,6 +114,10 @@ func TestHasVhapeRecommenderLabel(t *testing.T) {
 			vpa:  &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"example.com/recommender": "other"}}},
 		},
 		{
+			name: "empty VHAPE label",
+			vpa:  &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{vpaservice.VhapeLabel: ""}}},
+		},
+		{
 			name:        "VHAPE label with custom recommender name",
 			vpa:         &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{vpaservice.VhapeLabel: "team-a-recommender"}}},
 			wantLabeled: true,
@@ -160,8 +164,13 @@ func TestLatestVhapeVPA(t *testing.T) {
 
 	older := eligible("older", "older-policy", timestamp(100))
 	newer := eligible("newer", "newer-policy", timestamp(200))
+	terminating := eligible("terminating", "terminating-policy", timestamp(300))
+	deletionTimestamp := timestamp(600)
+	terminating.DeletionTimestamp = &deletionTimestamp
 	withoutLabel := eligible("without-label", "ignored-policy", timestamp(300))
 	withoutLabel.Labels = nil
+	withEmptyLabel := eligible("with-empty-label", "ignored-policy", timestamp(350))
+	withEmptyLabel.Labels[vpaservice.VhapeLabel] = ""
 	withoutPolicy := eligible("without-policy", "", timestamp(400))
 	tieA := eligible("a", "a-policy", timestamp(500))
 	tieB := eligible("b", "b-policy", timestamp(500))
@@ -172,8 +181,9 @@ func TestLatestVhapeVPA(t *testing.T) {
 		want *vpav1.VerticalPodAutoscaler
 	}{
 		{name: "empty"},
-		{name: "ignores nil and ineligible VPAs", vpas: []*vpav1.VerticalPodAutoscaler{nil, withoutLabel, withoutPolicy}},
+		{name: "ignores nil and ineligible VPAs", vpas: []*vpav1.VerticalPodAutoscaler{nil, withoutLabel, withEmptyLabel, withoutPolicy}},
 		{name: "uses latest creation timestamp", vpas: []*vpav1.VerticalPodAutoscaler{newer, older}, want: newer},
+		{name: "includes a terminating VPA until it leaves the cache", vpas: []*vpav1.VerticalPodAutoscaler{newer, terminating}, want: terminating},
 		{name: "ignores newer ineligible VPA", vpas: []*vpav1.VerticalPodAutoscaler{older, withoutLabel}, want: older},
 		{name: "uses name as timestamp tiebreaker", vpas: []*vpav1.VerticalPodAutoscaler{tieB, tieA}, want: tieB},
 	}
