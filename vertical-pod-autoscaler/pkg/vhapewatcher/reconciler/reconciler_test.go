@@ -750,6 +750,54 @@ func TestReconcileDeploymentUsesLatestVhapeVPAPolicyForHPA(t *testing.T) {
 	}
 }
 
+func TestReconcileDeploymentManagesHPAAfterReferencedPolicyAppears(t *testing.T) {
+	ctx := context.Background()
+	dep := deploymentWithCPURequest(testutil.TestNamespace, testutil.TestDeploymentName, "200m")
+	policyName := "eventual-policy"
+	vpa := testutil.NewVPA("manual-api", dep.Namespace, dep.Name)
+	vpa.Annotations = map[string]string{vpaservice.VhapePolicyAnnotation: policyName}
+	vpa.Labels = map[string]string{vpaservice.VhapeLabel: "team-a-recommender"}
+	hpa := cpuUtilizationHPA("api-hpa", dep.Namespace, dep.Name, 50)
+
+	r, _, kubeClient, informers := newTestReconcilerWithHPAState(
+		t,
+		dep,
+		nil,
+		[]*vpav1.VerticalPodAutoscaler{vpa},
+		nil,
+		hpa,
+	)
+
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); err != nil {
+		t.Fatalf("first ReconcileDeployment() error = %v", err)
+	}
+	unchanged, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get unchanged HPA: %v", err)
+	}
+	if got := unchanged.Spec.Metrics[0].Resource.Target.Type; got != autoscalingv2.UtilizationMetricType {
+		t.Fatalf("HPA target type before policy exists = %q, want %q", got, autoscalingv2.UtilizationMetricType)
+	}
+
+	policy := &vhapev1alpha1.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName},
+		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
+	}
+	testutil.AddToIndexer(t, informers.VhapePolicy.Informer().GetIndexer(), policy)
+
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); err != nil {
+		t.Fatalf("second ReconcileDeployment() error = %v", err)
+	}
+	updated, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get converted HPA: %v", err)
+	}
+	target := updated.Spec.Metrics[0].Resource.Target
+	if target.Type != autoscalingv2.AverageValueMetricType || target.AverageValue == nil || target.AverageValue.MilliValue() != 100 {
+		t.Fatalf("HPA target after policy appears = %#v, want AverageValue 100m", target)
+	}
+}
+
 func TestReconcileDeploymentPreservesManualVPAAndDeletesGeneratedVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
@@ -953,6 +1001,75 @@ func generationOptions(policyName string, updateMode vpav1.UpdateMode) vhapev1al
 		VhapePolicyName: policyName,
 		VPAUpdateMode:   updateMode,
 	}
+}
+
+func deploymentWithCPURequest(namespace, name, request string) *appsv1.Deployment {
+	dep := testutil.NewDeployment(namespace, name)
+	dep.Spec.Template.Spec.Containers = []corev1.Container{{
+		Name: "api",
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse(request),
+		}},
+	}}
+	return dep
+}
+
+func cpuUtilizationHPA(name, namespace, deploymentName string, utilization int32) *autoscalingv2.HorizontalPodAutoscaler {
+	hpa := testutil.NewHPA(name, namespace, deploymentName)
+	hpa.Spec.Metrics = []autoscalingv2.MetricSpec{{
+		Type: autoscalingv2.ResourceMetricSourceType,
+		Resource: &autoscalingv2.ResourceMetricSource{
+			Name: corev1.ResourceCPU,
+			Target: autoscalingv2.MetricTarget{
+				Type:               autoscalingv2.UtilizationMetricType,
+				AverageUtilization: &utilization,
+			},
+		},
+	}}
+	return hpa
+}
+
+func newTestReconcilerWithHPAState(
+	t *testing.T,
+	dep *appsv1.Deployment,
+	watchedNamespaces []*vhapev1alpha1.VhapeWatchedNamespace,
+	vpas []*vpav1.VerticalPodAutoscaler,
+	policies []*vhapev1alpha1.VhapePolicy,
+	hpas ...*autoscalingv2.HorizontalPodAutoscaler,
+) (*Reconciler, *vpafake.Clientset, *kubefake.Clientset, *watcherinformers.Informers) {
+	t.Helper()
+
+	vpaClient, informers := testutil.NewInformers(
+		t,
+		[]*appsv1.Deployment{dep},
+		nil,
+		watchedNamespaces,
+		nil,
+		nil,
+		nil,
+		vpas,
+		policies,
+	)
+	hpaObjects := make([]runtime.Object, 0, len(hpas))
+	for _, hpa := range hpas {
+		testutil.AddToIndexer(t, informers.HPA.Informer().GetIndexer(), hpa)
+		hpaObjects = append(hpaObjects, hpa.DeepCopy())
+	}
+	kubeClient := kubefake.NewSimpleClientset(hpaObjects...)
+	hpaService, err := hpaservice.NewHPAService(informers.HPA, kubeClient)
+	if err != nil {
+		t.Fatalf("NewHPAService() error = %v", err)
+	}
+	r, err := New(
+		informers.Deployment.Lister(),
+		newScopeResolver(t, informers),
+		hpaService,
+		newVPAService(t, informers, vpaClient),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return r, vpaClient, kubeClient, informers
 }
 
 func assertQueuedKeys(t *testing.T, r *Reconciler, want []string) {
