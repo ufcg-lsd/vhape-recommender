@@ -1,55 +1,27 @@
-# Enabling VHAPE metrics collection with kube-state-metrics
+# Enabling VHAPE metrics collection
 
 This guide explains how to export VHAPE recommendations as Prometheus metrics, so they can be collected by Prometheus, VictoriaMetrics or any other Prometheus-compatible monitoring stack.
 
-The VHAPE Recommender writes its recommendations to the `status.recommendation` field of each `VerticalPodAutoscaler` object. Monitoring systems do not read Kubernetes objects, only metrics, so something has to turn that status into time series. That is the job of [kube-state-metrics](https://github.com/kubernetes/kube-state-metrics) (KSM).
-
-Since v2.9, kube-state-metrics no longer exports VPA metrics by default. They have to be declared through its Custom Resource State (CRS) configuration. The `vhape-kube-state-metrics` chart packages that configuration together with a **dedicated** KSM instance, so the cluster's own kube-state-metrics does not need to be modified.
+The VHAPE Recommender serves its recommendations on its own `/metrics` endpoint, next to the metrics inherited from the upstream VPA recommender. No extra component is needed.
 
 ## Prerequisites
 
 You need:
 
-- the upstream VPA CRDs installed, as described in [VHAPE Recommender installation](recommender-installation.md);
-- the VHAPE Recommender installed;
+- the VHAPE Recommender installed, as described in [VHAPE Recommender installation](recommender-installation.md);
 - a Prometheus-compatible collector running in the cluster (for example Prometheus or `vmagent`).
 
-## Install the chart
-
-The Helm chart installs:
-
-- a ServiceAccount;
-- a ClusterRole and ClusterRoleBinding granting `list` and `watch` on `verticalpodautoscalers` and `customresourcedefinitions` only;
-- a ConfigMap holding the CRS configuration;
-- a kube-state-metrics Deployment running with `--custom-resource-state-only`;
-- a Service exposing the metrics on port `8080`.
-
-Install the published OCI chart:
-
-```bash
-helm upgrade --install vhape-kube-state-metrics \
-  oci://registry-1.docker.io/vtexlsd/vhape-kube-state-metrics-chart \
-  --namespace kube-system \
-  --wait
-```
-
-Check that the Pod is running:
-
-```bash
-kubectl get pods -n kube-system -l app=vhape-kube-state-metrics
-```
-
-Because it runs with `--custom-resource-state-only`, this instance exports **only** the VPA recommendation metrics below. It never exports `kube_pod_*`, `kube_deployment_*` or any other series from the cluster's own kube-state-metrics, so both instances can run side by side without duplicating data.
-
-## About the exported metrics
+## Exported metrics
 
 | Metric | Source field |
 |---|---|
-| `kube_customresource_vpa_containerrecommendations_target` | `status.recommendation.containerRecommendations[].target` |
-| `kube_customresource_vpa_containerrecommendations_lowerbound` | `status.recommendation.containerRecommendations[].lowerBound` |
-| `kube_customresource_vpa_containerrecommendations_upperbound` | `status.recommendation.containerRecommendations[].upperBound` |
+| `vhape_recommender_recommendation_target` | `status.recommendation.containerRecommendations[].target` |
+| `vhape_recommender_recommendation_lowerbound` | `status.recommendation.containerRecommendations[].lowerBound` |
+| `vhape_recommender_recommendation_upperbound` | `status.recommendation.containerRecommendations[].upperBound` |
 
-Each metric is exported twice per container, once per resource, and carries the following labels:
+The values are recorded after post-processing, so they match what is written to the VPA status.
+
+Each metric is exported twice per container, once per resource, with the following labels:
 
 | Label | Value |
 |---|---|
@@ -60,69 +32,70 @@ Each metric is exported twice per container, once per resource, and carries the 
 | `target_api_version`, `target_kind`, `target_name` | the workload referenced by `spec.targetRef` |
 | `container` | container name |
 
-## About the scraping
+Values are in base units: cores for CPU and bytes for memory, the same units used by kube-state-metrics for requests and usage.
 
-The chart's Service carries `prometheus.io/scrape: "true"` and `prometheus.io/port: "8080"`, so collectors that discover targets through annotations, such as the usual `kubernetes-service-endpoints` job in Prometheus and `vmagent`, pick it up with no extra setup.
+Your collector adds its own labels on top of these, such as `job` and `instance`. With annotation-based discovery, the `namespace` of the series is the namespace of the VPA, while the namespace of the recommender Pod usually arrives as `kubernetes_namespace`.
 
-With the Prometheus Operator, create a `ServiceMonitor` instead. The VictoriaMetrics Operator converts it into a `VMServiceScrape` automatically.
+## Configure scraping
+
+The recommender chart controls the endpoint through two values:
+
+| Value | Default | Description |
+|---|---|---|
+| `metrics.port` | `8942` | Port of the `/metrics` endpoint. |
+| `metrics.scrape` | `true` | Adds the `prometheus.io/*` annotations to the Pod. |
+
+With `metrics.scrape` enabled, collectors that discover Pods through annotations, such as the usual `kubernetes-pods` job in Prometheus and `vmagent`, pick the recommender up with no extra setup.
+
+With the Prometheus Operator, create a `PodMonitor` instead. The VictoriaMetrics Operator converts it into a `VMPodScrape` automatically.
 
 ```yaml
 apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+kind: PodMonitor
 metadata:
-  name: vhape-kube-state-metrics
+  name: vhape-recommender
   namespace: kube-system
 spec:
   selector:
     matchLabels:
-      app: vhape-kube-state-metrics
-  endpoints:
-    - port: http-metrics
+      app: vhape-recommender
+  podMetricsEndpoints:
+    - port: metrics
       interval: 60s
 ```
 
-## Verify the installation
+## Verify
 
 Check that the metrics are exposed:
 
 ```bash
-kubectl port-forward -n kube-system svc/vhape-kube-state-metrics 8080:8080 >/dev/null 2>&1 & PF=$!
+kubectl port-forward -n kube-system deploy/vhape-recommender 8942:8942 >/dev/null 2>&1 & PF=$!
 sleep 3
-curl -s localhost:8080/metrics | grep kube_customresource_vpa_containerrecommendations
+curl -s localhost:8942/metrics | grep vhape_recommender_recommendation
 kill $PF
 ```
 
-Then check that your collector is scraping it:
+Then check that your collector is scraping it. With the `kubernetes-pods` job, the Pod labels become series labels:
 
 ```promql
-up{service="vhape-kube-state-metrics"}
+up{app="vhape-recommender"}
 ```
 
 A value of `1` means the last scrape succeeded.
 
 Two behaviors are expected and do not indicate a problem:
 
-- **No series at all** while no VPA has a recommendation yet. The metrics are generated from `status.recommendation`, so they only appear once the VHAPE Recommender has written one.
+- **No series at all** while no VPA has a recommendation yet.
 - **`target`, `lowerbound` and `upperbound` with identical values** right after a VPA is created. Until the policy's `minimumCoverageWindow` is reached, the recommender falls back to the container's current request for all three fields. They diverge once enough samples are collected. See [Recommendations stay equal to current requests](recommender-guide.md#recommendations-stay-equal-to-current-requests).
 
 ## Troubleshooting
 
-### The Pod is not ready
-
-Check the logs:
-
-```bash
-kubectl logs -n kube-system deploy/vhape-kube-state-metrics
-```
-
-An invalid CRS configuration is reported at startup. A `forbidden` error when listing resources means the ClusterRole or ClusterRoleBinding is missing.
-
 ### The collector does not show the target
 
-Confirm the annotations are present on the Service:
+Confirm the discovery annotations are present on the Pod:
 
 ```bash
-kubectl get svc -n kube-system vhape-kube-state-metrics -o jsonpath='{.metadata.annotations}'
+kubectl get pods -n kube-system -l app=vhape-recommender -o jsonpath='{.items[0].metadata.annotations}'
 ```
 
-If they are, check whether your collector discovers targets through annotations at all. If it uses the Prometheus Operator, create the `ServiceMonitor` shown in [Configure scraping](#configure-scraping).
+If they are missing, check that `metrics.scrape` is enabled in the chart values. If they are present, check whether your collector discovers Pods through annotations at all. If it uses the Prometheus Operator, create the `PodMonitor` shown in [Configure scraping](#configure-scraping).

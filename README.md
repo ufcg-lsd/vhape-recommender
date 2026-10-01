@@ -34,7 +34,7 @@ VHAPE includes:
 ### Metrics collection
 
 * [Recommendations as metrics](vertical-pod-autoscaler/vhape-docs/metrics-collection.md)
-  Export VHAPE recommendations as Prometheus metrics with a dedicated kube-state-metrics.
+  Export VHAPE recommendations as Prometheus metrics from the recommender's /metrics endpoint.
 
 ### Common operations
 
