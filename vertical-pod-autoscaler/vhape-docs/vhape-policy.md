@@ -38,7 +38,7 @@ spec:
 
 `VhapePolicy.spec` is immutable. After a policy is created, its CPU and memory heuristics, parameters, and scaling rules cannot be edited in place. To change policy behavior, create another `VhapePolicy`.
 
-`spec.manageHpa` is a required boolean. It controls whether the VHAPE Watcher converts utilization-based HPA targets for Deployments using this policy. Set it to `false` when the watcher should manage only the VPA. The recommender itself does not modify HPAs. See [HPA management](watcher-guide.md#hpa-management) for the conversion rules and operational behavior.
+`spec.manageHpa` is a required boolean. It controls whether the VHAPE Watcher converts utilization-based HPA targets when the most recently created eligible VPA targeting a Deployment references this policy through the `vhape/policy` annotation. An eligible VPA also carries the `autoscaling.vhape.io/recommender` label. Set it to `false` to leave HPAs unchanged. The recommender itself does not modify HPAs. See [HPA management](watcher-guide.md#hpa-management) for the selection and conversion rules.
 
 When upgrading from a CRD version that did not contain `manageHpa`, recreate existing policies with an explicit value. The field cannot be added to an existing policy because `VhapePolicy.spec` is immutable.
 
