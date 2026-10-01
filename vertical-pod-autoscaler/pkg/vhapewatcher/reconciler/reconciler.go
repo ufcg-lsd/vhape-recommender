@@ -209,9 +209,9 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 	if err != nil {
 		return err
 	}
-
+	
 	return errors.Join(
-		r.reconcileHPA(ctx, dep, decision),
+		r.reconcileHPA(ctx, dep, decision), 
 		r.reconcileVPA(ctx, dep, decision),
 	)
 }
@@ -221,7 +221,7 @@ func (r *Reconciler) reconcileHPA(
 	dep *appsv1.Deployment,
 	decision watcherscope.Decision,
 ) error {
-	if !decision.ShouldManage || !decision.ManageHPA {
+	if !decision.ManageHPA {
 		return nil
 	}
 

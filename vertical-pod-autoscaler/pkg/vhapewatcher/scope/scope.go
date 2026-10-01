@@ -9,8 +9,10 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
+	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 )
 
 const (
@@ -53,6 +55,9 @@ func New(informerSet *watcherinformers.Informers) (*Scope, error) {
 	}
 	if informerSet.VhapePolicy == nil {
 		return nil, fmt.Errorf("vhape policy informer is nil")
+	}
+	if informerSet.VPA == nil {
+		return nil, fmt.Errorf("vpa informer is nil")
 	}
 	if informerSet.VhapeIgnoredNamespace == nil {
 		return nil, fmt.Errorf("vhape ignored namespace informer is nil")
@@ -176,7 +181,7 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 	}
 
 	if watchedNamespace != nil {
-		return s.managedDecision(ReasonWatched, watchedNamespace.Spec)
+		return s.decisionForScopedConfig(ReasonWatched, watchedNamespace.Spec)
 	}
 
 	// Checks if namespace has a regex-selected configuration.
@@ -187,29 +192,97 @@ func (s *Scope) ShouldManageDeployment(dep *appsv1.Deployment) (Decision, error)
 	}
 
 	if oldestRegex := oldestWatchedNamespaceRegex(regexes); oldestRegex != nil {
-		return s.managedDecision(ReasonRegexWatched, oldestRegex.Spec.VhapeWatchedNamespaceSpec)
+		return s.decisionForScopedConfig(ReasonRegexWatched, oldestRegex.Spec.VhapeWatchedNamespaceSpec)
 	}
 
-	return Decision{
-		ShouldManage: false,
-		Reason:       ReasonNotWatched,
-	}, nil
+	return s.decisionOutsideWatchedScope(dep)
 }
 
-// managedDecision resolves the VhapePolicy referenced by a watched namespace
-// configuration.
-func (s *Scope) managedDecision(reason string, config vhapev1alpha1.VhapeWatchedNamespaceSpec) (Decision, error) {
-	policy, err := s.GetVhapePolicy(config.VhapePolicyName)
+// decisionForScopedConfig builds the frozen decision for a Deployment already
+// selected by a VhapeWatchedNamespace or matching regex. The configuration
+// governs VPA management; its policy contributes only the HPA setting.
+func (s *Scope) decisionForScopedConfig(reason string, config vhapev1alpha1.VhapeWatchedNamespaceSpec) (Decision, error) {
+	manageHPA, err := s.manageHPAForPolicy(config.VhapePolicyName)
 	if err != nil {
 		return Decision{}, err
 	}
 
 	return Decision{
 		ShouldManage:  true,
-		ManageHPA:     policy.Spec.ManageHPA,
+		ManageHPA:     manageHPA,
 		Reason:        reason,
 		DesiredConfig: config,
 	}, nil
+}
+
+// decisionOutsideWatchedScope decides only HPA management for a Deployment
+// outside a watched namespace. A VPA opts the Deployment in when it has the
+// VHAPE recommender label and a VhapePolicy annotation whose policy enables
+// HPA management.
+func (s *Scope) decisionOutsideWatchedScope(dep *appsv1.Deployment) (Decision, error) {
+	vpas, err := s.getVPAsForDeployment(dep)
+	if err != nil {
+		return Decision{}, err
+	}
+
+	policyNames := make(map[string]struct{})
+	for _, vpa := range vpas {
+		if !vpaservice.HasVhapeRecommenderLabel(vpa) {
+			continue
+		}
+
+		if policyName := vpaservice.VhapePolicyName(vpa); policyName != "" {
+			policyNames[policyName] = struct{}{}
+		}
+	}
+
+	for policyName := range policyNames {
+		manageHPA, err := s.manageHPAForPolicy(policyName)
+		if err != nil {
+			return Decision{}, err
+		}
+		if manageHPA {
+			return Decision{ManageHPA: true, Reason: ReasonNotWatched}, nil
+		}
+	}
+
+	return Decision{Reason: ReasonNotWatched}, nil
+}
+
+// manageHPAForPolicy returns false while a referenced policy does not exist.
+// This is expected: the VPA records the policy name and a
+// VhapePolicy add event will enqueue its target Deployment when it appears.
+func (s *Scope) manageHPAForPolicy(policyName string) (bool, error) {
+	policy, err := s.GetVhapePolicy(policyName)
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return policy.Spec.ManageHPA, nil
+}
+
+func (s *Scope) getVPAsForDeployment(dep *appsv1.Deployment) ([]*vpav1.VerticalPodAutoscaler, error) {
+	items, err := s.informers.VPA.Informer().GetIndexer().ByIndex(
+		watcherinformers.VPAByDeploymentIndex,
+		watcherinformers.NamespacedKey(dep.Namespace, dep.Name),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get VPAs targeting Deployment %q/%q from cache: %w", dep.Namespace, dep.Name, err)
+	}
+
+	vpas := make([]*vpav1.VerticalPodAutoscaler, 0, len(items))
+	for _, item := range items {
+		vpa, ok := item.(*vpav1.VerticalPodAutoscaler)
+		if !ok {
+			return nil, fmt.Errorf("unexpected object type in VPA index: %T", item)
+		}
+		vpas = append(vpas, vpa)
+	}
+
+	return vpas, nil
 }
 
 // GetVhapePolicy returns a VhapePolicy from the informer cache.

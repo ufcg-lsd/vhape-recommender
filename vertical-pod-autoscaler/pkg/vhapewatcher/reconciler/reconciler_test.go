@@ -417,6 +417,44 @@ func TestReconcileDeploymentCreatesGeneratedVPAForWatchedDeployment(t *testing.T
 	)
 }
 
+func TestReconcileDeploymentCreatesVPABeforeReferencedPolicyExists(t *testing.T) {
+	ctx := context.Background()
+	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
+	watched := testutil.NewWatchedNamespace(dep.Namespace)
+	vpaClient, informers := testutil.NewInformers(
+		t,
+		[]*appsv1.Deployment{dep},
+		nil,
+		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+	)
+	if err := informers.VhapePolicy.Informer().GetIndexer().Delete(&vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: watched.Spec.VhapePolicyName}}); err != nil {
+		t.Fatalf("delete VhapePolicy from indexer: %v", err)
+	}
+	r, err := New(
+		informers.Deployment.Lister(),
+		newScopeResolver(t, informers),
+		newHPAService(t, informers),
+		newVPAService(t, informers, vpaClient),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); err != nil {
+		t.Fatalf("ReconcileDeployment() error = %v", err)
+	}
+
+	created := testutil.GetVPA(t, vpaClient, dep.Namespace, vpaservice.NameForDeployment(dep))
+	if got := created.Annotations[vpaservice.VhapePolicyAnnotation]; got != watched.Spec.VhapePolicyName {
+		t.Fatalf("VPA policy annotation = %q, want %q", got, watched.Spec.VhapePolicyName)
+	}
+}
+
 func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagementWithManualVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
@@ -459,6 +497,78 @@ func TestReconcileDeploymentConvertsHPAWhenPolicyEnablesManagementWithManualVPA(
 		[]*appsv1.Deployment{dep},
 		nil,
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		nil,
+		nil,
+		nil,
+		[]*vpav1.VerticalPodAutoscaler{manualVPA},
+		[]*vhapev1alpha1.VhapePolicy{policy},
+	)
+	testutil.AddToIndexer(t, informers.HPA.Informer().GetIndexer(), hpa)
+	kubeClient := kubefake.NewSimpleClientset(hpa.DeepCopy())
+	hpaService, err := hpaservice.NewHPAService(informers.HPA, kubeClient)
+	if err != nil {
+		t.Fatalf("NewHPAService() error = %v", err)
+	}
+	r, err := New(
+		informers.Deployment.Lister(),
+		newScopeResolver(t, informers),
+		hpaService,
+		newVPAService(t, informers, vpaClient),
+	)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); err != nil {
+		t.Fatalf("ReconcileDeployment() error = %v", err)
+	}
+
+	updated, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get updated HPA: %v", err)
+	}
+	target := updated.Spec.Metrics[0].Resource.Target
+	if target.Type != autoscalingv2.AverageValueMetricType || target.AverageValue == nil || target.AverageValue.MilliValue() != 100 {
+		t.Fatalf("HPA target = %#v, want AverageValue 100m", target)
+	}
+	testutil.AssertVPAExists(t, vpaClient, manualVPA.Namespace, manualVPA.Name)
+}
+
+func TestReconcileDeploymentConvertsHPAForManualVhapeVPAOutsideWatcherScope(t *testing.T) {
+	ctx := context.Background()
+	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
+	dep.Spec.Template.Spec.Containers = []corev1.Container{{
+		Name: "api",
+		Resources: corev1.ResourceRequirements{Requests: corev1.ResourceList{
+			corev1.ResourceCPU: resource.MustParse("200m"),
+		}},
+	}}
+	policyName := "manual-policy"
+	policy := &vhapev1alpha1.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: policyName},
+		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
+	}
+	utilization := int32(50)
+	hpa := testutil.NewHPA("api-hpa", dep.Namespace, dep.Name)
+	hpa.Spec.Metrics = []autoscalingv2.MetricSpec{{
+		Type: autoscalingv2.ResourceMetricSourceType,
+		Resource: &autoscalingv2.ResourceMetricSource{
+			Name: corev1.ResourceCPU,
+			Target: autoscalingv2.MetricTarget{
+				Type:               autoscalingv2.UtilizationMetricType,
+				AverageUtilization: &utilization,
+			},
+		},
+	}}
+	manualVPA := testutil.NewVPA("manual-api", dep.Namespace, dep.Name)
+	manualVPA.Annotations = map[string]string{vpaservice.VhapePolicyAnnotation: policyName}
+	manualVPA.Labels = map[string]string{vpaservice.VhapeLabel: "team-a-recommender"}
+
+	vpaClient, informers := testutil.NewInformers(
+		t,
+		[]*appsv1.Deployment{dep},
+		nil,
+		nil,
 		nil,
 		nil,
 		nil,

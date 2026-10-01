@@ -10,9 +10,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	testutil "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/testutil"
+	vpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/vpa_service"
 )
 
 func TestNewScopeResolverFromCaches(t *testing.T) {
@@ -60,6 +62,12 @@ func TestNewScopeResolverFromCaches(t *testing.T) {
 			name: "rejects nil VhapePolicy informer",
 			clear: func(informers *watcherinformers.Informers) {
 				informers.VhapePolicy = nil
+			},
+		},
+		{
+			name: "rejects nil VPA informer",
+			clear: func(informers *watcherinformers.Informers) {
+				informers.VPA = nil
 			},
 		},
 		{
@@ -460,28 +468,86 @@ func TestShouldManageDeploymentRejectsNilDeployment(t *testing.T) {
 	}
 }
 
-func TestShouldManageDeploymentCopiesManageHPAFromPolicy(t *testing.T) {
+func TestShouldManageDeploymentDoesNotRequireReferencedPolicy(t *testing.T) {
 	watched := testutil.NewWatchedNamespace(testutil.TestNamespace)
-	policy := &vhapev1alpha1.VhapePolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: watched.Spec.VhapePolicyName},
-		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
-	}
-	scope := newScope(
+	_, informers := testutil.NewInformers(
 		t,
+		nil,
 		nil,
 		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
 		nil,
 		nil,
 		nil,
-		policy,
+		nil,
+		nil,
 	)
+	if err := informers.VhapePolicy.Informer().GetIndexer().Delete(&vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: watched.Spec.VhapePolicyName}}); err != nil {
+		t.Fatalf("delete VhapePolicy from indexer: %v", err)
+	}
+	scope, err := New(informers)
+	if err != nil {
+		t.Fatalf("New() returned error: %v", err)
+	}
+
+	decision, err := scope.ShouldManageDeployment(testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName))
+	if err != nil {
+		t.Fatalf("ShouldManageDeployment() returned error: %v", err)
+	}
+	if !decision.ShouldManage {
+		t.Fatal("ShouldManageDeployment().ShouldManage = false, want true")
+	}
+	if decision.ManageHPA {
+		t.Fatal("ShouldManageDeployment().ManageHPA = true, want false while policy is absent")
+	}
+	if !reflect.DeepEqual(decision.DesiredConfig, watched.Spec) {
+		t.Fatalf("ShouldManageDeployment().DesiredConfig = %#v, want %#v", decision.DesiredConfig, watched.Spec)
+	}
+}
+
+func TestShouldManageDeploymentCopiesManageHPAFromWatchedPolicy(t *testing.T) {
+	watched := testutil.NewWatchedNamespace(testutil.TestNamespace)
+	policy := &vhapev1alpha1.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: watched.Spec.VhapePolicyName},
+		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
+	}
+	scope := newScope(t, nil, []*vhapev1alpha1.VhapeWatchedNamespace{watched}, nil, nil, nil, policy)
 
 	decision, err := scope.ShouldManageDeployment(testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName))
 	if err != nil {
 		t.Fatalf("ShouldManageDeployment() error = %v", err)
 	}
-	if !decision.ManageHPA {
-		t.Fatal("ShouldManageDeployment().ManageHPA = false, want true")
+	if !decision.ShouldManage || !decision.ManageHPA {
+		t.Fatalf("ShouldManageDeployment() = %#v, want managed VPA and HPA", decision)
+	}
+}
+
+func TestShouldManageDeploymentEnablesHPAForLabeledVPAOutsideScope(t *testing.T) {
+	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
+	first := testutil.NewVPA("first", dep.Namespace, dep.Name)
+	first.Annotations = map[string]string{vpaservice.VhapePolicyAnnotation: "first-policy"}
+	first.Labels = map[string]string{vpaservice.VhapeLabel: "team-a-recommender"}
+	second := testutil.NewVPA("second", dep.Namespace, dep.Name)
+	second.Annotations = map[string]string{vpaservice.VhapePolicyAnnotation: "second-policy"}
+	second.Labels = map[string]string{
+		vpaservice.VhapeLabel:     "team-b-recommender",
+		vpaservice.ManagedByLabel: vpaservice.ManagedByValue,
+	}
+	policies := []*vhapev1alpha1.VhapePolicy{
+		{ObjectMeta: metav1.ObjectMeta{Name: "first-policy"}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "second-policy"}, Spec: vhapev1alpha1.VhapePolicySpec{ManageHPA: true}},
+	}
+	_, informers := testutil.NewInformers(t, []*appsv1.Deployment{dep}, nil, nil, nil, nil, nil, []*vpav1.VerticalPodAutoscaler{first, second}, policies)
+	scope, err := New(informers)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	decision, err := scope.ShouldManageDeployment(dep)
+	if err != nil {
+		t.Fatalf("ShouldManageDeployment() error = %v", err)
+	}
+	if decision.ShouldManage || !decision.ManageHPA || decision.Reason != ReasonNotWatched {
+		t.Fatalf("ShouldManageDeployment() = %#v, want only HPA management outside watched scope", decision)
 	}
 }
 
