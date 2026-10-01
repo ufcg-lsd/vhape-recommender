@@ -106,6 +106,9 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 		listOfResourceRecommendation = postProcessor.Process(observedVpa, listOfResourceRecommendation)
 	}
 
+	// Recorded after post-processing, so the metrics match the VPA status.
+	metrics_recommender.RecordRecommendation(vpaRef(observedVpa), listOfResourceRecommendation)
+
 	vpa.UpdateRecommendation(listOfResourceRecommendation)
 	if vpa.HasRecommendation() && !had {
 		metrics_recommender.ObserveRecommendationLatency(vpa.Created)
@@ -130,10 +133,25 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 	}
 }
 
+// vpaRef returns the identity of a VPA and its target, as used in metric labels.
+func vpaRef(vpa *vpaautoscalingv1.VerticalPodAutoscaler) metrics_recommender.VPARef {
+	ref := metrics_recommender.VPARef{Namespace: vpa.Namespace, Name: vpa.Name}
+	if vpa.Spec.TargetRef != nil {
+		ref.TargetAPIVersion = vpa.Spec.TargetRef.APIVersion
+		ref.TargetKind = vpa.Spec.TargetRef.Kind
+		ref.TargetName = vpa.Spec.TargetRef.Name
+	}
+	return ref
+}
+
 // UpdateVPAs update VPA CRD objects' status.
 func (r *recommender) UpdateVPAs() {
 	cnt := metrics_recommender.NewObjectCounter()
 	defer cnt.Observe()
+
+	// Per-VPA gauges are rebuilt from scratch every cycle, so series of removed
+	// VPAs or containers disappear. This runs before the workers start.
+	metrics_recommender.ResetRecommendations()
 
 	// Create a channel to send VPA updates to workers
 	vpaUpdates := make(chan *vpaautoscalingv1.VerticalPodAutoscaler, len(r.clusterState.ObservedVPAs()))

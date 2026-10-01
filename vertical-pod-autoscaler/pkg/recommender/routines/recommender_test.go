@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	autoscaling "k8s.io/api/autoscaling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -500,4 +501,26 @@ func TestLoadVPAsFreesEstimatorsForReplacedVPA(t *testing.T) {
 
 	assert.NotSame(t, originalVPA, clusterState.VPAs()[vpaID])
 	assert.Equal(t, []model.VpaID{vpaID}, podRecommender.freed)
+}
+
+func TestVPARefCopiesTarget(t *testing.T) {
+	vpa := &v1.VerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "api-vpa"},
+		Spec: v1.VerticalPodAutoscalerSpec{
+			TargetRef: &autoscaling.CrossVersionObjectReference{APIVersion: "apps/v1", Kind: "Deployment", Name: "api"},
+		},
+	}
+
+	assert.Equal(t, metrics_recommender.VPARef{
+		Namespace: "shop", Name: "api-vpa",
+		TargetAPIVersion: "apps/v1", TargetKind: "Deployment", TargetName: "api",
+	}, vpaRef(vpa))
+}
+
+func TestVPARefWithoutTarget(t *testing.T) {
+	vpa := &v1.VerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "api-vpa"},
+	}
+
+	assert.Equal(t, metrics_recommender.VPARef{Namespace: "shop", Name: "api-vpa"}, vpaRef(vpa))
 }

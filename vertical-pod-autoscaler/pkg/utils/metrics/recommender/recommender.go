@@ -26,6 +26,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	corev1 "k8s.io/api/core/v1"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
@@ -34,6 +35,10 @@ import (
 
 const (
 	metricsNamespace = metrics.TopMetricsNamespace + "recommender"
+
+	// vhapeMetricsNamespace prefixes the metrics produced by VHAPE itself, as
+	// opposed to the ones inherited from the upstream VPA recommender.
+	vhapeMetricsNamespace = "vhape_recommender"
 )
 
 type apiVersion string
@@ -45,6 +50,33 @@ const (
 )
 
 var (
+	recommendationLabels = []string{
+		"namespace", "verticalpodautoscaler", "container", "resource", "unit",
+		"target_api_version", "target_kind", "target_name",
+	}
+
+	recommendationTarget = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: vhapeMetricsNamespace,
+			Name:      "recommendation_target",
+			Help:      "Target resources recommended for the container.",
+		}, recommendationLabels,
+	)
+	recommendationLowerBound = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: vhapeMetricsNamespace,
+			Name:      "recommendation_lowerbound",
+			Help:      "Minimum resources the container can use before the VPA updater evicts it.",
+		}, recommendationLabels,
+	)
+	recommendationUpperBound = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: vhapeMetricsNamespace,
+			Name:      "recommendation_upperbound",
+			Help:      "Maximum resources the container can use before the VPA updater evicts it.",
+		}, recommendationLabels,
+	)
+
 	vpaObjectCount = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Namespace: metricsNamespace,
@@ -115,12 +147,59 @@ type ObjectCounter struct {
 
 // Register initializes all metrics for VPA Recommender
 func Register() {
+	prometheus.MustRegister(recommendationTarget, recommendationLowerBound, recommendationUpperBound)
 	prometheus.MustRegister(vpaObjectCount, recommendationLatency, functionLatency, aggregateContainerStatesCount, metricServerResponses, prometheusClientRequestsCount, prometheusClientRequestsDuration)
 }
 
 // NewExecutionTimer provides a timer for Recommender's RunOnce execution
 func NewExecutionTimer() *metrics.ExecutionTimer {
 	return metrics.NewExecutionTimer(functionLatency)
+}
+
+// VPARef identifies a VPA and the workload it targets, as used in the
+// recommendation metric labels.
+type VPARef struct {
+	Namespace        string
+	Name             string
+	TargetAPIVersion string
+	TargetKind       string
+	TargetName       string
+}
+
+func (v VPARef) recommendationLabels(container, resource, unit string) []string {
+	return []string{v.Namespace, v.Name, container, resource, unit, v.TargetAPIVersion, v.TargetKind, v.TargetName}
+}
+
+// ResetRecommendations clears every recommendation series. It must be called
+// once per recommendation cycle, before any VPA is processed, so series of
+// removed VPAs or containers disappear instead of going stale.
+func ResetRecommendations() {
+	recommendationTarget.Reset()
+	recommendationLowerBound.Reset()
+	recommendationUpperBound.Reset()
+}
+
+// RecordRecommendation exports the recommendation written to a VPA status, with
+// CPU in cores and memory in bytes.
+func RecordRecommendation(vpa VPARef, rec *vpa_types.RecommendedPodResources) {
+	if rec == nil {
+		return
+	}
+
+	for _, c := range rec.ContainerRecommendations {
+		record := func(g *prometheus.GaugeVec, resources corev1.ResourceList) {
+			if cpu, ok := resources[corev1.ResourceCPU]; ok {
+				g.WithLabelValues(vpa.recommendationLabels(c.ContainerName, "cpu", "core")...).Set(cpu.AsApproximateFloat64())
+			}
+			if memory, ok := resources[corev1.ResourceMemory]; ok {
+				g.WithLabelValues(vpa.recommendationLabels(c.ContainerName, "memory", "byte")...).Set(memory.AsApproximateFloat64())
+			}
+		}
+
+		record(recommendationTarget, c.Target)
+		record(recommendationLowerBound, c.LowerBound)
+		record(recommendationUpperBound, c.UpperBound)
+	}
 }
 
 // ObserveRecommendationLatency observes the time it took for the first recommendation to appear
