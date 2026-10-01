@@ -927,6 +927,103 @@ func TestReconcileDeploymentWaitsForGeneratedVPAUpdateBeforeManagingHPA(t *testi
 	}
 }
 
+func TestReconcileDeploymentDoesNotManageHPAWhenGeneratedVPAPatchFails(t *testing.T) {
+	ctx := context.Background()
+	dep := deploymentWithCPURequest(testutil.TestNamespace, testutil.TestDeploymentName, "200m")
+	watched := testutil.NewWatchedNamespaceWithPolicy(dep.Namespace, "disabled-policy", vpav1.UpdateModeInitial)
+	oldConfig := generationOptions("enabled-policy", vpav1.UpdateModeInitial)
+	generatedVPA, err := vpaservice.GenerateVPAForDeployment(vpaservice.NameForDeployment(dep), dep, oldConfig)
+	if err != nil {
+		t.Fatalf("GenerateVPAForDeployment() error = %v", err)
+	}
+	policies := []*vhapev1alpha1.VhapePolicy{
+		{ObjectMeta: metav1.ObjectMeta{Name: "enabled-policy"}, Spec: vhapev1alpha1.VhapePolicySpec{ManageHPA: true}},
+		{ObjectMeta: metav1.ObjectMeta{Name: "disabled-policy"}},
+	}
+	hpa := cpuUtilizationHPA("api-hpa", dep.Namespace, dep.Name, 50)
+
+	r, vpaClient, kubeClient, _ := newTestReconcilerWithHPAState(
+		t,
+		dep,
+		[]*vhapev1alpha1.VhapeWatchedNamespace{watched},
+		[]*vpav1.VerticalPodAutoscaler{generatedVPA},
+		policies,
+		hpa,
+	)
+	patchErr := errors.New("patch generated VPA failed")
+	vpaClient.PrependReactor("patch", "verticalpodautoscalers", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, patchErr
+	})
+
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); !errors.Is(err, patchErr) {
+		t.Fatalf("ReconcileDeployment() error = %v, want wrapped %v", err, patchErr)
+	}
+	unchanged, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get HPA after failed VPA patch: %v", err)
+	}
+	if got := unchanged.Spec.Metrics[0].Resource.Target.Type; got != autoscalingv2.UtilizationMetricType {
+		t.Fatalf("HPA target type after failed VPA patch = %q, want %q", got, autoscalingv2.UtilizationMetricType)
+	}
+}
+
+func TestReconcileDeploymentWaitsForGeneratedVPACleanupOutsideWatcherScope(t *testing.T) {
+	ctx := context.Background()
+	dep := deploymentWithCPURequest(testutil.TestNamespace, testutil.TestDeploymentName, "200m")
+	generatedVPA, err := vpaservice.GenerateVPAForDeployment(
+		vpaservice.NameForDeployment(dep),
+		dep,
+		generationOptions("generated-policy", vpav1.UpdateModeInitial),
+	)
+	if err != nil {
+		t.Fatalf("GenerateVPAForDeployment() error = %v", err)
+	}
+	manualVPA := testutil.NewVPA("manual-api", dep.Namespace, dep.Name)
+	manualVPA.Annotations = map[string]string{vpaservice.VhapePolicyAnnotation: "manual-policy"}
+	manualVPA.Labels = map[string]string{vpaservice.VhapeLabel: "team-a-recommender"}
+	policy := &vhapev1alpha1.VhapePolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: "manual-policy"},
+		Spec:       vhapev1alpha1.VhapePolicySpec{ManageHPA: true},
+	}
+	hpa := cpuUtilizationHPA("api-hpa", dep.Namespace, dep.Name, 50)
+
+	r, vpaClient, kubeClient, informers := newTestReconcilerWithHPAState(
+		t,
+		dep,
+		nil,
+		[]*vpav1.VerticalPodAutoscaler{generatedVPA, manualVPA},
+		[]*vhapev1alpha1.VhapePolicy{policy},
+		hpa,
+	)
+
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); err != nil {
+		t.Fatalf("first ReconcileDeployment() error = %v", err)
+	}
+	testutil.AssertVPANotFound(t, vpaClient, generatedVPA.Namespace, generatedVPA.Name)
+	unchanged, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get HPA while generated VPA is still cached: %v", err)
+	}
+	if got := unchanged.Spec.Metrics[0].Resource.Target.Type; got != autoscalingv2.UtilizationMetricType {
+		t.Fatalf("HPA target type while generated VPA is still cached = %q, want %q", got, autoscalingv2.UtilizationMetricType)
+	}
+
+	if err := informers.VPA.Informer().GetIndexer().Delete(generatedVPA); err != nil {
+		t.Fatalf("delete generated VPA from informer: %v", err)
+	}
+	if err := r.ReconcileDeployment(ctx, dep.Namespace, dep.Name); err != nil {
+		t.Fatalf("second ReconcileDeployment() error = %v", err)
+	}
+	updated, err := kubeClient.AutoscalingV2().HorizontalPodAutoscalers(hpa.Namespace).Get(ctx, hpa.Name, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get HPA after VPA cache update: %v", err)
+	}
+	target := updated.Spec.Metrics[0].Resource.Target
+	if target.Type != autoscalingv2.AverageValueMetricType || target.AverageValue == nil || target.AverageValue.MilliValue() != 100 {
+		t.Fatalf("HPA target after generated VPA leaves cache = %#v, want AverageValue 100m", target)
+	}
+}
+
 func TestReconcileDeploymentPreservesManualVPAAndDeletesGeneratedVPA(t *testing.T) {
 	ctx := context.Background()
 	dep := testutil.NewDeployment(testutil.TestNamespace, testutil.TestDeploymentName)
