@@ -209,9 +209,9 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 	if err != nil {
 		return err
 	}
-	
+
 	return errors.Join(
-		r.reconcileHPA(ctx, dep, decision), 
+		r.reconcileHPA(ctx, dep),
 		r.reconcileVPA(ctx, dep, decision),
 	)
 }
@@ -219,9 +219,25 @@ func (r *Reconciler) ReconcileDeployment(ctx context.Context, namespace string, 
 func (r *Reconciler) reconcileHPA(
 	ctx context.Context,
 	dep *appsv1.Deployment,
-	decision watcherscope.Decision,
 ) error {
-	if !decision.ManageHPA {
+	vpas, err := r.vpaService.ListForDeployment(dep)
+	if err != nil {
+		return err
+	}
+
+	vpa := vpaservice.LatestVhapeVPA(vpas)
+	if vpa == nil {
+		return nil
+	}
+
+	policy, err := r.scope.GetVhapePolicy(vpaservice.VhapePolicyName(vpa))
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !policy.Spec.ManageHPA {
 		return nil
 	}
 

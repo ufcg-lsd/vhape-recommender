@@ -112,6 +112,26 @@ func VhapePolicyName(vpa *vpav1.VerticalPodAutoscaler) string {
 	return vpa.Annotations[VhapePolicyAnnotation]
 }
 
+// LatestVhapeVPA returns the most recently created VPA that carries both the
+// VHAPE recommender label and policy annotation. Name is used as a stable
+// tiebreaker when creation timestamps are equal.
+func LatestVhapeVPA(vpas []*vpav1.VerticalPodAutoscaler) *vpav1.VerticalPodAutoscaler {
+	var latest *vpav1.VerticalPodAutoscaler
+	for _, vpa := range vpas {
+		if !HasVhapeRecommenderLabel(vpa) || VhapePolicyName(vpa) == "" {
+			continue
+		}
+
+		if latest == nil ||
+			latest.CreationTimestamp.Time.Before(vpa.CreationTimestamp.Time) ||
+			(latest.CreationTimestamp.Equal(&vpa.CreationTimestamp) && latest.Name < vpa.Name) {
+			latest = vpa
+		}
+	}
+
+	return latest
+}
+
 func OwnerReferencesForDeployment(dep *appsv1.Deployment) []metav1.OwnerReference {
 	controller := true
 	return []metav1.OwnerReference{
