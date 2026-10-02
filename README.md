@@ -31,6 +31,11 @@ VHAPE includes:
 * [Watcher guide](vertical-pod-autoscaler/vhape-docs/watcher-guide.md)
   Configure watched namespaces, exclude workloads, and understand VPA reconciliation behavior.
 
+### Metrics collection
+
+* [Recommendations as metrics](vertical-pod-autoscaler/vhape-docs/metrics-collection.md)
+  Export VHAPE recommendations as Prometheus metrics from the recommender's /metrics endpoint.
+
 ### Common operations
 
 * [Release guide](vertical-pod-autoscaler/vhape-docs/release-guide.md)

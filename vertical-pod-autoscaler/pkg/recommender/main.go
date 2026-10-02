@@ -317,6 +317,8 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 
 	metricsClient := input_metrics.NewMetricsClient(source, commonFlag.VpaObjectNamespace, "default-metrics-client")
 
+	targetFetcher := target.NewVpaTargetSelectorFetcher(config, kubeClient, factory)
+
 	clusterStateFeeder := input.ClusterStateFeederFactory{
 		PodLister:           podLister,
 		OOMObserver:         oomObserver,
@@ -326,7 +328,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		VpaLister:           vpa_api_util.NewVpasLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
 		VpaCheckpointLister: vpa_api_util.NewVpaCheckpointLister(vpa_clientset.NewForConfigOrDie(config), make(chan struct{}), commonFlag.VpaObjectNamespace),
 		ClusterState:        clusterState,
-		SelectorFetcher:     target.NewVpaTargetSelectorFetcher(config, kubeClient, factory),
+		SelectorFetcher:     targetFetcher,
 		MemorySaveMode:      *memorySaver,
 		ControllerFetcher:   controllerFetcher,
 		RecommenderName:     *recommenderName,
@@ -339,6 +341,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		ClusterState:       clusterState,
 		ClusterStateFeeder: clusterStateFeeder,
 		ControllerFetcher:  controllerFetcher,
+		TargetFetcher:      targetFetcher,
 		CheckpointWriter:   checkpoint.NewCheckpointWriter(clusterState, vpa_clientset.NewForConfigOrDie(config).AutoscalingV1()),
 		VpaClient:          vpa_clientset.NewForConfigOrDie(config).AutoscalingV1(),
 		PodResourceRecommender: logic.CreatePodResourceRecommender(

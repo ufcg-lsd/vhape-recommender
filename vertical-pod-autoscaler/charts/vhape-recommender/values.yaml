@@ -3,6 +3,14 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 
+# Metrics are served on /metrics, including the VHAPE recommendations
+# (vhape_recommender_recommendation_{target,lowerbound,upperbound}).
+metrics:
+  port: 8942
+  # Adds the prometheus.io/* annotations to the Pod, so collectors that discover
+  # targets through them (such as vmagent's kubernetes-pods job) scrape it.
+  scrape: true
+
 resources:
   requests:
     cpu: "4"

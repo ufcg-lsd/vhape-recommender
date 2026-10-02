@@ -29,6 +29,7 @@ import (
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target"
 	controllerfetcher "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/target/controller_fetcher"
 	metrics_recommender "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/metrics/recommender"
 	vpa_utils "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/vpa"
@@ -57,6 +58,7 @@ type recommender struct {
 	checkpointsGCInterval         time.Duration
 	checkpointsWriteTimeout       time.Duration
 	controllerFetcher             controllerfetcher.ControllerFetcher
+	targetFetcher                 target.VpaTargetSelectorFetcher
 	lastCheckpointGC              time.Time
 	vpaClient                     vpa_api.VerticalPodAutoscalersGetter
 	podResourceRecommender        logic.PodResourceRecommender
@@ -76,6 +78,10 @@ func (r *recommender) GetClusterStateFeeder() input.ClusterStateFeeder {
 }
 
 func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalingv1.VerticalPodAutoscaler) {
+	if err := r.ensureInitialRequestsAnnotation(context.Background(), observedVpa); err != nil {
+		klog.ErrorS(err, "Failed to persist initial workload requests", "vpa", klog.KObj(observedVpa))
+	}
+
 	resources, err := r.podResourceRecommender.GetRecommendedPodResources(
 		GetContainerNameToAggregateStateMap(vpa),
 		vpa,
@@ -124,6 +130,17 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 	}
 }
 
+// vpaRef returns the identity of a VPA and its target, as used in metric labels.
+func vpaRef(vpa *vpaautoscalingv1.VerticalPodAutoscaler) metrics_recommender.VPARef {
+	ref := metrics_recommender.VPARef{Namespace: vpa.Namespace, Name: vpa.Name}
+	if vpa.Spec.TargetRef != nil {
+		ref.TargetAPIVersion = vpa.Spec.TargetRef.APIVersion
+		ref.TargetKind = vpa.Spec.TargetRef.Kind
+		ref.TargetName = vpa.Spec.TargetRef.Name
+	}
+	return ref
+}
+
 // UpdateVPAs update VPA CRD objects' status.
 func (r *recommender) UpdateVPAs() {
 	cnt := metrics_recommender.NewObjectCounter()
@@ -164,6 +181,24 @@ func (r *recommender) UpdateVPAs() {
 
 	// Wait for all workers to finish
 	wg.Wait()
+
+	recordRecommendations(r.clusterState)
+}
+
+// recordRecommendations exports the recommendation of every VPA, as written to
+// its status. It runs after all workers finish and only touches memory, so the
+// gauges are empty only for the instant between the reset and the new values.
+func recordRecommendations(clusterState model.ClusterState) {
+	metrics_recommender.ResetRecommendations()
+
+	vpas := clusterState.VPAs()
+	for _, observedVpa := range clusterState.ObservedVPAs() {
+		vpa, found := vpas[model.VpaID{Namespace: observedVpa.Namespace, VpaName: observedVpa.Name}]
+		if !found {
+			continue
+		}
+		metrics_recommender.RecordRecommendation(vpaRef(observedVpa), vpa.AsStatus().Recommendation)
+	}
 }
 
 func (r *recommender) MaintainCheckpoints(ctx context.Context) {
@@ -215,6 +250,7 @@ type RecommenderFactory struct {
 
 	ClusterStateFeeder     input.ClusterStateFeeder
 	ControllerFetcher      controllerfetcher.ControllerFetcher
+	TargetFetcher          target.VpaTargetSelectorFetcher
 	CheckpointWriter       checkpoint.CheckpointWriter
 	PodResourceRecommender logic.PodResourceRecommender
 	RecommendationFormat   logic.RecommendationFormat
@@ -260,6 +296,7 @@ func (c RecommenderFactory) Make() Recommender {
 		checkpointsGCInterval:         c.CheckpointsGCInterval,
 		checkpointsWriteTimeout:       c.CheckpointsWriteTimeout,
 		controllerFetcher:             c.ControllerFetcher,
+		targetFetcher:                 c.TargetFetcher,
 		useCheckpoints:                c.UseCheckpoints,
 		vpaClient:                     c.VpaClient,
 		podResourceRecommender:        c.PodResourceRecommender,

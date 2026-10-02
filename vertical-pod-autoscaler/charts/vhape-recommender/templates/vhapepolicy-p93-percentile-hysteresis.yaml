@@ -5,15 +5,16 @@ metadata:
 spec:
   resources:
     cpu:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.10
-        slidingWindow: 24h
-        minimumCoverageWindow: 30m
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.93
+          headroom: 0.10
+          slidingWindow: 24h
+          minimumCoverageWindow: 30m
     memory:
-      percentile-hysteresis:
-        percentile: 0.93
-        headroom: 0.05
-        slidingWindow: 24h
-        minimumCoverageWindow: 30m
-  scalingRule: ""
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.93
+          headroom: 0.05
+          slidingWindow: 24h
+          minimumCoverageWindow: 30m

@@ -20,6 +20,7 @@ import (
 	"context"
 
 	"go.uber.org/mock/gomock"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
@@ -58,4 +59,16 @@ func (_m *MockVpaTargetSelectorFetcher) Fetch(_ context.Context, vpa *vpa_types.
 
 func (_mr *_MockVpaTargetSelectorFetcherRecorder) Fetch(arg0 any) *gomock.Call {
 	return _mr.mock.ctrl.RecordCall(_mr.mock, "Fetch", arg0)
+}
+
+// FetchPodTemplate enables configuring expectations on FetchPodTemplate method.
+func (_m *MockVpaTargetSelectorFetcher) FetchPodTemplate(_ context.Context, vpa *vpa_types.VerticalPodAutoscaler) (*corev1.PodTemplateSpec, error) {
+	ret := _m.ctrl.Call(_m, "FetchPodTemplate", vpa)
+	ret0, _ := ret[0].(*corev1.PodTemplateSpec)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+func (_mr *_MockVpaTargetSelectorFetcherRecorder) FetchPodTemplate(arg0 any) *gomock.Call {
+	return _mr.mock.ctrl.RecordCall(_mr.mock, "FetchPodTemplate", arg0)
 }
