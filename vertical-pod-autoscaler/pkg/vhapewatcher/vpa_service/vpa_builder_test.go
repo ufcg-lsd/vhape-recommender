@@ -114,8 +114,9 @@ func TestHasVhapeRecommenderLabel(t *testing.T) {
 			vpa:  &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"example.com/recommender": "other"}}},
 		},
 		{
-			name: "empty VHAPE label",
-			vpa:  &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{vpaservice.VhapeLabel: ""}}},
+			name:        "empty VHAPE label",
+			vpa:         &vpav1.VerticalPodAutoscaler{ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{vpaservice.VhapeLabel: ""}}},
+			wantLabeled: true,
 		},
 		{
 			name:        "VHAPE label with custom recommender name",
@@ -169,7 +170,7 @@ func TestLatestVhapeVPA(t *testing.T) {
 	terminating.DeletionTimestamp = &deletionTimestamp
 	withoutLabel := eligible("without-label", "ignored-policy", timestamp(300))
 	withoutLabel.Labels = nil
-	withEmptyLabel := eligible("with-empty-label", "ignored-policy", timestamp(350))
+	withEmptyLabel := eligible("with-empty-label", "empty-label-policy", timestamp(350))
 	withEmptyLabel.Labels[vpaservice.VhapeLabel] = ""
 	withoutPolicy := eligible("without-policy", "", timestamp(400))
 	tieA := eligible("a", "a-policy", timestamp(500))
@@ -181,7 +182,8 @@ func TestLatestVhapeVPA(t *testing.T) {
 		want *vpav1.VerticalPodAutoscaler
 	}{
 		{name: "empty"},
-		{name: "ignores nil and ineligible VPAs", vpas: []*vpav1.VerticalPodAutoscaler{nil, withoutLabel, withEmptyLabel, withoutPolicy}},
+		{name: "ignores nil and ineligible VPAs", vpas: []*vpav1.VerticalPodAutoscaler{nil, withoutLabel, withoutPolicy}},
+		{name: "accepts empty VHAPE label", vpas: []*vpav1.VerticalPodAutoscaler{withEmptyLabel}, want: withEmptyLabel},
 		{name: "uses latest creation timestamp", vpas: []*vpav1.VerticalPodAutoscaler{newer, older}, want: newer},
 		{name: "includes a terminating VPA until it leaves the cache", vpas: []*vpav1.VerticalPodAutoscaler{newer, terminating}, want: terminating},
 		{name: "ignores newer ineligible VPA", vpas: []*vpav1.VerticalPodAutoscaler{older, withoutLabel}, want: older},

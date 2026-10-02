@@ -507,7 +507,7 @@ func TestIgnoredWorkloadHandlers(t *testing.T) {
 }
 
 func TestVhapePolicyHandlers(t *testing.T) {
-	t.Run("enqueueDeploymentFromVhapePolicy enqueues only selected Deployment VPAs", func(t *testing.T) {
+	t.Run("enqueueDeploymentFromVhapePolicy enqueues eligible Deployment VPAs", func(t *testing.T) {
 		handler, sink := newHandler(t)
 
 		matchingVPA := testutil.NewVPA("matching", testutil.TestNamespace, testutil.TestDeploymentName)
@@ -536,7 +536,10 @@ func TestVhapePolicyHandlers(t *testing.T) {
 
 		handler.enqueueDeploymentFromVhapePolicy(&vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: testutil.TestPolicyName}})
 
-		testutil.AssertStringSlicesEqual(t, sink.deployments, []string{deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName)})
+		testutil.AssertStringSlicesEqualIgnoringOrder(t, sink.deployments, []string{
+			deploymentKey(testutil.TestNamespace, testutil.TestDeploymentName),
+			deploymentKey(testutil.TestNamespace, "empty-label-api"),
+		})
 	})
 
 	t.Run("enqueueDeploymentFromVhapePolicy without index does nothing", func(t *testing.T) {
