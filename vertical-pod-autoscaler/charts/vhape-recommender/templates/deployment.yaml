@@ -12,6 +12,12 @@ spec:
     metadata:
       labels:
         app: vhape-recommender
+      {{- if .Values.metrics.scrape }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.metrics.port | quote }}
+        prometheus.io/path: /metrics
+      {{- end }}
     spec:
       serviceAccountName: vhape-recommender
       containers:
@@ -22,5 +28,9 @@ spec:
             - /recommender
           args:
             - --recommender-name=vhape-recommender
+            - --address=:{{ .Values.metrics.port }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}

@@ -24,7 +24,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
+	autoscaling "k8s.io/api/autoscaling/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -500,4 +502,78 @@ func TestLoadVPAsFreesEstimatorsForReplacedVPA(t *testing.T) {
 
 	assert.NotSame(t, originalVPA, clusterState.VPAs()[vpaID])
 	assert.Equal(t, []model.VpaID{vpaID}, podRecommender.freed)
+}
+
+func TestVPARefCopiesTarget(t *testing.T) {
+	vpa := &v1.VerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "api-vpa"},
+		Spec: v1.VerticalPodAutoscalerSpec{
+			TargetRef: &autoscaling.CrossVersionObjectReference{APIVersion: "apps/v1", Kind: "Deployment", Name: "api"},
+		},
+	}
+
+	assert.Equal(t, metrics_recommender.VPARef{
+		Namespace: "shop", Name: "api-vpa",
+		TargetAPIVersion: "apps/v1", TargetKind: "Deployment", TargetName: "api",
+	}, vpaRef(vpa))
+}
+
+func TestVPARefWithoutTarget(t *testing.T) {
+	vpa := &v1.VerticalPodAutoscaler{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "api-vpa"},
+	}
+
+	assert.Equal(t, metrics_recommender.VPARef{Namespace: "shop", Name: "api-vpa"}, vpaRef(vpa))
+}
+
+var registerRecommenderMetricsOnce sync.Once
+
+// exportedRecommendationVPAs returns the VPAs with a target series exported,
+// read from the default registry where the recommender registers its metrics.
+func exportedRecommendationVPAs(t *testing.T) []string {
+	t.Helper()
+	registerRecommenderMetricsOnce.Do(metrics_recommender.Register)
+
+	families, err := prometheus.DefaultGatherer.Gather()
+	assert.NoError(t, err)
+
+	vpas := []string{}
+	for _, family := range families {
+		if family.GetName() != "vhape_recommender_recommendation_target" {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == "verticalpodautoscaler" && label.GetValue() != "" {
+					vpas = append(vpas, label.GetValue())
+				}
+			}
+		}
+	}
+	return vpas
+}
+
+func TestRecordRecommendationsExportsEveryObservedVPA(t *testing.T) {
+	clusterState := model.NewClusterState(time.Minute)
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"app": "test"}})
+	assert.NoError(t, err)
+
+	apiVPAs := []*v1.VerticalPodAutoscaler{}
+	for _, name := range []string{"vpa-a", "vpa-b"} {
+		apiVpa := test.VerticalPodAutoscaler().WithName(name).WithNamespace("default").WithContainer("app").Get()
+		assert.NoError(t, clusterState.AddOrUpdateVpa(apiVpa, selector))
+		clusterState.VPAs()[model.VpaID{Namespace: "default", VpaName: name}].UpdateRecommendation(
+			test.Recommendation().WithContainer("app").WithTarget("100m", "100Mi").Get(),
+		)
+		apiVPAs = append(apiVPAs, apiVpa)
+	}
+
+	clusterState.SetObservedVPAs(apiVPAs)
+	recordRecommendations(clusterState)
+	assert.ElementsMatch(t, []string{"vpa-a", "vpa-a", "vpa-b", "vpa-b"}, exportedRecommendationVPAs(t))
+
+	// vpa-b was deleted: its series must disappear in the next cycle.
+	clusterState.SetObservedVPAs(apiVPAs[:1])
+	recordRecommendations(clusterState)
+	assert.ElementsMatch(t, []string{"vpa-a", "vpa-a"}, exportedRecommendationVPAs(t))
 }

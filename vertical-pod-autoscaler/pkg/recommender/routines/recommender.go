@@ -130,6 +130,17 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 	}
 }
 
+// vpaRef returns the identity of a VPA and its target, as used in metric labels.
+func vpaRef(vpa *vpaautoscalingv1.VerticalPodAutoscaler) metrics_recommender.VPARef {
+	ref := metrics_recommender.VPARef{Namespace: vpa.Namespace, Name: vpa.Name}
+	if vpa.Spec.TargetRef != nil {
+		ref.TargetAPIVersion = vpa.Spec.TargetRef.APIVersion
+		ref.TargetKind = vpa.Spec.TargetRef.Kind
+		ref.TargetName = vpa.Spec.TargetRef.Name
+	}
+	return ref
+}
+
 // UpdateVPAs update VPA CRD objects' status.
 func (r *recommender) UpdateVPAs() {
 	cnt := metrics_recommender.NewObjectCounter()
@@ -170,6 +181,24 @@ func (r *recommender) UpdateVPAs() {
 
 	// Wait for all workers to finish
 	wg.Wait()
+
+	recordRecommendations(r.clusterState)
+}
+
+// recordRecommendations exports the recommendation of every VPA, as written to
+// its status. It runs after all workers finish and only touches memory, so the
+// gauges are empty only for the instant between the reset and the new values.
+func recordRecommendations(clusterState model.ClusterState) {
+	metrics_recommender.ResetRecommendations()
+
+	vpas := clusterState.VPAs()
+	for _, observedVpa := range clusterState.ObservedVPAs() {
+		vpa, found := vpas[model.VpaID{Namespace: observedVpa.Namespace, VpaName: observedVpa.Name}]
+		if !found {
+			continue
+		}
+		metrics_recommender.RecordRecommendation(vpaRef(observedVpa), vpa.AsStatus().Recommendation)
+	}
 }
 
 func (r *recommender) MaintainCheckpoints(ctx context.Context) {
