@@ -106,9 +106,6 @@ func processVPAUpdate(r *recommender, vpa *model.Vpa, observedVpa *vpaautoscalin
 		listOfResourceRecommendation = postProcessor.Process(observedVpa, listOfResourceRecommendation)
 	}
 
-	// Recorded after post-processing, so the metrics match the VPA status.
-	metrics_recommender.RecordRecommendation(vpaRef(observedVpa), listOfResourceRecommendation)
-
 	vpa.UpdateRecommendation(listOfResourceRecommendation)
 	if vpa.HasRecommendation() && !had {
 		metrics_recommender.ObserveRecommendationLatency(vpa.Created)
@@ -149,10 +146,6 @@ func (r *recommender) UpdateVPAs() {
 	cnt := metrics_recommender.NewObjectCounter()
 	defer cnt.Observe()
 
-	// Per-VPA gauges are rebuilt from scratch every cycle, so series of removed
-	// VPAs or containers disappear. This runs before the workers start.
-	metrics_recommender.ResetRecommendations()
-
 	// Create a channel to send VPA updates to workers
 	vpaUpdates := make(chan *vpaautoscalingv1.VerticalPodAutoscaler, len(r.clusterState.ObservedVPAs()))
 
@@ -188,6 +181,24 @@ func (r *recommender) UpdateVPAs() {
 
 	// Wait for all workers to finish
 	wg.Wait()
+
+	recordRecommendations(r.clusterState)
+}
+
+// recordRecommendations exports the recommendation of every VPA, as written to
+// its status. It runs after all workers finish and only touches memory, so the
+// gauges are empty only for the instant between the reset and the new values.
+func recordRecommendations(clusterState model.ClusterState) {
+	metrics_recommender.ResetRecommendations()
+
+	vpas := clusterState.VPAs()
+	for _, observedVpa := range clusterState.ObservedVPAs() {
+		vpa, found := vpas[model.VpaID{Namespace: observedVpa.Namespace, VpaName: observedVpa.Name}]
+		if !found {
+			continue
+		}
+		metrics_recommender.RecordRecommendation(vpaRef(observedVpa), vpa.AsStatus().Recommendation)
+	}
 }
 
 func (r *recommender) MaintainCheckpoints(ctx context.Context) {
