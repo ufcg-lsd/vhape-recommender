@@ -1,7 +1,7 @@
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapePolicy
 metadata:
-  name: robust-mad-ewma
+  name: adrs-mem-v2
 spec:
   resources:
     cpu:
@@ -11,7 +11,7 @@ spec:
         slidingWindow: 24h
         minimumCoverageWindow: 30m
     memory:
-      robust-mad-ewma:
+      adrs-mem-v2:
         slidingWindow: 24h
         minimumCoverageWindow: 30m
   scalingRule: ""

@@ -86,7 +86,7 @@ spec:
                               type: string
                             minimumCoverageWindow:
                               type: string
-                        robust-mad-ewma:
+                        adrs-mem-v2:
                           type: object
                           required:
                             - slidingWindow

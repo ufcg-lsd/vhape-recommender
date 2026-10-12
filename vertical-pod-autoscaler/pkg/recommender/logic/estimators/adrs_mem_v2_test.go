@@ -13,8 +13,8 @@ import (
 
 const mib = int64(bytesPerMiB)
 
-func TestRobustMadEwmaFallsBackWithoutEnoughSamples(t *testing.T) {
-	estimator := NewRobustMadEwmaEstimator(model.ResourceMemory, time.Hour, time.Minute)
+func TestAdrsMemV2FallsBackWithoutEnoughSamples(t *testing.T) {
+	estimator := NewAdrsMemV2Estimator(model.ResourceMemory, time.Hour, time.Minute)
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{
 		CurrentRequest: 250 * model.ResourceAmount(mib),
@@ -27,8 +27,8 @@ func TestRobustMadEwmaFallsBackWithoutEnoughSamples(t *testing.T) {
 	assert.Equal(t, got.Target, got.UncappedTarget)
 }
 
-func TestRobustMadEwmaFallsBackToMinimumWithoutCurrentRequest(t *testing.T) {
-	estimator := NewRobustMadEwmaEstimator(model.ResourceMemory, time.Hour, time.Minute)
+func TestAdrsMemV2FallsBackToMinimumWithoutCurrentRequest(t *testing.T) {
+	estimator := NewAdrsMemV2Estimator(model.ResourceMemory, time.Hour, time.Minute)
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{
 		Min: 100 * model.ResourceAmount(mib),
@@ -37,8 +37,8 @@ func TestRobustMadEwmaFallsBackToMinimumWithoutCurrentRequest(t *testing.T) {
 	assert.Equal(t, 100*model.ResourceAmount(mib), got.Target)
 }
 
-func TestRobustMadEwmaIgnoresNonMemoryResource(t *testing.T) {
-	estimator := NewRobustMadEwmaEstimator(model.ResourceCPU, time.Hour, time.Minute)
+func TestAdrsMemV2IgnoresNonMemoryResource(t *testing.T) {
+	estimator := NewAdrsMemV2Estimator(model.ResourceCPU, time.Hour, time.Minute)
 	now := time.Now()
 	estimator.samples["app"] = []TimedSample{
 		{Value: 500 * model.ResourceAmount(mib), Timestamp: now.Add(-2 * time.Minute)},
@@ -50,19 +50,18 @@ func TestRobustMadEwmaIgnoresNonMemoryResource(t *testing.T) {
 		Min:            100 * model.ResourceAmount(mib),
 	})
 
-	// Non-memory: leaves the request untouched.
 	assert.Equal(t, 250*model.ResourceAmount(mib), got.Target)
 }
 
-func TestRobustMadEwmaIgnoresNegativeSamples(t *testing.T) {
-	estimator := NewRobustMadEwmaEstimator(model.ResourceMemory, time.Hour, time.Minute)
+func TestAdrsMemV2IgnoresNegativeSamples(t *testing.T) {
+	estimator := NewAdrsMemV2Estimator(model.ResourceMemory, time.Hour, time.Minute)
 	estimator.FeedSamples("app", []model.ResourceAmount{-1})
 
 	assert.Empty(t, estimator.samples["app"])
 }
 
-func TestRobustMadEwmaPurgesExpiredSamples(t *testing.T) {
-	estimator := NewRobustMadEwmaEstimator(model.ResourceMemory, time.Minute, 30*time.Second)
+func TestAdrsMemV2PurgesExpiredSamples(t *testing.T) {
+	estimator := NewAdrsMemV2Estimator(model.ResourceMemory, time.Minute, 30*time.Second)
 	estimator.samples["app"] = []TimedSample{
 		{Value: 100 * model.ResourceAmount(mib), Timestamp: time.Now().Add(-2 * time.Minute)},
 		{Value: 200 * model.ResourceAmount(mib), Timestamp: time.Now()},
@@ -76,19 +75,17 @@ func TestRobustMadEwmaPurgesExpiredSamples(t *testing.T) {
 	assert.Len(t, estimator.samples["app"], 1)
 }
 
-func TestRobustMadEwmaReactsToPersistentPeak(t *testing.T) {
-	estimator := NewRobustMadEwmaEstimator(model.ResourceMemory, time.Hour, time.Minute)
+func TestAdrsMemV2ReactsToPersistentPeak(t *testing.T) {
+	estimator := NewAdrsMemV2Estimator(model.ResourceMemory, time.Hour, time.Minute)
 	now := time.Now()
 
 	samples := []TimedSample{}
-	// A long stable baseline near 200Mi.
 	for i := 0; i < 40; i++ {
 		samples = append(samples, TimedSample{
 			Value:     200 * model.ResourceAmount(mib),
 			Timestamp: now.Add(-time.Duration(40-i) * time.Minute),
 		})
 	}
-	// A persistent recent elevation near 500Mi.
 	for i := 0; i < 8; i++ {
 		samples = append(samples, TimedSample{
 			Value:     500 * model.ResourceAmount(mib),
@@ -102,15 +99,13 @@ func TestRobustMadEwmaReactsToPersistentPeak(t *testing.T) {
 		Min:            50 * model.ResourceAmount(mib),
 	})
 
-	// The request should move up meaningfully in response to the sustained peak.
 	assert.Greater(t, int64(got.Target), int64(220*model.ResourceAmount(mib)))
-	// Bounds bracket the target.
 	assert.Less(t, int64(got.LowerBound), int64(got.Target))
 	assert.Greater(t, int64(got.UpperBound), int64(got.Target))
 }
 
-func TestRobustMadEwmaAppliesMaximumBound(t *testing.T) {
-	estimator := NewRobustMadEwmaEstimator(model.ResourceMemory, time.Hour, time.Minute)
+func TestAdrsMemV2AppliesMaximumBound(t *testing.T) {
+	estimator := NewAdrsMemV2Estimator(model.ResourceMemory, time.Hour, time.Minute)
 	now := time.Now()
 	samples := []TimedSample{}
 	for i := 0; i < 20; i++ {
@@ -128,7 +123,6 @@ func TestRobustMadEwmaAppliesMaximumBound(t *testing.T) {
 	})
 
 	assert.Equal(t, 500*model.ResourceAmount(mib), got.Target)
-	// The uncapped target reflects the estimator output before clamping.
 	assert.Greater(t, int64(got.UncappedTarget), int64(got.Target))
 }
 
@@ -148,19 +142,39 @@ func TestRecommendMemoryHysteresisKeepsPrevOnTinyChange(t *testing.T) {
 	assert.Equal(t, prev, recommendMemory(usage, prev))
 }
 
-func TestRobustMadEwmaSpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
+// TestAdrsMemV2RecoversAfterTransientSpike exercises the v2 behaviour: a single
+// transient spike should not pin the request near its top. Starting from a
+// request inflated by a past spike, over a baseline window the recommendation
+// should decay back toward the real usage level.
+func TestAdrsMemV2RecoversAfterTransientSpike(t *testing.T) {
+	// Steady baseline around 200Mi with a single isolated spike to 900Mi.
+	usage := make([]float64, 100)
+	for i := range usage {
+		usage[i] = 200.0 * bytesPerMiB
+	}
+	usage[10] = 900.0 * bytesPerMiB
+
+	prev := 700.0 * bytesPerMiB // request inflated by a previous peak
+	got := recommendMemory(usage, prev)
+
+	// v2 should move the request down (faster decay + P95 floor), not keep it pinned.
+	assert.Less(t, got, prev)
+	assert.Greater(t, got, 200.0*bytesPerMiB) // but still safely above baseline
+}
+
+func TestAdrsMemV2SpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
 	spec, name, err := BuildHeuristic(map[string]runtime.RawExtension{
-		RobustMadEwma: {Raw: []byte(`{"slidingWindow":"24h","minimumCoverageWindow":"30m"}`)},
+		AdrsMemV2: {Raw: []byte(`{"slidingWindow":"24h","minimumCoverageWindow":"30m"}`)},
 	})
 
 	assert.NoError(t, err)
-	assert.Equal(t, RobustMadEwma, name)
-	assert.Equal(t, &RobustMadEwmaSpec{
+	assert.Equal(t, AdrsMemV2, name)
+	assert.Equal(t, &AdrsMemV2Spec{
 		SlidingWindow:         metav1.Duration{Duration: 24 * time.Hour},
 		MinimumCoverageWindow: metav1.Duration{Duration: 30 * time.Minute},
 	}, spec)
 
-	estimator, ok := spec.NewEstimator(model.ResourceMemory).(*RobustMadEwmaEstimator)
+	estimator, ok := spec.NewEstimator(model.ResourceMemory).(*AdrsMemV2Estimator)
 
 	assert.True(t, ok)
 	assert.Equal(t, model.ResourceMemory, estimator.resourceName)
@@ -168,7 +182,7 @@ func TestRobustMadEwmaSpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
 	assert.Equal(t, 30*time.Minute, estimator.minimumCoverageWindow)
 }
 
-func TestRobustMadEwmaSpecRejectsMalformedParameters(t *testing.T) {
+func TestAdrsMemV2SpecRejectsMalformedParameters(t *testing.T) {
 	tests := []struct {
 		name    string
 		config  string
@@ -204,7 +218,7 @@ func TestRobustMadEwmaSpecRejectsMalformedParameters(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, _, err := BuildHeuristic(map[string]runtime.RawExtension{
-				RobustMadEwma: {Raw: []byte(tt.config)},
+				AdrsMemV2: {Raw: []byte(tt.config)},
 			})
 
 			assert.ErrorContains(t, err, "invalid parameters")
@@ -213,9 +227,14 @@ func TestRobustMadEwmaSpecRejectsMalformedParameters(t *testing.T) {
 	}
 }
 
-func TestMedianMeanMaxFloatHelpers(t *testing.T) {
+func TestStatHelpers(t *testing.T) {
 	assert.Equal(t, 2.0, median([]float64{3, 1, 2}))
 	assert.Equal(t, 2.5, median([]float64{1, 2, 3, 4}))
 	assert.Equal(t, 2.0, mean([]float64{1, 2, 3}))
 	assert.Equal(t, 4.0, maxFloat([]float64{1, 4, 2}))
+
+	// numpy.percentile([1,2,3,4], 95) == 3.85 (linear interpolation)
+	assert.InDelta(t, 3.85, percentile([]float64{1, 2, 3, 4}, 95), 1e-9)
+	assert.Equal(t, 2.0, percentile([]float64{1, 2, 3}, 50))
+	assert.Equal(t, 5.0, percentile([]float64{5}, 99))
 }
