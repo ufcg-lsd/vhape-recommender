@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	vpav1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
+	vhapev1alpha1 "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 )
 
 func TestAddDeploymentToVPAsIndexRejectsNilInformer(t *testing.T) {
@@ -84,6 +85,31 @@ func TestGetAssociatedVPADeploymentKeyIgnoresUnsupportedObjects(t *testing.T) {
 				t.Fatalf("GetAssociatedVPADeploymentKey() = %#v, want nil", keys)
 			}
 		})
+	}
+}
+
+func TestGetAssociatedVPAVhapePolicyKey(t *testing.T) {
+	vpa := newVPAForIndexTest("test-namespace", "test-vpa", appsv1.SchemeGroupVersion.String(), "Deployment", "test-deployment")
+	vpa.Annotations = map[string]string{vhapev1alpha1.VhapePolicyAnnotation: "test-policy"}
+
+	keys, err := GetAssociatedVPAVhapePolicyKey(vpa)
+	if err != nil {
+		t.Fatalf("GetAssociatedVPAVhapePolicyKey() returned error: %v", err)
+	}
+
+	want := []string{"test-policy"}
+	if !reflect.DeepEqual(keys, want) {
+		t.Fatalf("GetAssociatedVPAVhapePolicyKey() = %#v, want %#v", keys, want)
+	}
+}
+
+func TestGetAssociatedVPAVhapePolicyKeyIgnoresVPAsWithoutPolicy(t *testing.T) {
+	keys, err := GetAssociatedVPAVhapePolicyKey(newVPAForIndexTest("test-namespace", "test-vpa", appsv1.SchemeGroupVersion.String(), "Deployment", "test-deployment"))
+	if err != nil {
+		t.Fatalf("GetAssociatedVPAVhapePolicyKey() returned error: %v", err)
+	}
+	if keys != nil {
+		t.Fatalf("GetAssociatedVPAVhapePolicyKey() = %#v, want nil", keys)
 	}
 }
 

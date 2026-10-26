@@ -12,6 +12,7 @@ import (
 	vhapewatcherclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
 	watcherconfig "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/config"
 	watcherhandler "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/handler"
+	hpaservice "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/hpa_service"
 	watcherinformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/informers"
 	reconciler "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/reconciler"
 	watcherscope "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/scope"
@@ -86,9 +87,18 @@ func run(
 		return fmt.Errorf("create VPA service: %w", err)
 	}
 
+	hpaService, err := hpaservice.NewHPAService(
+		informerSet.HPA,
+		clients.Kube,
+	)
+	if err != nil {
+		return fmt.Errorf("create HPA service: %w", err)
+	}
+
 	reconcilerObj, err := reconciler.New(
 		informerSet.Deployment.Lister(),
 		scopeResolver,
+		hpaService,
 		vpaService,
 	)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	autoscalinginformers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.k8s.io/v1"
 	vhapev1alpha1informers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/informers/externalversions/autoscaling.vhape.io/v1alpha1"
 	appsinformers "k8s.io/client-go/informers/apps/v1"
+	hpainformers "k8s.io/client-go/informers/autoscaling/v2"
 	coreinformers "k8s.io/client-go/informers/core/v1"
 
 	vhapeclient "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/vhapewatcher/client"
@@ -23,7 +24,9 @@ type Informers struct {
 
 	Deployment                 appsinformers.DeploymentInformer
 	Namespace                  coreinformers.NamespaceInformer
+	HPA                        hpainformers.HorizontalPodAutoscalerInformer
 	VPA                        autoscalinginformers.VerticalPodAutoscalerInformer
+	VhapePolicy                vhapev1alpha1informers.VhapePolicyInformer
 	VhapeWatchedNamespace      vhapev1alpha1informers.VhapeWatchedNamespaceInformer
 	VhapeWatchedNamespaceRegex vhapev1alpha1informers.VhapeWatchedNamespaceRegexInformer
 	VhapeIgnoredNamespace      vhapev1alpha1informers.VhapeIgnoredNamespaceInformer
@@ -55,10 +58,20 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		V1().
 		Namespaces()
 
+	hpaInformer := kubeFactory.
+		Autoscaling().
+		V2().
+		HorizontalPodAutoscalers()
+
 	vpaInformer := vhapeFactory.
 		Autoscaling().
 		V1().
 		VerticalPodAutoscalers()
+
+	policyInformer := vhapeFactory.
+		VhapeAutoscaling().
+		V1alpha1().
+		VhapePolicies()
 
 	watchedNamespaceInformer := vhapeFactory.
 		VhapeAutoscaling().
@@ -85,7 +98,9 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 		vhapeFactory:               vhapeFactory,
 		Deployment:                 deploymentInformer,
 		Namespace:                  namespaceInformer,
+		HPA:                        hpaInformer,
 		VPA:                        vpaInformer,
+		VhapePolicy:                policyInformer,
 		VhapeWatchedNamespace:      watchedNamespaceInformer,
 		VhapeWatchedNamespaceRegex: watchedNamespaceRegexInformer,
 		VhapeIgnoredNamespace:      ignoredNamespaceInformer,
@@ -95,7 +110,9 @@ func New(clients *vhapeclient.Clients) (*Informers, error) {
 	// Materialize all SharedIndexInformers
 	informerSet.Deployment.Informer()
 	informerSet.Namespace.Informer()
+	informerSet.HPA.Informer()
 	informerSet.VPA.Informer()
+	informerSet.VhapePolicy.Informer()
 	informerSet.VhapeWatchedNamespace.Informer()
 	informerSet.VhapeWatchedNamespaceRegex.Informer()
 	informerSet.VhapeIgnoredNamespace.Informer()
@@ -125,7 +142,9 @@ func (i *Informers) WaitForCacheSync(stopCh <-chan struct{}) error {
 		stopCh,
 		i.Deployment.Informer().HasSynced,
 		i.Namespace.Informer().HasSynced,
+		i.HPA.Informer().HasSynced,
 		i.VPA.Informer().HasSynced,
+		i.VhapePolicy.Informer().HasSynced,
 		i.VhapeWatchedNamespace.Informer().HasSynced,
 		i.VhapeWatchedNamespaceRegex.Informer().HasSynced,
 		i.VhapeIgnoredNamespace.Informer().HasSynced,
