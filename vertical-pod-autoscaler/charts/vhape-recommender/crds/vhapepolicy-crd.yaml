@@ -75,6 +75,28 @@ spec:
                                 input:
                                   type: integer
                                   minimum: 1
+                            vpa:
+                              type: object
+                              properties:
+                                targetPercentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                lowerBoundPercentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                upperBoundPercentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                safetyMarginFraction:
+                                  type: number
+                                  minimum: 0
+                                confidenceInterval:
+                                  type: string
+                                histogramDecayHalfLife:
+                                  type: string
                         scalingRules:
                           type: array
                           items:
@@ -139,6 +161,30 @@ spec:
                                 input:
                                   type: integer
                                   minimum: 1
+                            vpa:
+                              type: object
+                              properties:
+                                targetPercentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                lowerBoundPercentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                upperBoundPercentile:
+                                  type: number
+                                  minimum: 0
+                                  maximum: 1
+                                safetyMarginFraction:
+                                  type: number
+                                  minimum: 0
+                                confidenceInterval:
+                                  type: string
+                                histogramDecayHalfLife:
+                                  type: string
+                                memoryAggregationInterval:
+                                  type: string
                         scalingRules:
                           type: array
                           items:
