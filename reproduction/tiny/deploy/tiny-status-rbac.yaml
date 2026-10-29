@@ -1,0 +1,23 @@
+# Lets the Tiny recommender write recommendations through the /status subresource, which modern VPA CRDs enable.
+# Pairs with the compat patch in pkg/utils/vpa/api.go (patches/vpa-base.patch).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tiny-status-writer
+rules:
+  - apiGroups: ["autoscaling.k8s.io"]
+    resources: ["verticalpodautoscalers/status"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tiny-status-writer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tiny-status-writer
+subjects:
+  - kind: ServiceAccount
+    name: vpa-recommender
+    namespace: kube-system

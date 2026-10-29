@@ -1,0 +1,14 @@
+# VhapePolicy used to compare VHAPE with the upstream VPA recommender (1.6.0).
+# An empty vpa block uses the VPA defaults for every parameter, i.e. the stock VPA recommender.
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapePolicy
+metadata:
+  name: vpa-policy
+spec:
+  resources:
+    cpu:
+      scalingHeuristic:
+        vpa: {}
+    memory:
+      scalingHeuristic:
+        vpa: {}

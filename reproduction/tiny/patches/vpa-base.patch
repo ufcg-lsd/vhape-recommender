@@ -1,0 +1,28 @@
+diff --git a/pkg/target/fetcher.go b/pkg/target/fetcher.go
+index fae9d2ec0..66a3cfa06 100644
+--- a/pkg/target/fetcher.go
++++ b/pkg/target/fetcher.go
+@@ -87,7 +87,7 @@ func NewVpaTargetSelectorFetcher(config *rest.Config, kubeClient kube_client.Int
+ 		statefulSet:           factory.Apps().V1().StatefulSets().Informer(),
+ 		replicationController: factory.Core().V1().ReplicationControllers().Informer(),
+ 		job:                   factory.Batch().V1().Jobs().Informer(),
+-		cronJob:               factory.Batch().V1beta1().CronJobs().Informer(),
++		// compat patch (harness only): batch/v1beta1 CronJob was removed in K8s 1.25; waiting for its informer blocks startup forever.
+ 	}
+ 
+ 	for kind, informer := range informersMap {
+diff --git a/pkg/utils/vpa/api.go b/pkg/utils/vpa/api.go
+index 1af0fd882..e2665b0bd 100644
+--- a/pkg/utils/vpa/api.go
++++ b/pkg/utils/vpa/api.go
+@@ -56,7 +56,9 @@ func patchVpa(vpaClient vpa_api.VerticalPodAutoscalerInterface, vpaName string,
+ 		return
+ 	}
+ 
+-	return vpaClient.Patch(context.TODO(), vpaName, types.JSONPatchType, bytes, meta.PatchOptions{})
++	// compat patch (harness only): modern VPA CRDs enable the status subresource, which makes the API server
++	// silently drop .status changes sent to the main resource. Send the status patch to /status instead.
++	return vpaClient.Patch(context.TODO(), vpaName, types.JSONPatchType, bytes, meta.PatchOptions{}, "status")
+ }
+ 
+ // UpdateVpaStatusIfNeeded updates the status field of the VPA API object.

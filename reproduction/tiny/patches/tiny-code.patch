@@ -1,0 +1,30 @@
+--- a/serverless-recommender/input/cluster_feeder.go
++++ b/serverless-recommender/input/cluster_feeder.go
+@@ -335,6 +335,16 @@
+ 		klog.Errorf("Cannot list VPAs. Reason: %+v", err)
+ 		return
+ 	}
++	// compat patch (harness only): the 2021 API has no spec.recommenders, so this
++	// recommender would also handle objects owned by VHAPE. Skip them.
++	own := make([]*vpa_types.VerticalPodAutoscaler, 0, len(vpaCRDs))
++	for _, vpaCRD := range vpaCRDs {
++		if _, isVhape := vpaCRD.Annotations["vhape/policy"]; isVhape {
++			continue
++		}
++		own = append(own, vpaCRD)
++	}
++	vpaCRDs = own
+ 	klog.V(3).Infof("Fetched %d VPAs.", len(vpaCRDs))
+ 	// Add or update existing VPAs in the model.
+ 	vpaKeys := make(map[model.VpaID]bool)
+--- a/serverless-recommender/input/controller_fetcher/controller_fetcher.go
++++ b/serverless-recommender/input/controller_fetcher/controller_fetcher.go
+@@ -129,7 +129,7 @@
+ 		statefulSet:           factory.Apps().V1().StatefulSets().Informer(),
+ 		replicationController: factory.Core().V1().ReplicationControllers().Informer(),
+ 		job:                   factory.Batch().V1().Jobs().Informer(),
+-		cronJob:               factory.Batch().V1beta1().CronJobs().Informer(),
++		// compat patch (harness only): batch/v1beta1 CronJob was removed in K8s 1.25; waiting for its informer blocks startup forever.
+ 	}
+ 
+ 	for kind, informer := range informersMap {

@@ -1,0 +1,21 @@
+# VhapePolicy used to compare VHAPE with Tiny Autoscalers.
+# CPU: the sma heuristic with Tiny's serverless-recommender parameters, Predict_SMA(N=3, input=2).
+# Memory: Tiny does not use SMA for memory, so memory is left to the default VHAPE heuristic and is not compared.
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapePolicy
+metadata:
+  name: sma-policy
+spec:
+  resources:
+    cpu:
+      scalingHeuristic:
+        sma:
+          "N": 3
+          input: 2
+    memory:
+      scalingHeuristic:
+        percentile-hysteresis:
+          percentile: 0.9
+          headroom: 0.1
+          slidingWindow: 2m
+          minimumCoverageWindow: 5s
