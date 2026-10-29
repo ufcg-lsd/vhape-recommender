@@ -63,6 +63,18 @@ spec:
                                   type: string
                                 minimumCoverageWindow:
                                   type: string
+                            sma:
+                              type: object
+                              required:
+                                - "N"
+                                - input
+                              properties:
+                                "N":
+                                  type: integer
+                                  minimum: 1
+                                input:
+                                  type: integer
+                                  minimum: 1
                         scalingRules:
                           type: array
                           items:
@@ -115,6 +127,18 @@ spec:
                                   type: string
                                 minimumCoverageWindow:
                                   type: string
+                            sma:
+                              type: object
+                              required:
+                                - "N"
+                                - input
+                              properties:
+                                "N":
+                                  type: integer
+                                  minimum: 1
+                                input:
+                                  type: integer
+                                  minimum: 1
                         scalingRules:
                           type: array
                           items:
