@@ -18,3 +18,6 @@ resources:
   limits:
     cpu: "6"
     memory: 12Gi
+
+# Extra arguments passed to the recommender (e.g. --recommender-interval=1s).
+extraArgs: []
