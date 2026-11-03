@@ -45,9 +45,10 @@ which makes the bounds differ by up to ~1% from the VPA; the target is not affec
 ### Both
 
 The recommender delivers the latest metrics-server reading on every cycle. Both heuristics discard a batch identical to
-the last accepted one unless 15s have passed, so they see one sample per real reading, like the VPA. **15s must match
-the metrics-server `--metric-resolution`** (the experiments used 15s; with the metrics-server default of 60s, a value
-that really repeats, e.g. an idle container at 0, would be accepted up to four times per reading).
+the last accepted one unless 60s have passed, so they see one sample per real reading, like the VPA. **60s must match
+the metrics-server `--metric-resolution`**, here its default (`repeatedSampleInterval` in `sma.go`, `vpaRepeatedSampleInterval`
+in `vpa.go`). With a shorter resolution, a value that really repeats (e.g. an idle container at 0) is discarded until 60s
+pass; with a longer one, a repeated reading is accepted more than once.
 
 ## Build the image
 

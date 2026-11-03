@@ -98,7 +98,7 @@ func TestVPASpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
 	assert.Equal(t, 0.2, estimator.spec.SafetyMarginFraction)
 	assert.Equal(t, time.Hour, estimator.spec.HistogramDecayHalfLife.Duration)
 	assert.Equal(t, 5*time.Minute, estimator.spec.MemoryAggregationInterval.Duration)
-	assert.Equal(t, 15*time.Second, estimator.repeatedSampleInterval)
+	assert.Equal(t, 60*time.Second, estimator.repeatedSampleInterval)
 }
 
 func TestVPASpecRejectsMalformedParameters(t *testing.T) {

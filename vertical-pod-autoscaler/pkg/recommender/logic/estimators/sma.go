@@ -33,12 +33,11 @@ const (
 
 	// repeatedSampleInterval is the minimum time after the last accepted batch
 	// before an identical batch is accepted again. It must match the
-	// metrics-server --metric-resolution: 15s is the smallest practical value
-	// for current metrics-server releases and the refresh cadence visible in
-	// the Tiny Autoscalers paper. With the metrics-server default of 60s, a
-	// value that genuinely repeats (e.g. an idle container at 0) is accepted
-	// up to four times per real reading.
-	repeatedSampleInterval = 15 * time.Second
+	// metrics-server --metric-resolution, here its default of 60s. With a
+	// shorter resolution, a value that genuinely repeats (e.g. an idle
+	// container at 0) is discarded until the interval elapses; with a longer
+	// one, a repeated reading is accepted more than once.
+	repeatedSampleInterval = 60 * time.Second
 )
 
 func init() {

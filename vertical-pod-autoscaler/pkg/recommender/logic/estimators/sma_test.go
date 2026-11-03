@@ -40,7 +40,7 @@ func TestSMASpecBuildsEstimatorFromPolicyConfig(t *testing.T) {
 	assert.Equal(t, model.ResourceCPU, estimator.resourceName)
 	assert.Equal(t, 3, estimator.n)
 	assert.Equal(t, 2, estimator.input)
-	assert.Equal(t, 15*time.Second, estimator.repeatedSampleInterval)
+	assert.Equal(t, 60*time.Second, estimator.repeatedSampleInterval)
 }
 
 func TestSMASpecRejectsMalformedParameters(t *testing.T) {

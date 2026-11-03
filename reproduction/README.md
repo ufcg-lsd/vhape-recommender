@@ -16,7 +16,7 @@ All versions are pinned in [`versions.env`](versions.env).
 2. Make the images available to the cluster nodes (registry, or `minikube image load`/`kind load`).
 3. Install the VerticalPodAutoscaler CRDs, VHAPE (Helm chart of this branch) and, if needed, Tiny (`tiny/deploy/`)
    and/or the upstream VPA recommender.
-4. Set the metrics-server `--metric-resolution` to 15s (see `vhape/README.md`, section "Both").
+4. Keep the metrics-server `--metric-resolution` at its default of 60s (see `vhape/README.md`, section "Both").
 5. Apply a policy from `vhape/policies/` and create the VerticalPodAutoscaler objects.
 
 ## What the experiments showed

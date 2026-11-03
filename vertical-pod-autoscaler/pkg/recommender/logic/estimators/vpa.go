@@ -36,11 +36,12 @@ const (
 	vpaMemoryPeakWeight = 1.0
 
 	// vpaRepeatedSampleInterval is the minimum time after the last accepted
-	// batch before an identical batch is accepted again. The VPA discards a
-	// repeated metrics-server reading by its timestamp; estimators only receive
-	// values, so identical batches are discarded unless this interval, the
-	// metrics-server --metric-resolution, has elapsed.
-	vpaRepeatedSampleInterval = 15 * time.Second
+	// batch before an identical batch is accepted again. It must match the
+	// metrics-server --metric-resolution, here its default of 60s. With a
+	// shorter resolution, a value that genuinely repeats (e.g. an idle
+	// container at 0) is discarded until the interval elapses; with a longer
+	// one, a repeated reading is accepted more than once.
+	vpaRepeatedSampleInterval = 60 * time.Second
 )
 
 func init() {
