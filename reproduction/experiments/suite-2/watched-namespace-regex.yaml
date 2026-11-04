@@ -1,0 +1,10 @@
+# The VHAPE watcher creates one recommendation object per Deployment of every namespace that matches the regex, using
+# sma-policy. CHANGE_ME is the regular expression of the namespaces of the workloads (see README.md).
+apiVersion: autoscaling.vhape.io/v1alpha1
+kind: VhapeWatchedNamespaceRegex
+metadata:
+  name: suite-2-workloads
+spec:
+  regex: "CHANGE_ME"
+  vhapePolicyName: sma-policy
+  vpaUpdateMode: Recreate
