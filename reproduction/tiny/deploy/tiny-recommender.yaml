@@ -33,10 +33,11 @@ spec:
           ports:
             - name: prometheus
               containerPort: 8942
+          # Same resources as the default of the VHAPE recommender chart, so both recommenders run with the same resources.
           resources:
             requests:
-              cpu: 50m
-              memory: 500Mi
+              cpu: "4"
+              memory: 8Gi
             limits:
-              cpu: 200m
-              memory: 1000Mi
+              cpu: "6"
+              memory: 12Gi
