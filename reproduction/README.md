@@ -7,6 +7,7 @@ Material to rebuild the recommenders compared in the paper:
 | [`vhape/`](vhape/README.md) | VHAPE with the `sma` and `vpa` heuristics (code in this branch) | — |
 | [`tiny/`](tiny/README.md) | Tiny Autoscalers `serverless-recommender`, rebuilt for current Kubernetes | VHAPE `sma` |
 | upstream VPA 1.6.0 | official images `registry.k8s.io/autoscaling/vpa-*:1.6.0`, no changes | VHAPE `vpa` |
+| [`experiments/`](experiments/README.md) | setup of the experiment suites (two environments per suite) | — |
 
 All versions are pinned in [`versions.env`](versions.env).
 
@@ -14,10 +15,10 @@ All versions are pinned in [`versions.env`](versions.env).
 
 1. Build the images: `vhape/README.md` (official VHAPE build) and `tiny/build.sh`.
 2. Make the images available to the cluster nodes (registry, or `minikube image load`/`kind load`).
-3. Install the VerticalPodAutoscaler CRDs, VHAPE (Helm chart of this branch) and, if needed, Tiny (`tiny/deploy/`)
-   and/or the upstream VPA recommender.
+3. Install the components of each environment: `experiments/README.md` (upstream VPA chart, VHAPE and watcher charts)
+   and, for Tiny, `tiny/deploy/`.
 4. Keep the metrics-server `--metric-resolution` at its default of 60s (see `vhape/README.md`, section "Both").
-5. Apply a policy from `vhape/policies/` and create the VerticalPodAutoscaler objects.
+5. Apply a policy from `vhape/policies/` and create the VerticalPodAutoscaler objects (`experiments/suite-*/`).
 
 ## What the experiments showed
 
