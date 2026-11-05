@@ -52,15 +52,17 @@ pass; with a longer one, a repeated reading is accepted more than once.
 
 ## Build the image
 
-Official VHAPE build, from this branch:
+The image of this branch is published as `vtexlsd/vhape-recommender:paper`. To build and publish another one, follow the
+[release guide](../../vertical-pod-autoscaler/vhape-docs/release-guide.md), from this branch:
 
 ```bash
 git clone -b paper https://github.com/ufcg-lsd/vhape-recommender.git
 cd vhape-recommender/vertical-pod-autoscaler/pkg/recommender
-make docker-build-amd64 REGISTRY=<registry> TAG=<tag>   # image <registry>/vhape-recommender-amd64:<tag>
+make release REGISTRY=<registry> TAG=<tag> ALL_ARCHITECTURES=amd64   # image <registry>/vhape-recommender:<tag>
 ```
 
-`make docker-build` builds every architecture in `ALL_ARCHITECTURES`. The Dockerfile pulls `golang:1.25.7` from Docker
+To build it without publishing: `make docker-build-amd64 REGISTRY=<registry> TAG=<tag>` (image
+`<registry>/vhape-recommender-amd64:<tag>`). The Dockerfile pulls `golang:1.25.7` from Docker
 Hub; if Docker reports `401 Unauthorized: incorrect username or password`, the local Docker has stale Docker Hub
 credentials — `docker logout` (public images need no login) or `docker login` fixes it.
 
@@ -75,12 +77,12 @@ docker build -t <registry>/vhape-recommender-amd64:<tag> /tmp/vhape
 
 ## Install
 
-With the chart of this branch and its default values; only the image must be set (the default image is the official
-one, without `sma` and `vpa`):
+With the chart of this branch and its default values; only the image tag must be set (the default tag is the official
+image, without `sma` and `vpa`):
 
 ```bash
 helm install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender -n kube-system \
-  --set image.repository=<registry>/vhape-recommender-amd64 --set image.tag=<tag> \
+  --set image.tag=paper \
   --set 'extraArgs={--recommender-interval=1s}'
 ```
 
