@@ -21,6 +21,8 @@ included unmodified apart from the documented patches, for reproducibility, with
 
 ## Build
 
+The image is published as `vtexlsd/tiny-serverless-recommender:paper`. To build another one:
+
 Requirements: git, Go (experiments used 1.27.3) and Docker.
 
 ```bash

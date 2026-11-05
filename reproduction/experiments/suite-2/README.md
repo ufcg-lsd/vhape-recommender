@@ -86,10 +86,11 @@ error and largest relative error.
   git clone -b paper https://github.com/ufcg-lsd/vhape-recommender.git
   ```
 
-- A Tiny image, in a registry the Tiny cluster can pull from: the published image `<published Tiny image>`, or one built
+- A Tiny image, in a registry the Tiny cluster can pull from: the published image
+  `vtexlsd/tiny-serverless-recommender:paper`, or one built
   with [`../../tiny/build.sh`](../../tiny/README.md#build).
 - A VHAPE recommender image with the `sma` and `vpa` heuristics, in a registry the VHAPE cluster can pull from: the
-  published image `<published image>`, or one built from this branch as described in
+  published image `vtexlsd/vhape-recommender:paper`, or one built from this branch as described in
   [`../../vhape/README.md`](../../vhape/README.md#build-the-image).
 - The workload manifests (see [Workloads](#workloads)).
 
@@ -133,7 +134,7 @@ Start Tiny, with the image set and without `--vpa-object-namespace`, so it handl
 namespaces (it is the only recommender in this cluster):
 
 ```bash
-sed -e '/--vpa-object-namespace/d' -e 's|image: .*|image: <published Tiny image>|' reproduction/tiny/deploy/tiny-recommender.yaml | kubectl apply -f -
+sed -e '/--vpa-object-namespace/d' -e 's|image: .*|image: vtexlsd/tiny-serverless-recommender:paper|' reproduction/tiny/deploy/tiny-recommender.yaml | kubectl apply -f -
 ```
 
 Start the script that creates one recommendation object per Deployment of the namespaces that match a regular
@@ -164,7 +165,7 @@ Install the VHAPE recommender, with the image that has the `sma` and `vpa` heuri
 Tiny):
 
 ```bash
-helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.repository=<published image repository> --set image.tag=<tag> --set 'extraArgs={--recommender-interval=1s}' --wait
+helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --set 'extraArgs={--recommender-interval=1s}' --wait
 ```
 
 Install the VHAPE watcher:

@@ -84,7 +84,7 @@ relative error and largest relative error.
   ```
 
 - A VHAPE recommender image with the `vpa` heuristic, in a registry the VHAPE cluster can pull from: the published image
-  `<published image>`, or one built from this branch as described in
+  `vtexlsd/vhape-recommender:paper`, or one built from this branch as described in
   [`../../vhape/README.md`](../../vhape/README.md#build-the-image).
 - The workload manifests (see [Workloads](#workloads)).
 
@@ -138,7 +138,7 @@ helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscal
 Install the VHAPE recommender, with the image that has the `vpa` heuristic (one replica, every minute):
 
 ```bash
-helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.repository=<published image repository> --set image.tag=<tag> --wait
+helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --wait
 ```
 
 Install the VHAPE watcher:
