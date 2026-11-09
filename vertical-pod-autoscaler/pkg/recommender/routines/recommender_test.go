@@ -41,8 +41,9 @@ import (
 )
 
 type mockPodResourceRecommender struct {
-	err   error
-	freed []model.VpaID
+	err             error
+	freed           []model.VpaID
+	historyReleases int
 }
 
 func (m *mockPodResourceRecommender) GetRecommendedPodResources(
@@ -57,6 +58,10 @@ func (m *mockPodResourceRecommender) Free(vpaID model.VpaID) {
 	m.freed = append(m.freed, vpaID)
 }
 
+func (m *mockPodResourceRecommender) ReleaseHistory() {
+	m.historyReleases++
+}
+
 type mockClusterStateFeeder struct {
 	input.ClusterStateFeeder
 	loadVPAsFn func(context.Context)
@@ -66,6 +71,24 @@ func (m *mockClusterStateFeeder) LoadVPAs(ctx context.Context) {
 	if m.loadVPAsFn != nil {
 		m.loadVPAsFn(ctx)
 	}
+}
+
+func (m *mockClusterStateFeeder) LoadPods() {}
+
+func (m *mockClusterStateFeeder) LoadRealTimeMetrics(context.Context) {}
+
+func TestRunOnceReleasesHistoryOnlyAfterTheFirstCycle(t *testing.T) {
+	podRecommender := &mockPodResourceRecommender{}
+	r := &recommender{
+		clusterState:           model.NewClusterState(time.Minute),
+		clusterStateFeeder:     &mockClusterStateFeeder{},
+		podResourceRecommender: podRecommender,
+	}
+
+	r.RunOnce()
+	r.RunOnce()
+
+	assert.Equal(t, 1, podRecommender.historyReleases)
 }
 
 // TestProcessUpdateVPAsConcurrency tests processVPAUpdate for race conditions when run concurrently

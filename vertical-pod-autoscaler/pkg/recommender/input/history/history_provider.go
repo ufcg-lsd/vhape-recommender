@@ -91,6 +91,12 @@ type PrometheusHistoryProviderConfig struct {
 	CtrNamespaceLabel, CtrPodNameLabel, CtrNameLabel string
 	CadvisorMetricsJobName                           string
 	Namespace                                        string
+	// CPURateWindow is the range of the CPU usage rate. When zero, HistoryResolution is used.
+	CPURateWindow time.Duration
+	// ReadPodOwners also reads the controllers that own each pod from the
+	// kube-state-metrics owner metrics, so that pods that no longer run can be
+	// matched to their VPA without their labels.
+	ReadPodOwners bool
 
 	Authentication PrometheusCredentials
 }
@@ -112,6 +118,14 @@ type PodHistory struct {
 	// A map for container name to a list of its usage samples, in chronological
 	// order.
 	Samples map[string][]model.ContainerUsageSample
+	// Controllers that own the pod, from its direct owner up. Read only with ReadPodOwners.
+	Owners []PodOwner
+}
+
+// PodOwner is a controller in the ownership chain of a pod.
+type PodOwner struct {
+	Kind string
+	Name string
 }
 
 func newEmptyHistory() *PodHistory {
@@ -125,6 +139,15 @@ type HistoryProvider interface {
 	GetClusterHistory() (map[model.PodID]*PodHistory, error)
 }
 
+// FetchedHistory is a HistoryProvider for a cluster history that was already
+// read, so that it can be shared without querying Prometheus again.
+type FetchedHistory map[model.PodID]*PodHistory
+
+// GetClusterHistory returns the history that was already read.
+func (h FetchedHistory) GetClusterHistory() (map[model.PodID]*PodHistory, error) {
+	return h, nil
+}
+
 type prometheusHistoryProvider struct {
 	prometheusClient  prometheusv1.API
 	config            PrometheusHistoryProviderConfig
@@ -133,8 +156,15 @@ type prometheusHistoryProvider struct {
 	historyResolution prommodel.Duration
 }
 
-// NewPrometheusHistoryProvider constructs a history provider that gets data from Prometheus.
-func NewPrometheusHistoryProvider(config PrometheusHistoryProviderConfig) (HistoryProvider, error) {
+// PrometheusClientConfig holds what is needed to reach the Prometheus API.
+type PrometheusClientConfig struct {
+	Address        string
+	Insecure       bool
+	Authentication PrometheusCredentials
+}
+
+// NewPrometheusAPI builds a Prometheus API client with the configured TLS and authentication.
+func NewPrometheusAPI(config PrometheusClientConfig) (prometheusv1.API, error) {
 	prometheusTransport := promapi.DefaultRoundTripper
 
 	if config.Insecure {
@@ -176,6 +206,19 @@ func NewPrometheusHistoryProvider(config PrometheusHistoryProviderConfig) (Histo
 
 	promClient, err := promapi.NewClient(promConfig)
 	if err != nil {
+		return nil, err
+	}
+	return prometheusv1.NewAPI(promClient), nil
+}
+
+// NewPrometheusHistoryProvider constructs a history provider that gets data from Prometheus.
+func NewPrometheusHistoryProvider(config PrometheusHistoryProviderConfig) (HistoryProvider, error) {
+	prometheusClient, err := NewPrometheusAPI(PrometheusClientConfig{
+		Address:        config.Address,
+		Insecure:       config.Insecure,
+		Authentication: config.Authentication,
+	})
+	if err != nil {
 		return &prometheusHistoryProvider{}, err
 	}
 
@@ -190,8 +233,13 @@ func NewPrometheusHistoryProvider(config PrometheusHistoryProviderConfig) (Histo
 		return &prometheusHistoryProvider{}, fmt.Errorf("history resolution %s is not a valid Prometheus duration: %v", config.HistoryResolution, err)
 	}
 
+	if config.CPURateWindow > 0 && time.Duration(historyResolution) > config.CPURateWindow {
+		klog.InfoS("History resolution is longer than the CPU usage rate window, so the CPU usage between history samples is not read",
+			"historyResolution", config.HistoryResolution, "cpuRateWindow", config.CPURateWindow)
+	}
+
 	return &prometheusHistoryProvider{
-		prometheusClient:  prometheusv1.NewAPI(promClient),
+		prometheusClient:  prometheusClient,
 		config:            config,
 		queryTimeout:      config.QueryTimeout,
 		historyDuration:   historyDuration,
@@ -282,14 +330,44 @@ func (p *prometheusHistoryProvider) readResourceHistory(res map[model.PodID]*Pod
 	end := time.Now()
 	start := end.Add(-time.Duration(p.historyDuration))
 
+	for _, r := range p.historyRanges(start, end) {
+		klog.V(4).InfoS("Reading usage history", "resource", resource, "start", r.Start, "end", r.End)
+		if err := p.readResourceHistoryRange(res, query, resource, r); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// historyChunkLength is the length of the history read by each query. Reading
+// the history in chunks keeps the memory used by each response low.
+const historyChunkLength = time.Hour
+
+// historyRanges splits [start, end] into consecutive ranges of historyChunkLength.
+// Each range ends one step before the next one starts, since a range query
+// returns the points at both of its ends and they would be read twice.
+func (p *prometheusHistoryProvider) historyRanges(start, end time.Time) []prometheusv1.Range {
+	step := time.Duration(p.historyResolution)
+	if step <= 0 {
+		return []prometheusv1.Range{{Start: start, End: end, Step: step}}
+	}
+	// Whole steps, so that the points of each range follow those of the previous one.
+	chunk := (historyChunkLength + step - 1) / step * step
+
+	var ranges []prometheusv1.Range
+	for rangeStart := start; ; rangeStart = rangeStart.Add(chunk) {
+		if !rangeStart.Add(chunk).Before(end) {
+			return append(ranges, prometheusv1.Range{Start: rangeStart, End: end, Step: step})
+		}
+		ranges = append(ranges, prometheusv1.Range{Start: rangeStart, End: rangeStart.Add(chunk - step), Step: step})
+	}
+}
+
+func (p *prometheusHistoryProvider) readResourceHistoryRange(res map[model.PodID]*PodHistory, query string, resource model.ResourceName, r prometheusv1.Range) error {
 	ctx, cancel := context.WithTimeout(context.Background(), p.queryTimeout)
 	defer cancel()
 
-	result, _, err := p.prometheusClient.QueryRange(ctx, query, prometheusv1.Range{
-		Start: start,
-		End:   end,
-		Step:  time.Duration(p.historyResolution),
-	})
+	result, _, err := p.prometheusClient.QueryRange(ctx, query, r)
 	if err != nil {
 		return fmt.Errorf("cannot get timeseries for %v: %v", resource, err)
 	}
@@ -367,14 +445,20 @@ func (p *prometheusHistoryProvider) GetClusterHistory() (map[model.PodID]*PodHis
 	if p.config.Namespace != "" {
 		podSelector = fmt.Sprintf("%s, %s=\"%s\"", podSelector, p.config.CtrNamespaceLabel, p.config.Namespace)
 	}
-	historicalCpuQuery := fmt.Sprintf("rate(container_cpu_usage_seconds_total{%s}[%s])", podSelector, p.config.HistoryResolution)
+	cpuRateWindow := p.config.HistoryResolution
+	if p.config.CPURateWindow > 0 {
+		cpuRateWindow = prommodel.Duration(p.config.CPURateWindow).String()
+	}
+	// max rather than the raw series, so that a container scraped by two jobs is not counted twice.
+	by := fmt.Sprintf("%s, %s, %s", p.config.CtrNamespaceLabel, p.config.CtrPodNameLabel, p.config.CtrNameLabel)
+	historicalCpuQuery := fmt.Sprintf("max by (%s) (rate(container_cpu_usage_seconds_total{%s}[%s]))", by, podSelector, cpuRateWindow)
 	klog.V(4).InfoS("Historical CPU usage query", "query", historicalCpuQuery)
 	err := p.readResourceHistory(res, historicalCpuQuery, model.ResourceCPU)
 	if err != nil {
 		return nil, fmt.Errorf("cannot get usage history: %v", err)
 	}
 
-	historicalMemoryQuery := fmt.Sprintf("container_memory_working_set_bytes{%s}", podSelector)
+	historicalMemoryQuery := fmt.Sprintf("max by (%s) (container_memory_working_set_bytes{%s})", by, podSelector)
 	klog.V(4).InfoS("Historical memory usage query", "query", historicalMemoryQuery)
 	err = p.readResourceHistory(res, historicalMemoryQuery, model.ResourceMemory)
 	if err != nil {
@@ -385,10 +469,113 @@ func (p *prometheusHistoryProvider) GetClusterHistory() (map[model.PodID]*PodHis
 			sort.Slice(samples, func(i, j int) bool { return samples[i].MeasureStart.Before(samples[j].MeasureStart) })
 		}
 	}
-	err = p.readLastLabels(res, p.config.PodLabelsMetricName)
-	if err != nil {
-		return nil, fmt.Errorf("cannot read last labels: %v", err)
+	if p.config.PodLabelsMetricName != "" {
+		err = p.readLastLabels(res, p.config.PodLabelsMetricName)
+		if err != nil {
+			return nil, fmt.Errorf("cannot read last labels: %v", err)
+		}
+	}
+	if p.config.ReadPodOwners {
+		// Owners only help to match pods that no longer run, so the history is
+		// still useful without them.
+		if err := p.readPodOwners(res); err != nil {
+			klog.ErrorS(err, "Cannot read pod owners, pods that no longer run are matched only by their labels")
+		}
 	}
 
 	return res, nil
+}
+
+// ownerKey identifies a controller in a namespace.
+type ownerKey struct {
+	namespace string
+	owner     PodOwner
+}
+
+// Labels of the kube-state-metrics owner metrics.
+const (
+	ownerNamespaceLabel = "namespace"
+	ownerPodNameLabel   = "pod"
+)
+
+// maxOwnerChainLength bounds the ownership chain, such as Pod, ReplicaSet and
+// Deployment, in case the metrics describe a cycle.
+const maxOwnerChainLength = 5
+
+// readPodOwners sets the ownership chain of the pods in res from the
+// kube-state-metrics owner metrics of the whole history length.
+func (p *prometheusHistoryProvider) readPodOwners(res map[model.PodID]*PodHistory) error {
+	podOwners := make(map[model.PodID]PodOwner)
+	err := p.readOwners("kube_pod_owner", ownerPodNameLabel, func(namespace, name string, owner PodOwner) {
+		podID := model.PodID{Namespace: namespace, PodName: name}
+		if _, found := res[podID]; found {
+			podOwners[podID] = owner
+		}
+	})
+	if err != nil {
+		return err
+	}
+
+	// Pods are owned by ReplicaSets and Jobs, which are owned by Deployments and CronJobs.
+	controllerOwners := make(map[ownerKey]PodOwner)
+	for _, controller := range []struct{ kind, metric, nameLabel string }{
+		{"ReplicaSet", "kube_replicaset_owner", "replicaset"},
+		{"Job", "kube_job_owner", "job_name"},
+	} {
+		err := p.readOwners(controller.metric, controller.nameLabel, func(namespace, name string, owner PodOwner) {
+			controllerOwners[ownerKey{namespace, PodOwner{Kind: controller.kind, Name: name}}] = owner
+		})
+		if err != nil {
+			return err
+		}
+	}
+
+	for podID, owner := range podOwners {
+		chain := []PodOwner{owner}
+		for len(chain) < maxOwnerChainLength {
+			next, found := controllerOwners[ownerKey{podID.Namespace, chain[len(chain)-1]}]
+			if !found {
+				break
+			}
+			chain = append(chain, next)
+		}
+		res[podID].Owners = chain
+	}
+	return nil
+}
+
+// readOwners calls add with the controller that owns each object of a
+// kube-state-metrics owner metric, such as kube_pod_owner, seen in the history length.
+func (p *prometheusHistoryProvider) readOwners(metric, nameLabel string, add func(namespace, name string, owner PodOwner)) error {
+	selector := "owner_is_controller=\"true\""
+	if p.config.Namespace != "" {
+		selector = fmt.Sprintf("%s, %s=\"%s\"", selector, ownerNamespaceLabel, p.config.Namespace)
+	}
+	query := fmt.Sprintf("last_over_time(%s{%s}[%s])", metric, selector, p.config.HistoryLength)
+	klog.V(4).InfoS("Pod owners query", "query", query)
+
+	ctx, cancel := context.WithTimeout(context.Background(), p.queryTimeout)
+	defer cancel()
+
+	result, _, err := p.prometheusClient.Query(ctx, query, time.Now())
+	if err != nil {
+		return fmt.Errorf("cannot get %s: %v", metric, err)
+	}
+	vector, ok := result.(prommodel.Vector)
+	if !ok {
+		return fmt.Errorf("expected query to return a vector; got result type %T", result)
+	}
+
+	for _, sample := range vector {
+		namespace := string(sample.Metric[ownerNamespaceLabel])
+		name := string(sample.Metric[prommodel.LabelName(nameLabel)])
+		kind := string(sample.Metric["owner_kind"])
+		ownerName := string(sample.Metric["owner_name"])
+		// kube-state-metrics reports objects without an owner as "<none>".
+		if namespace == "" || name == "" || kind == "" || kind == "<none>" || ownerName == "" {
+			continue
+		}
+		add(namespace, name, PodOwner{Kind: kind, Name: ownerName})
+	}
+	return nil
 }

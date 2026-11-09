@@ -67,6 +67,7 @@ type recommender struct {
 	lastAggregateContainerStateGC time.Time
 	recommendationPostProcessor   []RecommendationPostProcessor
 	updateWorkerCount             int
+	releaseHistory                sync.Once
 }
 
 func (r *recommender) GetClusterState() model.ClusterState {
@@ -233,6 +234,10 @@ func (r *recommender) RunOnce() {
 
 	r.UpdateVPAs()
 	timer.ObserveStep("UpdateVPAs")
+
+	// Every VPA has its estimators created and seeded in the first cycle, so the
+	// usage history read at startup is released once that cycle is done.
+	r.releaseHistory.Do(r.podResourceRecommender.ReleaseHistory)
 
 	stepCtx, cancelFunc := context.WithDeadline(ctx, time.Now().Add(r.checkpointsWriteTimeout))
 	defer cancelFunc()

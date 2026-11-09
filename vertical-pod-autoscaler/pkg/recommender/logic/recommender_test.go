@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/assert"
+	autoscaling "k8s.io/api/autoscaling/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -19,6 +20,7 @@ import (
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vhape_listers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/history"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
@@ -38,6 +40,7 @@ func (m *mockMetricsClient) GetContainersMetrics(_ context.Context) ([]*input_me
 type mockResourceEstimator struct {
 	recommendations map[string]recommendation.SingleResourceRecommendation
 	feedCalls       map[string][][]model.ResourceAmount
+	historyCalls    map[string][]estimators.TimedSample
 	recommendCalls  map[string]int
 }
 
@@ -47,6 +50,13 @@ func (m *mockResourceEstimator) FeedSamples(containerName string, samples []mode
 	}
 	copied := append([]model.ResourceAmount(nil), samples...)
 	m.feedCalls[containerName] = append(m.feedCalls[containerName], copied)
+}
+
+func (m *mockResourceEstimator) LoadHistory(containerName string, samples []estimators.TimedSample) {
+	if m.historyCalls == nil {
+		m.historyCalls = make(map[string][]estimators.TimedSample)
+	}
+	m.historyCalls[containerName] = append(m.historyCalls[containerName], samples...)
 }
 
 func (m *mockResourceEstimator) GetSingleResourceRecommendation(containerName string, _ estimators.ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
@@ -281,9 +291,10 @@ func TestGetOrCreateEstimatorsCreatesNew(t *testing.T) {
 	policy := newTestPolicyObject("policy-a", newTestPolicySpec())
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	est, err := r.getOrCreateEstimators(vpa, policy)
+	est, created, err := r.getOrCreateEstimators(vpa, policy)
 
 	assert.NoError(t, err)
+	assert.True(t, created)
 	assert.NotNil(t, est.CPU)
 	assert.NotNil(t, est.Memory)
 
@@ -299,20 +310,21 @@ func TestGetOrCreateEstimatorsReturnsCachedForSamePolicy(t *testing.T) {
 	policy := newTestPolicyObject("policy-a", newTestPolicySpec())
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	first, firstErr := r.getOrCreateEstimators(vpa, policy)
-	second, secondErr := r.getOrCreateEstimators(vpa, policy)
+	first, _, firstErr := r.getOrCreateEstimators(vpa, policy)
+	second, created, secondErr := r.getOrCreateEstimators(vpa, policy)
 
 	assert.NoError(t, firstErr)
 	assert.NoError(t, secondErr)
 	assert.Same(t, first, second)
+	assert.False(t, created)
 }
 
 func TestGetOrCreateEstimatorsRecreatesWhenPolicyChanges(t *testing.T) {
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	first, firstErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
-	second, secondErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-b", newTestPolicySpec()))
+	first, _, firstErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
+	second, _, secondErr := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-b", newTestPolicySpec()))
 
 	assert.NoError(t, firstErr)
 	assert.NoError(t, secondErr)
@@ -331,8 +343,8 @@ func TestGetOrCreateEstimatorsSeparatesByVPA(t *testing.T) {
 	vpaB := newTestVPA("default", "vpa-b", "policy-a")
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	first, firstErr := r.getOrCreateEstimators(vpaA, policy)
-	second, secondErr := r.getOrCreateEstimators(vpaB, policy)
+	first, _, firstErr := r.getOrCreateEstimators(vpaA, policy)
+	second, _, secondErr := r.getOrCreateEstimators(vpaB, policy)
 
 	assert.NoError(t, firstErr)
 	assert.NoError(t, secondErr)
@@ -552,8 +564,8 @@ func TestGetOrCreateEstimatorsRecreatesWhenPolicyUIDChanges(t *testing.T) {
 	secondPolicy := newTestPolicyObject("policy-a", newTestPolicySpec())
 	secondPolicy.UID = types.UID("policy-uid-2")
 
-	first, firstErr := r.getOrCreateEstimators(vpa, firstPolicy)
-	second, secondErr := r.getOrCreateEstimators(vpa, secondPolicy)
+	first, _, firstErr := r.getOrCreateEstimators(vpa, firstPolicy)
+	second, _, secondErr := r.getOrCreateEstimators(vpa, secondPolicy)
 
 	assert.NoError(t, firstErr)
 	assert.NoError(t, secondErr)
@@ -610,7 +622,7 @@ func TestCreatePodResourceRecommender(t *testing.T) {
 	lister := newVhapePolicyLister()
 	mc := &mockMetricsClient{}
 
-	rec := CreatePodResourceRecommender(PodRecommendationLimits{}, lister, mc)
+	rec := CreatePodResourceRecommender(PodRecommendationLimits{}, lister, mc, nil)
 	assert.NotNil(t, rec)
 }
 
@@ -653,7 +665,7 @@ func TestGetOrCreateEstimatorsBuildsEstimatorsFromPolicyHeuristics(t *testing.T)
 	vpa := newTestVPA("default", "my-vpa", "policy-a")
 	r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-	est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
+	est, _, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy-a", newTestPolicySpec()))
 
 	assert.NoError(t, err)
 	assert.IsType(t, &estimators.PercentileHysteresisEstimator{}, est.CPU.estimator)
@@ -708,7 +720,7 @@ func TestGetOrCreateEstimatorsReturnsErrorForInvalidHeuristics(t *testing.T) {
 			vpa := newTestVPA("default", "my-vpa", "policy")
 			r := &podResourceRecommender{estimators: make(map[model.VpaID]*ResourceEstimators)}
 
-			est, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy", tt.spec))
+			est, _, err := r.getOrCreateEstimators(vpa, newTestPolicyObject("policy", tt.spec))
 
 			assert.Nil(t, est)
 			assert.ErrorContains(t, err, tt.wantErr)
@@ -727,8 +739,208 @@ func TestGetOrCreateEstimatorsSkipsHeuristicResolutionOnCacheHit(t *testing.T) {
 		estimators: map[model.VpaID]*ResourceEstimators{vpa.ID: cached},
 	}
 
-	est, err := r.getOrCreateEstimators(vpa, policy)
+	est, _, err := r.getOrCreateEstimators(vpa, policy)
 
 	assert.NoError(t, err)
 	assert.Same(t, cached, est)
+}
+
+func usageSamples(start time.Time, cpu, memory model.ResourceAmount) []model.ContainerUsageSample {
+	return []model.ContainerUsageSample{
+		{MeasureStart: start, Usage: cpu, Resource: model.ResourceCPU},
+		{MeasureStart: start, Usage: memory, Resource: model.ResourceMemory},
+	}
+}
+
+func newMockEstimators() (*ResourceEstimators, *mockResourceEstimator, *mockResourceEstimator) {
+	cpuEstimator := &mockResourceEstimator{}
+	memoryEstimator := &mockResourceEstimator{}
+	return &ResourceEstimators{
+		CPU:       resourceEstimator{estimator: cpuEstimator},
+		Memory:    resourceEstimator{estimator: memoryEstimator},
+		policyUID: types.UID("uid-policy"),
+	}, cpuEstimator, memoryEstimator
+}
+
+func TestLoadStartupHistoryLoadsMatchingPods(t *testing.T) {
+	start := time.Now().Add(-time.Hour)
+	vpa := model.NewVpa(
+		model.VpaID{Namespace: "default", VpaName: "vpa"},
+		labels.SelectorFromSet(labels.Set{"app": "web"}),
+		time.Now(),
+	)
+	livePod := model.PodID{Namespace: "default", PodName: "web-live"}
+	r := &podResourceRecommender{startupHistory: map[model.PodID]*history.PodHistory{
+		// Live pod, unknown labels: matched through the VPA's live pods.
+		livePod: {Samples: map[string][]model.ContainerUsageSample{
+			"app": usageSamples(start, 100, 1000),
+		}},
+		// Gone pod: matched through its last known labels.
+		{Namespace: "default", PodName: "web-gone"}: {
+			LastLabels: map[string]string{"app": "web"},
+			Samples: map[string][]model.ContainerUsageSample{
+				"app":     usageSamples(start, 200, 2000),
+				"sidecar": usageSamples(start, 999, 9999),
+			},
+		},
+		{Namespace: "default", PodName: "db"}: {
+			LastLabels: map[string]string{"app": "db"},
+			Samples:    map[string][]model.ContainerUsageSample{"app": usageSamples(start, 999, 9999)},
+		},
+		{Namespace: "other", PodName: "web"}: {
+			LastLabels: map[string]string{"app": "web"},
+			Samples:    map[string][]model.ContainerUsageSample{"app": usageSamples(start, 999, 9999)},
+		},
+	}}
+	est, cpuEstimator, memoryEstimator := newMockEstimators()
+
+	r.loadStartupHistory(
+		vpa,
+		[]model.PodID{livePod},
+		model.ContainerNameToAggregateStateMap{"app": model.NewAggregateContainerState()},
+		est,
+	)
+
+	assert.ElementsMatch(t, []estimators.TimedSample{
+		{Value: 100, Timestamp: start},
+		{Value: 200, Timestamp: start},
+	}, cpuEstimator.historyCalls["app"])
+	assert.ElementsMatch(t, []estimators.TimedSample{
+		{Value: 1000, Timestamp: start},
+		{Value: 2000, Timestamp: start},
+	}, memoryEstimator.historyCalls["app"])
+	assert.NotContains(t, cpuEstimator.historyCalls, "sidecar")
+}
+
+func TestLoadStartupHistoryMatchesGonePodsByOwner(t *testing.T) {
+	start := time.Now().Add(-time.Hour)
+	vpa := model.NewVpa(
+		model.VpaID{Namespace: "default", VpaName: "vpa"},
+		labels.SelectorFromSet(labels.Set{"app": "web"}),
+		time.Now(),
+	)
+	vpa.TargetRef = &autoscaling.CrossVersionObjectReference{Kind: "Deployment", Name: "web", APIVersion: "apps/v1"}
+	ownedByWeb := []history.PodOwner{{Kind: "ReplicaSet", Name: "web-7d4b9c"}, {Kind: "Deployment", Name: "web"}}
+	r := &podResourceRecommender{startupHistory: map[model.PodID]*history.PodHistory{
+		// Gone pod without labels: matched through its owners.
+		{Namespace: "default", PodName: "web-7d4b9c-abcde"}: {
+			Owners:  ownedByWeb,
+			Samples: map[string][]model.ContainerUsageSample{"app": usageSamples(start, 100, 1000)},
+		},
+		{Namespace: "other", PodName: "web-7d4b9c-abcde"}: {
+			Owners:  ownedByWeb,
+			Samples: map[string][]model.ContainerUsageSample{"app": usageSamples(start, 999, 9999)},
+		},
+		{Namespace: "default", PodName: "api-5f6c7d-fghij"}: {
+			Owners:  []history.PodOwner{{Kind: "ReplicaSet", Name: "api-5f6c7d"}, {Kind: "Deployment", Name: "api"}},
+			Samples: map[string][]model.ContainerUsageSample{"app": usageSamples(start, 999, 9999)},
+		},
+		{Namespace: "default", PodName: "web"}: {
+			Owners:  []history.PodOwner{{Kind: "StatefulSet", Name: "web"}},
+			Samples: map[string][]model.ContainerUsageSample{"app": usageSamples(start, 999, 9999)},
+		},
+	}}
+	est, cpuEstimator, memoryEstimator := newMockEstimators()
+
+	r.loadStartupHistory(
+		vpa,
+		nil,
+		model.ContainerNameToAggregateStateMap{"app": model.NewAggregateContainerState()},
+		est,
+	)
+
+	assert.Equal(t, []estimators.TimedSample{{Value: 100, Timestamp: start}}, cpuEstimator.historyCalls["app"])
+	assert.Equal(t, []estimators.TimedSample{{Value: 1000, Timestamp: start}}, memoryEstimator.historyCalls["app"])
+}
+
+func TestLoadStartupHistoryLoadsNothingAfterRelease(t *testing.T) {
+	vpa := newTestVPA("default", "vpa", "policy")
+	podID := model.PodID{Namespace: "default", PodName: "pod"}
+	r := &podResourceRecommender{startupHistory: map[model.PodID]*history.PodHistory{
+		podID: {Samples: map[string][]model.ContainerUsageSample{
+			"app": usageSamples(time.Now().Add(-time.Hour), 100, 1000),
+		}},
+	}}
+	est, cpuEstimator, _ := newMockEstimators()
+
+	r.ReleaseHistory()
+	r.loadStartupHistory(
+		vpa,
+		[]model.PodID{podID},
+		model.ContainerNameToAggregateStateMap{"app": model.NewAggregateContainerState()},
+		est,
+	)
+
+	assert.Nil(t, r.startupHistory)
+	assert.Empty(t, cpuEstimator.historyCalls)
+}
+
+// Only estimators created in the call are seeded, so the history is never
+// loaded twice into the same estimators.
+func TestGetRecommendedPodResourcesDoesNotSeedCachedEstimators(t *testing.T) {
+	vpa := newTestVPA("default", "vpa", "policy")
+	podID := model.PodID{Namespace: "default", PodName: "pod"}
+	est, cpuEstimator, _ := newMockEstimators()
+	r := &podResourceRecommender{
+		policyLister:  newVhapePolicyLister(newTestPolicyObject("policy", newTestPolicySpec())),
+		metricsClient: &mockMetricsClient{},
+		estimators:    map[model.VpaID]*ResourceEstimators{vpa.ID: est},
+		startupHistory: map[model.PodID]*history.PodHistory{
+			podID: {Samples: map[string][]model.ContainerUsageSample{
+				"app": usageSamples(time.Now().Add(-time.Hour), 100, 1000),
+			}},
+		},
+	}
+
+	_, err := r.GetRecommendedPodResources(
+		model.ContainerNameToAggregateStateMap{"app": model.NewAggregateContainerState()},
+		vpa,
+		[]model.PodID{podID},
+	)
+
+	assert.NoError(t, err)
+	assert.Empty(t, cpuEstimator.historyCalls)
+}
+
+// With the real estimator, the history read at startup gives enough coverage
+// for a recommendation in the first cycle, instead of the current request.
+func TestGetRecommendedPodResourcesRecommendsFromHistoryRightAfterStart(t *testing.T) {
+	policy := newTestPolicyObject("policy", vhape_types.VhapePolicySpec{
+		Resources: vhape_types.VhapeResourcesSpec{
+			CPU: vhape_types.ResourceScalingSpec{ScalingHeuristic: vhape_types.ResourceHeuristics{
+				estimators.PercentileHysteresis: runtime.RawExtension{
+					Raw: []byte(`{"percentile":1,"headroom":0,"slidingWindow":"24h","minimumCoverageWindow":"30m"}`),
+				},
+			}},
+			Memory: newPercentileHysteresisHeuristic(0.9, 0.1, "24h"),
+		},
+	})
+	vpa := newTestVPA("default", "vpa", policy.Name)
+	podID := model.PodID{Namespace: "default", PodName: "pod"}
+	now := time.Now()
+	r := &podResourceRecommender{
+		config:        PodRecommendationLimits{PodMinCPUMillicores: 10, PodMinMemoryMb: 1},
+		policyLister:  newVhapePolicyLister(policy),
+		metricsClient: &mockMetricsClient{},
+		estimators:    make(map[model.VpaID]*ResourceEstimators),
+		startupHistory: map[model.PodID]*history.PodHistory{
+			podID: {Samples: map[string][]model.ContainerUsageSample{
+				"app": append(usageSamples(now.Add(-2*time.Hour), 300, 1000), usageSamples(now.Add(-time.Hour), 400, 1000)...),
+			}},
+		},
+	}
+	state := model.NewAggregateContainerState()
+	state.ObserveRequest(model.Resources{model.ResourceCPU: 100, model.ResourceMemory: 1000}, now)
+	state.UpdateFromPolicy(&vpa_types.ContainerResourcePolicy{
+		ControlledResources: &[]v1.ResourceName{v1.ResourceCPU},
+	})
+
+	got, err := r.GetRecommendedPodResources(
+		model.ContainerNameToAggregateStateMap{"app": state},
+		vpa,
+		[]model.PodID{podID},
+	)
+
+	assert.NoError(t, err)
+	assert.Equal(t, model.ResourceAmount(400), got["app"].Target[model.ResourceCPU])
 }

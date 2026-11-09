@@ -33,11 +33,11 @@ import (
 )
 
 const (
-	cpuQuery              = "rate(container_cpu_usage_seconds_total{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\"}[30s])"
-	memoryQuery           = "container_memory_working_set_bytes{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\"}"
+	cpuQuery              = "max by (namespace, pod_name, name) (rate(container_cpu_usage_seconds_total{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\"}[30s]))"
+	memoryQuery           = "max by (namespace, pod_name, name) (container_memory_working_set_bytes{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\"})"
 	labelsQuery           = "up{job=\"kubernetes-pods\"}"
-	cpuNamespacedQuery    = "rate(container_cpu_usage_seconds_total{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\", namespace=\"kube-system\"}[30s])"
-	memoryNamespacedQuery = "container_memory_working_set_bytes{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\", namespace=\"kube-system\"}"
+	cpuNamespacedQuery    = "max by (namespace, pod_name, name) (rate(container_cpu_usage_seconds_total{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\", namespace=\"kube-system\"}[30s]))"
+	memoryNamespacedQuery = "max by (namespace, pod_name, name) (container_memory_working_set_bytes{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\", namespace=\"kube-system\"})"
 )
 
 func getDefaultPrometheusHistoryProviderConfigForTest() PrometheusHistoryProviderConfig {
@@ -346,6 +346,216 @@ func TestGetLabels(t *testing.T) {
 	histories, err := historyProvider.GetClusterHistory()
 	assert.Nil(t, err)
 	assert.Equal(t, histories, map[model.PodID]*PodHistory{podID: podHistory})
+}
+
+func TestGetClusterHistoryUsesCPURateWindow(t *testing.T) {
+	mockClient := mockPrometheusAPI{}
+	config := getDefaultPrometheusHistoryProviderConfigForTest()
+	config.CPURateWindow = time.Minute
+	historyProvider := prometheusHistoryProvider{
+		config:            config,
+		prometheusClient:  &mockClient,
+		historyResolution: prommodel.Duration(30 * time.Second),
+	}
+	cpuQueryWithRateWindow := "max by (namespace, pod_name, name) (rate(container_cpu_usage_seconds_total{job=\"kubernetes-cadvisor\", pod_name=~\".+\", name!=\"POD\", name!=\"\"}[1m]))"
+	// The rate window changes, but the step is still the history resolution.
+	resolutionStep := mock.MatchedBy(func(r prometheusv1.Range) bool { return r.Step == 30*time.Second })
+	mockClient.On("QueryRange", mock.Anything, cpuQueryWithRateWindow, resolutionStep).Return(prommodel.Matrix{}, nil)
+	mockClient.On("QueryRange", mock.Anything, memoryQuery, resolutionStep).Return(prommodel.Matrix{}, nil)
+	mockClient.On("Query", mock.Anything, labelsQuery, mock.AnythingOfType("time.Time")).Return(prommodel.Matrix{}, nil)
+
+	_, err := historyProvider.GetClusterHistory()
+
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+}
+
+func TestGetClusterHistorySkipsLabelsWithoutLabelsMetric(t *testing.T) {
+	mockClient := mockPrometheusAPI{}
+	config := getDefaultPrometheusHistoryProviderConfigForTest()
+	config.PodLabelsMetricName = ""
+	historyProvider := prometheusHistoryProvider{
+		config:           config,
+		prometheusClient: &mockClient,
+	}
+	mockClient.On("QueryRange", mock.Anything, cpuQuery, mock.AnythingOfType("v1.Range")).Return(prommodel.Matrix{}, nil)
+	mockClient.On("QueryRange", mock.Anything, memoryQuery, mock.AnythingOfType("v1.Range")).Return(prommodel.Matrix{}, nil)
+
+	_, err := historyProvider.GetClusterHistory()
+
+	assert.NoError(t, err)
+	mockClient.AssertNotCalled(t, "Query", mock.Anything, mock.Anything, mock.Anything)
+}
+
+const (
+	podOwnersQuery        = "last_over_time(kube_pod_owner{owner_is_controller=\"true\"}[8d])"
+	replicaSetOwnersQuery = "last_over_time(kube_replicaset_owner{owner_is_controller=\"true\"}[8d])"
+	jobOwnersQuery        = "last_over_time(kube_job_owner{owner_is_controller=\"true\"}[8d])"
+)
+
+func newOwnerSample(nameLabel, name, ownerKind, ownerName string) *prommodel.Sample {
+	return &prommodel.Sample{Metric: prommodel.Metric{
+		"namespace":                    "default",
+		prommodel.LabelName(nameLabel): prommodel.LabelValue(name),
+		"owner_kind":                   prommodel.LabelValue(ownerKind),
+		"owner_name":                   prommodel.LabelValue(ownerName),
+	}}
+}
+
+func newOwnersHistoryProvider(mockClient *mockPrometheusAPI) prometheusHistoryProvider {
+	config := getDefaultPrometheusHistoryProviderConfigForTest()
+	config.PodLabelsMetricName = ""
+	config.ReadPodOwners = true
+	cpuSample := func(pod string) *prommodel.SampleStream {
+		return &prommodel.SampleStream{
+			Metric: prommodel.Metric{"namespace": "default", "pod_name": prommodel.LabelValue(pod), "name": "app"},
+			Values: []prommodel.SamplePair{{Timestamp: prommodel.TimeFromUnix(1), Value: 0.5}},
+		}
+	}
+	mockClient.On("QueryRange", mock.Anything, cpuQuery, mock.AnythingOfType("v1.Range")).Return(
+		prommodel.Matrix{cpuSample("web-7d4b9c-abcde"), cpuSample("report-28401-xyz12"), cpuSample("standalone")}, nil)
+	mockClient.On("QueryRange", mock.Anything, memoryQuery, mock.AnythingOfType("v1.Range")).Return(prommodel.Matrix{}, nil)
+	return prometheusHistoryProvider{config: config, prometheusClient: mockClient}
+}
+
+func TestGetClusterHistoryReadsPodOwners(t *testing.T) {
+	mockClient := mockPrometheusAPI{}
+	historyProvider := newOwnersHistoryProvider(&mockClient)
+	mockClient.On("Query", mock.Anything, podOwnersQuery, mock.AnythingOfType("time.Time")).Return(prommodel.Vector{
+		newOwnerSample("pod", "web-7d4b9c-abcde", "ReplicaSet", "web-7d4b9c"),
+		newOwnerSample("pod", "report-28401-xyz12", "Job", "report-28401"),
+		newOwnerSample("pod", "standalone", "<none>", "<none>"),
+		// Not in the usage history, so it is left out.
+		newOwnerSample("pod", "other", "ReplicaSet", "other-1"),
+	}, nil)
+	mockClient.On("Query", mock.Anything, replicaSetOwnersQuery, mock.AnythingOfType("time.Time")).Return(prommodel.Vector{
+		newOwnerSample("replicaset", "web-7d4b9c", "Deployment", "web"),
+	}, nil)
+	mockClient.On("Query", mock.Anything, jobOwnersQuery, mock.AnythingOfType("time.Time")).Return(prommodel.Vector{
+		newOwnerSample("job_name", "report-28401", "CronJob", "report"),
+	}, nil)
+
+	histories, err := historyProvider.GetClusterHistory()
+
+	assert.NoError(t, err)
+	assert.Equal(t, []PodOwner{{Kind: "ReplicaSet", Name: "web-7d4b9c"}, {Kind: "Deployment", Name: "web"}},
+		histories[model.PodID{Namespace: "default", PodName: "web-7d4b9c-abcde"}].Owners)
+	assert.Equal(t, []PodOwner{{Kind: "Job", Name: "report-28401"}, {Kind: "CronJob", Name: "report"}},
+		histories[model.PodID{Namespace: "default", PodName: "report-28401-xyz12"}].Owners)
+	assert.Empty(t, histories[model.PodID{Namespace: "default", PodName: "standalone"}].Owners)
+	assert.NotContains(t, histories, model.PodID{Namespace: "default", PodName: "other"})
+}
+
+func TestGetClusterHistoryKeepsTheHistoryWhenOwnersFail(t *testing.T) {
+	mockClient := mockPrometheusAPI{}
+	historyProvider := newOwnersHistoryProvider(&mockClient)
+	mockClient.On("Query", mock.Anything, podOwnersQuery, mock.AnythingOfType("time.Time")).Return(nil, errors.New("unavailable"))
+
+	histories, err := historyProvider.GetClusterHistory()
+
+	assert.NoError(t, err)
+	assert.Len(t, histories, 3)
+	assert.Empty(t, histories[model.PodID{Namespace: "default", PodName: "web-7d4b9c-abcde"}].Owners)
+}
+
+// rangePoints returns the times at which a range query evaluates.
+func rangePoints(r prometheusv1.Range) []time.Time {
+	if r.Step <= 0 {
+		return []time.Time{r.Start}
+	}
+	var points []time.Time
+	for t := r.Start; !t.After(r.End); t = t.Add(r.Step) {
+		points = append(points, t)
+	}
+	return points
+}
+
+func TestHistoryRanges(t *testing.T) {
+	start := time.Date(2026, 11, 3, 0, 0, 0, 0, time.UTC)
+	testCases := []struct {
+		name     string
+		length   time.Duration
+		step     time.Duration
+		expected []prometheusv1.Range
+	}{
+		{
+			name:   "splits the history into chunks",
+			length: 3 * time.Hour,
+			step:   time.Minute,
+			expected: []prometheusv1.Range{
+				{Start: start, End: start.Add(59 * time.Minute), Step: time.Minute},
+				{Start: start.Add(time.Hour), End: start.Add(time.Hour + 59*time.Minute), Step: time.Minute},
+				{Start: start.Add(2 * time.Hour), End: start.Add(3 * time.Hour), Step: time.Minute},
+			},
+		},
+		{
+			name:     "reads a history shorter than a chunk in one query",
+			length:   30 * time.Minute,
+			step:     time.Minute,
+			expected: []prometheusv1.Range{{Start: start, End: start.Add(30 * time.Minute), Step: time.Minute}},
+		},
+		{
+			name:   "rounds the chunk up to whole steps",
+			length: 2 * time.Hour,
+			step:   7 * time.Minute,
+			// 60m becomes 63m, and the second chunk reaches the end.
+			expected: []prometheusv1.Range{
+				{Start: start, End: start.Add(56 * time.Minute), Step: 7 * time.Minute},
+				{Start: start.Add(63 * time.Minute), End: start.Add(2 * time.Hour), Step: 7 * time.Minute},
+			},
+		},
+		{
+			name:     "reads in one query without a step",
+			length:   3 * time.Hour,
+			expected: []prometheusv1.Range{{Start: start, End: start.Add(3 * time.Hour)}},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			historyProvider := prometheusHistoryProvider{historyResolution: prommodel.Duration(tc.step)}
+			end := start.Add(tc.length)
+
+			ranges := historyProvider.historyRanges(start, end)
+
+			assert.Equal(t, tc.expected, ranges)
+			// The chunks evaluate at the same points as one query over the whole history.
+			var points []time.Time
+			for _, r := range ranges {
+				points = append(points, rangePoints(r)...)
+			}
+			assert.Equal(t, rangePoints(prometheusv1.Range{Start: start, End: end, Step: tc.step}), points)
+		})
+	}
+}
+
+func TestGetClusterHistoryReadsTheHistoryInChunks(t *testing.T) {
+	mockClient := mockPrometheusAPI{}
+	historyProvider := prometheusHistoryProvider{
+		config:            getDefaultPrometheusHistoryProviderConfigForTest(),
+		prometheusClient:  &mockClient,
+		historyDuration:   prommodel.Duration(2 * time.Hour),
+		historyResolution: prommodel.Duration(time.Hour),
+	}
+	sampleAt := func(unix int64) prommodel.Matrix {
+		return prommodel.Matrix{{
+			Metric: prommodel.Metric{"namespace": "default", "pod_name": "pod", "name": "app"},
+			Values: []prommodel.SamplePair{{Timestamp: prommodel.TimeFromUnix(unix), Value: 1}},
+		}}
+	}
+	// With a 1h step, the first chunk holds only its start, and the second one runs to the end.
+	firstChunk := mock.MatchedBy(func(r prometheusv1.Range) bool { return r.Start.Equal(r.End) })
+	secondChunk := mock.MatchedBy(func(r prometheusv1.Range) bool { return r.End.Sub(r.Start) == time.Hour })
+	mockClient.On("QueryRange", mock.Anything, cpuQuery, firstChunk).Return(sampleAt(1), nil).Once()
+	mockClient.On("QueryRange", mock.Anything, cpuQuery, secondChunk).Return(sampleAt(2), nil).Once()
+	mockClient.On("QueryRange", mock.Anything, memoryQuery, mock.AnythingOfType("v1.Range")).Return(prommodel.Matrix{}, nil).Twice()
+	mockClient.On("Query", mock.Anything, labelsQuery, mock.AnythingOfType("time.Time")).Return(prommodel.Matrix{}, nil)
+
+	histories, err := historyProvider.GetClusterHistory()
+
+	assert.NoError(t, err)
+	mockClient.AssertExpectations(t)
+	samples := histories[model.PodID{Namespace: "default", PodName: "pod"}].Samples["app"]
+	assert.Equal(t, []time.Time{time.Unix(1, 0), time.Unix(2, 0)}, []time.Time{samples[0].MeasureStart, samples[1].MeasureStart})
 }
 
 func TestPrometheusAuth(t *testing.T) {
