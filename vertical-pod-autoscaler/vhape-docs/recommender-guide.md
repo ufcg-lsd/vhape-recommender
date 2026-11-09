@@ -114,6 +114,32 @@ If the `VhapePolicy` annotation on the VPA object changes after the estimators h
 
 Because estimators retain container usage history, recreating them causes that history to be lost.
 
+### Using Prometheus as a data source
+
+By default, the recommender keeps usage samples only in memory and reads usage from metrics-server. With Prometheus, or a compatible server such as VictoriaMetrics, it can:
+
+- recover the usage history after a restart (`--storage=prometheus`);
+- read the usage of each cycle over a 1-minute window, instead of the ~15 seconds of metrics-server (`--metrics-source=prometheus`).
+
+#### What Prometheus needs
+
+- The cAdvisor metrics `container_cpu_usage_seconds_total` and `container_memory_working_set_bytes`.
+- The kube-state-metrics owner metrics `kube_pod_owner`, `kube_replicaset_owner` and `kube_job_owner`, so that the history of pods that no longer run goes to the right VPA. kube-state-metrics exports them by default.
+
+#### Flags
+
+```text
+--metrics-source=prometheus
+--storage=prometheus
+--prometheus-address=http://prometheus-server.monitoring.svc:9090
+--prometheus-cadvisor-job-name=<job>
+```
+
+Set `--prometheus-cadvisor-job-name` to the job that scrapes cAdvisor, unless it is named `kubernetes-cadvisor`. If Prometheus needs authentication, add `--username` and `--password`, or `--prometheus-bearer-token`.
+
+The CPU usage rate window is the `--recommender-interval` (`1m` by default), which must be at least twice the scrape interval. The history resolution is also the `--recommender-interval`, unless `--history-resolution` sets a shorter one.
+
+
 ### Capping and post-processing
 
 VHAPE follows the same general capping model used by the upstream VPA recommender, even though that model is split across different parts of the original VPA codebase.
