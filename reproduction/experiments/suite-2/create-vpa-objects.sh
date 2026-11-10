@@ -4,9 +4,10 @@
 # RequestsOnly for every container, owner reference to the Deployment), for Tiny, which has no watcher (suite 2).
 # The objects have no spec.recommenders; Tiny handles every object without the vhape/policy annotation.
 # It keeps running, checking every few seconds, and creates the object of every matching Deployment that has none: the
-# Deployments created later, in any matching namespace, and the ones whose object was deleted. A failed creation is
-# logged and retried on the next check. Stop it with Ctrl+C, or with kill %1 when started in the background with &; the
-# objects are kept. The owner reference makes Kubernetes delete the object together with its Deployment.
+# Deployments created later, in any matching namespace, and the ones whose object was deleted. The objects missing at a
+# check are created together, with a single kubectl call; a failed creation is logged and retried on the next check.
+# Stop it with Ctrl+C, or with kill %1 when started in the background with &; the objects are kept. The owner reference
+# makes Kubernetes delete the object together with its Deployment.
 # As with the watcher chart, the namespaces kube-system and monitoring are ignored.
 # Usage: create-vpa-objects.sh <namespace-regex>
 #   namespace-regex: e.g. '^my-namespace$' for one namespace, '^exp-.*$' for several
@@ -32,9 +33,11 @@ list() {
   fi
 }
 
-create_object() {
+# Prints the manifest of the object of a Deployment.
+manifest() {
   local namespace=$1 name=$2 uid=$3
-  kubectl apply -f - <<EOF
+  cat <<EOF
+---
 apiVersion: autoscaling.k8s.io/v1
 kind: VerticalPodAutoscaler
 metadata:
@@ -58,17 +61,27 @@ while true; do
     deployments=$(list deployments NAMESPACE:.metadata.namespace,NAME:.metadata.name,UID:.metadata.uid); then
     # An object is found by namespace and name, as the target of the objects created here has the same name.
     existing=" $(awk '{printf "%s/%s ", $1, $2}' <<<"$objects")"
+    batch="" sent=""
     while read -r namespace name uid; do
       [[ -n $namespace ]] || continue
       case "$IGNORED_NAMESPACES" in *" $namespace "*) continue ;; esac
       [[ $namespace =~ $REGEX ]] || continue
       case "$existing" in *" $namespace/$name "*) continue ;; esac
-      if output=$(create_object "$namespace" "$name" "$uid" 2>&1); then
-        log "created $namespace/$name"
-      else
-        log "error creating $namespace/$name, retrying: $(tr '\n' ' ' <<<"$output")"
-      fi
+      batch+="$(manifest "$namespace" "$name" "$uid")"$'\n'
+      sent+="$namespace/$name "
     done <<<"$deployments"
+    if [[ -n $batch ]]; then
+      # kubectl creates each object on its own, so one failure does not stop the others.
+      kubectl apply -f - <<<"$batch" >/dev/null 2>"$errors" ||
+        log "error creating objects, retrying: $(tr '\n' ' ' <"$errors")"
+      # The objects are listed again to log the ones created; the missing ones are retried on the next check.
+      if objects=$(list verticalpodautoscalers NAMESPACE:.metadata.namespace,NAME:.metadata.name); then
+        existing=" $(awk '{printf "%s/%s ", $1, $2}' <<<"$objects")"
+        for object in $sent; do
+          case "$existing" in *" $object "*) log "created $object" ;; esac
+        done
+      fi
+    fi
   fi
   sleep "$CHECK_INTERVAL"
 done
