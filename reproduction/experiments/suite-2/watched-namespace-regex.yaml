@@ -7,4 +7,4 @@ metadata:
 spec:
   regex: "CHANGE_ME"
   vhapePolicyName: sma-policy
-  vpaUpdateMode: Recreate
+  vpaUpdateMode: "Off"

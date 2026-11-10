@@ -9,13 +9,14 @@ of a 2021 VPA release: CPU is recommended with a simple moving average (`Predict
 percentile estimator. This branch adds the `sma` heuristic, a reimplementation of the Tiny CPU recommendation as a VHAPE
 heuristic; together with the `vpa` heuristic for memory, `sma-policy` reproduces the whole Tiny recommender.
 
-**Goal.** Show that VHAPE, running `sma-policy`, reproduces the Tiny recommender when the recommendations are applied
-to the workloads. If it does, the Tiny behavior is also available in VHAPE, by selecting these heuristics in a policy.
+**Goal.** Show that VHAPE, running `sma-policy`, reproduces the recommendations of the Tiny recommender. If it does, the
+Tiny behavior is also available in VHAPE, by selecting these heuristics in a policy. The recommendations are not
+applied (`updateMode: Off`), as in the evaluation of Tiny in its repository, whose recommendation objects use `Off`.
 
-**Question.** Given the same workloads, does VHAPE with `sma-policy` allocate the same resources over time as the Tiny
+**Question.** Given the same workloads, does VHAPE with `sma-policy` recommend the same resources over time as the Tiny
 recommender?
 
-**Hypothesis.** The requests applied to the pods are the same in both environments.
+**Hypothesis.** The target recommendations are the same in both environments.
 
 ## Design
 
@@ -27,14 +28,14 @@ workloads, started at the same time.
 | | Tiny environment | VHAPE environment |
 |---|---|---|
 | Recommender | Tiny `serverless-recommender` (built by [`../../tiny/build.sh`](../../tiny/README.md)) | VHAPE recommender with `sma-policy` (`sma` with `N: 3, input: 2` for CPU, `vpa: {}` for memory) |
-| Recommendation objects | created by `create-vpa-objects.sh` | created by the VHAPE watcher |
+| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) | created by the VHAPE watcher |
 
 **Controlled variables:** identical in both environments.
 
-- **Applying recommendations:** updater and admission controller of the upstream VPA 1.6.0, `updateMode: Recreate`
-  (the updater evicts a pod whose requests are outside the recommended range; the admission controller sets the
-  recommended requests on the new pod).
-- **Controlled values:** requests only (`controlledValues: RequestsOnly`); limits stay as in the workload manifests.
+- **Applying recommendations:** none, `updateMode: Off`. The updater and the admission controller of the upstream VPA
+  1.6.0 are installed but do nothing with `Off` objects, so the requests of the pods stay as in the workload manifests
+  and both environments run the same pods.
+- **Controlled values:** requests only (`controlledValues: RequestsOnly`), as in suite 1; with `Off` it has no effect.
 - **Recommender interval:** 1s, the default of Tiny (VHAPE is set to 1s through the chart value `extraArgs`).
 - **Replicas:** one replica of every component (upstream VPA components, Tiny and VHAPE recommenders).
 - **Metrics:** metrics-server with its default `--metric-resolution` of 60s, which the `sma` and `vpa` heuristics expect.
@@ -48,7 +49,8 @@ The workloads are not part of this directory. Any set of workloads can be used, 
 
 - they are Deployments (the VHAPE watcher only handles Deployments), and the same manifests, with the same namespaces,
   are applied in both environments;
-- their containers define CPU and memory requests (the starting point that the recommendations change);
+- their containers define CPU and memory requests (the VHAPE recommender publishes them as the target until it has
+  usage samples);
 - their memory usage is above 250Mi, the minimum memory recommendation of Tiny and the VPA; below it, both recommenders
   return the minimum and memory is not really compared;
 - their load does not repeat with a period that is a multiple of 1 min; otherwise, with a reading every minute, the
@@ -56,22 +58,21 @@ The workloads are not part of this directory. Any set of workloads can be used, 
 
 ## Dependent variables
 
-The comparison uses the requests applied to the pods, i.e. the recommendations as they reach the workloads (the
-admission controller sets the target recommendation as the request of a pod when the updater evicts it):
+The comparison uses the target recommendation, read from the status of the recommendation object of each workload:
 
-- CPU request of the pods, in millicores;
-- memory request of the pods, in MiB;
-- absolute error between the requests of both environments;
-- relative error between the requests of both environments.
+- CPU target, in millicores;
+- memory target, in MiB;
+- absolute error between the targets of both environments;
+- relative error between the targets of both environments.
 
-The requests of both environments are collected in the same way, every minute (one metrics-server reading), from the
-start of the run. The *n*-th sample of a workload in the VHAPE environment is paired with the *n*-th sample of the same
-workload in the Tiny environment.
+The targets of both environments are collected in the same way and paired by the time elapsed since the start of the
+run. Before it has usage samples of a workload, the VHAPE recommender publishes the current request of the pods as
+the target, while Tiny publishes no recommendation; these first samples have no Tiny pair and are not compared.
 
 **Absolute error**, computed separately for CPU and memory: for each pair, the absolute difference between the two
-requests. Reported per workload and over all workloads: mean absolute error and largest absolute error.
+targets. Reported per workload and over all workloads: mean absolute error and largest absolute error.
 
-**Relative error**, computed separately for CPU and memory: the absolute error of each pair divided by the request in
+**Relative error**, computed separately for CPU and memory: the absolute error of each pair divided by the target in
 the Tiny environment (the reference), as a percentage. Reported per workload and over all workloads: mean relative
 error and largest relative error.
 
@@ -137,13 +138,13 @@ namespaces (it is the only recommender in this cluster):
 sed -e '/--vpa-object-namespace/d' -e 's|image: .*|image: vtexlsd/tiny-serverless-recommender:paper|' reproduction/tiny/deploy/tiny-recommender.yaml | kubectl apply -f -
 ```
 
-Start the script that creates one recommendation object per Deployment of the namespaces that match a regular
-expression, like the VHAPE watcher does in the other environment (`'^my-namespace$'` for one namespace, `'^exp-.*$'` for
-several). It runs in the background and also handles Deployments created later; it can be stopped once every workload
-has its recommendation object (the objects are kept):
+Start the script that creates one recommendation object, with `updateMode: Off`, per Deployment of the namespaces that
+match a regular expression, like the VHAPE watcher does in the other environment (`'^my-namespace$'` for one namespace,
+`'^exp-.*$'` for several). It runs in the background and also handles Deployments created later; it can be stopped once
+every workload has its recommendation object (the objects are kept):
 
 ```bash
-reproduction/experiments/create-vpa-objects.sh '<namespace regex>' &
+reproduction/experiments/suite-2/create-vpa-objects.sh '<namespace regex>' &
 ```
 
 Apply the workloads:
@@ -181,7 +182,7 @@ kubectl apply -f reproduction/vhape/policies/sma-policy.yaml
 ```
 
 Tell the watcher which namespaces have workloads, so it creates a recommendation object, with `sma-policy` and
-`Recreate`, for every Deployment in them (see the
+`Off`, for every Deployment in them (see the
 [watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)). Either one `VhapeWatchedNamespace` per
 namespace:
 

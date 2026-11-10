@@ -6,4 +6,4 @@ metadata:
   name: CHANGE_ME
 spec:
   vhapePolicyName: sma-policy
-  vpaUpdateMode: Recreate
+  vpaUpdateMode: "Off"

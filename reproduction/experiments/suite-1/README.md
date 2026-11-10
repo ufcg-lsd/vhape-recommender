@@ -26,7 +26,7 @@ workloads, started at the same time.
 | | Upstream VPA environment | VHAPE environment |
 |---|---|---|
 | Recommender | upstream VPA recommender 1.6.0 | VHAPE recommender with `vpa-policy` (`vpa: {}` for CPU and memory, i.e. the VPA defaults) |
-| Recommendation objects | created by `create-vpa-objects.sh` | created by the VHAPE watcher |
+| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) | created by the VHAPE watcher |
 
 **Controlled variables:** identical in both environments.
 
@@ -117,7 +117,7 @@ several). It runs in the background and also handles Deployments created later; 
 has its recommendation object (the objects are kept):
 
 ```bash
-reproduction/experiments/create-vpa-objects.sh '<namespace regex>' &
+reproduction/experiments/suite-1/create-vpa-objects.sh '<namespace regex>' &
 ```
 
 Apply the workloads:
