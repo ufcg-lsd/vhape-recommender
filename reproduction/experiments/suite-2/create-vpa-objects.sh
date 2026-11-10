@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # Creates one VerticalPodAutoscaler object per Deployment of the namespaces that match a regular expression, as the VHAPE
-# watcher does with a VhapeWatchedNamespaceRegex (same name as the Deployment, updateMode Recreate, controlledValues
-# RequestsOnly for every container, owner reference to the Deployment), for the recommenders that have no watcher: Tiny
-# and the upstream VPA.
-# The objects have no spec.recommenders, so the default upstream recommender (or Tiny) handles them.
+# watcher does with a VhapeWatchedNamespaceRegex (same name as the Deployment, updateMode Off, controlledValues
+# RequestsOnly for every container, owner reference to the Deployment), for Tiny, which has no watcher (suite 2).
+# The objects have no spec.recommenders; Tiny handles every object without the vhape/policy annotation.
 # It keeps running, checking every few seconds, and creates the object of every matching Deployment that has none: the
 # Deployments created later, in any matching namespace, and the ones whose object was deleted. A failed creation is
 # logged and retried on the next check. Stop it with Ctrl+C, or with kill %1 when started in the background with &; the
@@ -45,7 +44,7 @@ metadata:
   - {apiVersion: apps/v1, kind: Deployment, name: $name, uid: $uid, controller: true}
 spec:
   targetRef: {apiVersion: apps/v1, kind: Deployment, name: $name}
-  updatePolicy: {updateMode: Recreate}
+  updatePolicy: {updateMode: "Off"}
   resourcePolicy:
     containerPolicies:
     - containerName: "*"
@@ -53,7 +52,7 @@ spec:
 EOF
 }
 
-log "creating objects for the Deployments of the namespaces matching '$REGEX'"
+log "creating objects with updateMode Off for the Deployments of the namespaces matching '$REGEX'"
 while true; do
   if objects=$(list verticalpodautoscalers NAMESPACE:.metadata.namespace,NAME:.metadata.name) &&
     deployments=$(list deployments NAMESPACE:.metadata.namespace,NAME:.metadata.name,UID:.metadata.uid); then
