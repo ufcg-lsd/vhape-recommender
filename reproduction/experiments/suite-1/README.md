@@ -111,13 +111,12 @@ VerticalPodAutoscaler CRDs, one replica each. `--min-replicas=1` lets the update
 helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=true --set recommender.replicas=1 --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
 ```
 
-Start the script that creates one recommendation object per Deployment of the namespaces that match a regular
-expression, like the VHAPE watcher does in the other environment (`'^my-namespace$'` for one namespace, `'^exp-.*$'` for
-several). It runs in the background and also handles Deployments created later; it can be stopped once every workload
-has its recommendation object (the objects are kept):
+Start the script that creates one recommendation object per Deployment of every namespace (regular expression `'.*'`),
+like the VHAPE watcher does in the other environment. It runs in the background and also handles Deployments created
+later; it can be stopped once every workload has its recommendation object (the objects are kept):
 
 ```bash
-reproduction/experiments/suite-1/create-vpa-objects.sh '<namespace regex>' &
+reproduction/experiments/suite-1/create-vpa-objects.sh '.*' &
 ```
 
 Apply the workloads:
@@ -153,20 +152,12 @@ Create the policy with the `vpa` heuristic:
 kubectl apply -f reproduction/vhape/policies/vpa-policy.yaml
 ```
 
-Tell the watcher which namespaces have workloads, so it creates a recommendation object, with `vpa-policy` and
-`Recreate`, for every Deployment in them (see the
-[watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)). Either one `VhapeWatchedNamespace` per
-namespace:
+Tell the watcher to create a recommendation object, with `vpa-policy` and `Recreate`, for every Deployment of every
+namespace, as the script does in the other environment (see the
+[watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
 
 ```bash
-sed "s/CHANGE_ME/<namespace>/" reproduction/experiments/suite-1/watched-namespace.yaml | kubectl apply -f -
-```
-
-or one `VhapeWatchedNamespaceRegex` for all of them, with the same regular expression given to the script in the
-upstream VPA environment:
-
-```bash
-sed "s/CHANGE_ME/<namespace regex>/" reproduction/experiments/suite-1/watched-namespace-regex.yaml | kubectl apply -f -
+kubectl apply -f reproduction/experiments/suite-1/watched-namespace-regex.yaml
 ```
 
 Apply the same workloads:

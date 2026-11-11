@@ -131,20 +131,20 @@ Allow it to write the recommendations into the status of the objects (compat pat
 kubectl apply -f reproduction/tiny/deploy/tiny-status-rbac.yaml
 ```
 
-Start Tiny, with the image set and without `--vpa-object-namespace`, so it handles the recommendation objects of all
-namespaces (it is the only recommender in this cluster):
+Start Tiny, with the published image and without `--vpa-object-namespace`, so it handles the recommendation objects of
+all namespaces (it is the only recommender in this cluster):
 
 ```bash
-sed -e '/--vpa-object-namespace/d' -e 's|image: .*|image: vtexlsd/tiny-serverless-recommender:paper|' reproduction/tiny/deploy/tiny-recommender.yaml | kubectl apply -f -
+kubectl apply -f reproduction/tiny/deploy/tiny-recommender-paper.yaml
 ```
 
-Start the script that creates one recommendation object, with `updateMode: Off`, per Deployment of the namespaces that
-match a regular expression, like the VHAPE watcher does in the other environment (`'^my-namespace$'` for one namespace,
-`'^exp-.*$'` for several). It runs in the background and also handles Deployments created later; it can be stopped once
-every workload has its recommendation object (the objects are kept):
+Start the script that creates one recommendation object, with `updateMode: Off`, per Deployment of every namespace
+(regular expression `'.*'`), like the VHAPE watcher does in the other environment. It runs in the background and also
+handles Deployments created later; it can be stopped once every workload has its recommendation object (the objects are
+kept):
 
 ```bash
-reproduction/experiments/suite-2/create-vpa-objects.sh '<namespace regex>' &
+reproduction/experiments/suite-2/create-vpa-objects.sh '.*' &
 ```
 
 Apply the workloads:
@@ -181,20 +181,12 @@ Create the policy with the `sma` heuristic for CPU and the `vpa` heuristic for m
 kubectl apply -f reproduction/vhape/policies/sma-policy.yaml
 ```
 
-Tell the watcher which namespaces have workloads, so it creates a recommendation object, with `sma-policy` and
-`Off`, for every Deployment in them (see the
-[watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)). Either one `VhapeWatchedNamespace` per
-namespace:
+Tell the watcher to create a recommendation object, with `sma-policy` and `Off`, for every Deployment of every
+namespace, as the script does in the other environment (see the
+[watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
 
 ```bash
-sed "s/CHANGE_ME/<namespace>/" reproduction/experiments/suite-2/watched-namespace.yaml | kubectl apply -f -
-```
-
-or one `VhapeWatchedNamespaceRegex` for all of them, with the same regular expression given to the script in the Tiny
-environment:
-
-```bash
-sed "s/CHANGE_ME/<namespace regex>/" reproduction/experiments/suite-2/watched-namespace-regex.yaml | kubectl apply -f -
+kubectl apply -f reproduction/experiments/suite-2/watched-namespace-regex.yaml
 ```
 
 Apply the same workloads:

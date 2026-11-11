@@ -1,10 +1,11 @@
 # The VHAPE watcher creates one recommendation object per Deployment of every namespace that matches the regex, using
-# vpa-policy. CHANGE_ME is the regular expression of the namespaces of the workloads (see README.md).
+# vpa-policy. The regex matches every namespace, as in the experiments; the watcher chart ignores kube-system and
+# monitoring.
 apiVersion: autoscaling.vhape.io/v1alpha1
 kind: VhapeWatchedNamespaceRegex
 metadata:
   name: suite-1-workloads
 spec:
-  regex: "CHANGE_ME"
+  regex: ".*"
   vhapePolicyName: vpa-policy
   vpaUpdateMode: Recreate

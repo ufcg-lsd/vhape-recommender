@@ -1,9 +1,0 @@
-# The VHAPE watcher creates one recommendation object per Deployment of the namespace, using vpa-policy.
-# CHANGE_ME is the namespace of the workloads (see README.md).
-apiVersion: autoscaling.vhape.io/v1alpha1
-kind: VhapeWatchedNamespace
-metadata:
-  name: CHANGE_ME
-spec:
-  vhapePolicyName: vpa-policy
-  vpaUpdateMode: Recreate

@@ -1,0 +1,41 @@
+# Tiny Autoscalers serverless-recommender used in the experiments, applied as is: the published image
+# (vtexlsd/tiny-serverless-recommender:paper, built by tiny/build.sh) and no --vpa-object-namespace, so it handles the
+# VerticalPodAutoscaler objects of every namespace, except the ones annotated with vhape/policy (compat patch).
+# The 2021 VPA API has no spec.recommenders. Tiny polls metrics every 1s by default (its main.go).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tiny-recommender
+  namespace: kube-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: tiny-recommender
+  template:
+    metadata:
+      labels:
+        app: tiny-recommender
+    spec:
+      serviceAccountName: vpa-recommender   # created by deploy/vpa-rbac.yaml
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: recommender
+          image: vtexlsd/tiny-serverless-recommender:paper
+          imagePullPolicy: IfNotPresent
+          args:
+            - --v=4
+            - --stderrthreshold=info
+          ports:
+            - name: prometheus
+              containerPort: 8942
+          # Same resources as the default of the VHAPE recommender chart, so both recommenders run with the same resources.
+          resources:
+            requests:
+              cpu: "4"
+              memory: 8Gi
+            limits:
+              cpu: "6"
+              memory: 12Gi
