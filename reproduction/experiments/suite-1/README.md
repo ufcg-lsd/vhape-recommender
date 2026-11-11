@@ -90,81 +90,80 @@ relative error and largest relative error.
 
 ## Steps
 
-### Preparation
+### In both environments
 
-Add the repository of the upstream VPA chart:
+1. Add the repository of the upstream VPA chart:
 
-```bash
-helm repo add autoscalers https://kubernetes.github.io/autoscaler
-```
+   ```bash
+   helm repo add autoscalers https://kubernetes.github.io/autoscaler
+   ```
 
-```bash
-helm repo update
-```
+   ```bash
+   helm repo update
+   ```
 
 ### Upstream VPA environment
 
-Install the upstream VPA 1.6.0 (chart `0.9.0`): recommender, updater, admission controller and the
-VerticalPodAutoscaler CRDs, one replica each. `--min-replicas=1` lets the updater act on single-replica workloads:
+1. Install the upstream VPA 1.6.0 (chart `0.9.0`): recommender, updater, admission controller and the
+   VerticalPodAutoscaler CRDs, one replica each. `--min-replicas=1` lets the updater act on single-replica workloads:
 
-```bash
-helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=true --set recommender.replicas=1 --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
-```
+   ```bash
+   helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=true --set recommender.replicas=1 --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
+   ```
 
-Start the script that creates one recommendation object per Deployment of every namespace (regular expression `'.*'`),
-like the VHAPE watcher does in the other environment. It runs in the background and also handles Deployments created
-later; it can be stopped once every workload has its recommendation object (the objects are kept):
+2. Start the script that creates one recommendation object per Deployment of every namespace, like the VHAPE watcher
+   does in the other environment. It runs in the background and also handles Deployments created later; it can be
+   stopped once every workload has its recommendation object (the objects are kept):
 
-```bash
-reproduction/experiments/suite-1/create-vpa-objects.sh '.*' &
-```
+   ```bash
+   reproduction/experiments/suite-1/create-vpa-objects.sh '.*' &
+   ```
 
-Apply the workloads:
+3. Apply the workloads:
 
-```bash
-kubectl apply -f <workload manifests>
-```
+   ```bash
+   kubectl apply -f <workload manifests>
+   ```
 
 ### VHAPE environment
 
-Install the updater, the admission controller and the VerticalPodAutoscaler CRDs of the upstream VPA 1.6.0, one
-replica each; the upstream recommender is disabled:
+1. Install the updater, the admission controller and the VerticalPodAutoscaler CRDs of the upstream VPA 1.6.0,
+   one replica each, with the upstream recommender disabled:
 
-```bash
-helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=false --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
-```
+   ```bash
+   helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=false --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
+   ```
 
-Install the VHAPE recommender, with the image that has the `vpa` heuristic (one replica, every minute):
+2. Install the VHAPE recommender, with the image that has the `sma` and `vpa` heuristics (one replica, every minute):
 
-```bash
-helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --wait
-```
+   ```bash
+   helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --wait
+   ```
 
-Install the VHAPE watcher:
+3. Install the VHAPE watcher:
 
-```bash
-helm upgrade --install vhape-watcher vertical-pod-autoscaler/charts/vhape-watcher --namespace kube-system --wait
-```
+   ```bash
+   helm upgrade --install vhape-watcher vertical-pod-autoscaler/charts/vhape-watcher --namespace kube-system --wait
+   ```
 
-Create the policy with the `vpa` heuristic:
+4. Create the policy with the `vpa` heuristic:
 
-```bash
-kubectl apply -f reproduction/vhape/policies/vpa-policy.yaml
-```
+   ```bash
+   kubectl apply -f reproduction/vhape/policies/vpa-policy.yaml
+   ```
 
-Tell the watcher to create a recommendation object, with `vpa-policy` and `Recreate`, for every Deployment of every
-namespace, as the script does in the other environment (see the
-[watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
+5. Tell the watcher to create a recommendation object, with `vpa-policy` and `Recreate`, for every Deployment of
+   every namespace (see the [watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
 
-```bash
-kubectl apply -f reproduction/experiments/suite-1/watched-namespace-regex.yaml
-```
+   ```bash
+   kubectl apply -f reproduction/experiments/suite-1/watched-namespace-regex.yaml
+   ```
 
-Apply the same workloads:
+6. Apply the same workloads:
 
-```bash
-kubectl apply -f <workload manifests>
-```
+   ```bash
+   kubectl apply -f <workload manifests>
+   ```
 
 ## Between runs
 

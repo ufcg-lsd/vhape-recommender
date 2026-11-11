@@ -97,103 +97,102 @@ error and largest relative error.
 
 ## Steps
 
-### Preparation
+### In both environments
 
-Add the repository of the upstream VPA chart:
+1. Add the repository of the upstream VPA chart:
 
-```bash
-helm repo add autoscalers https://kubernetes.github.io/autoscaler
-```
+   ```bash
+   helm repo add autoscalers https://kubernetes.github.io/autoscaler
+   ```
 
-```bash
-helm repo update
-```
+   ```bash
+   helm repo update
+   ```
 
 ### Tiny environment
 
-Install the updater, the admission controller and the VerticalPodAutoscaler CRDs of the upstream VPA 1.6.0, one
-replica each; the upstream recommender is disabled, Tiny takes its place:
+1. Install the updater, the admission controller and the VerticalPodAutoscaler CRDs of the upstream VPA 1.6.0,
+   one replica each, with the upstream recommender disabled (Tiny takes its place):
 
-```bash
-helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=false --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
-```
+   ```bash
+   helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=false --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
+   ```
 
-Create the service account and the roles of the recommender (from the 2021 VPA release Tiny is built on):
+2. Create the service account and the roles of the recommender (from the 2021 VPA release Tiny is built on):
 
-```bash
-kubectl apply -f reproduction/tiny/deploy/vpa-rbac.yaml
-```
+   ```bash
+   kubectl apply -f reproduction/tiny/deploy/vpa-rbac.yaml
+   ```
 
-Allow it to write the recommendations into the status of the objects (compat patch 3, see
-[`../../tiny/PATCHES.md`](../../tiny/PATCHES.md)):
+3. Allow it to write the recommendations into the status of the objects (compat patch 3, see
+   [`../../tiny/PATCHES.md`](../../tiny/PATCHES.md)):
 
-```bash
-kubectl apply -f reproduction/tiny/deploy/tiny-status-rbac.yaml
-```
+   ```bash
+   kubectl apply -f reproduction/tiny/deploy/tiny-status-rbac.yaml
+   ```
 
-Start Tiny, with the published image and without `--vpa-object-namespace`, so it handles the recommendation objects of
-all namespaces (it is the only recommender in this cluster):
+4. Start Tiny, with the published image and without `--vpa-object-namespace`, so it handles the recommendation
+   objects of all namespaces (it is the only recommender in this cluster):
 
-```bash
-kubectl apply -f reproduction/tiny/deploy/tiny-recommender-paper.yaml
-```
+   ```bash
+   kubectl apply -f reproduction/tiny/deploy/tiny-recommender-paper.yaml
+   ```
 
-Start the script that creates one recommendation object, with `updateMode: Off`, per Deployment of every namespace
-(regular expression `'.*'`), like the VHAPE watcher does in the other environment. It runs in the background and also
-handles Deployments created later; it can be stopped once every workload has its recommendation object (the objects are
-kept):
+5. Start the script that creates one recommendation object, with `updateMode: Off`, per Deployment of every
+   namespace, like the VHAPE watcher does in the other environment. It runs in the background and also handles
+   Deployments created later; it can be stopped once every workload has its recommendation object (the objects are
+   kept):
 
-```bash
-reproduction/experiments/suite-2/create-vpa-objects.sh '.*' &
-```
+   ```bash
+   reproduction/experiments/suite-2/create-vpa-objects.sh '.*' &
+   ```
 
-Apply the workloads:
+6. Apply the workloads:
 
-```bash
-kubectl apply -f <workload manifests>
-```
+   ```bash
+   kubectl apply -f <workload manifests>
+   ```
 
 ### VHAPE environment
 
-Install the updater, the admission controller and the VerticalPodAutoscaler CRDs of the upstream VPA 1.6.0, one
-replica each; the upstream recommender is disabled:
+1. Install the updater, the admission controller and the VerticalPodAutoscaler CRDs of the upstream VPA 1.6.0,
+   one replica each, with the upstream recommender disabled:
 
-```bash
-helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=false --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
-```
+   ```bash
+   helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=false --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
+   ```
 
-Install the VHAPE recommender, with the image that has the `sma` and `vpa` heuristics (one replica, every second, like
-Tiny):
+2. Install the VHAPE recommender, with the image that has the `sma` and `vpa` heuristics (one replica, every second,
+   like Tiny):
 
-```bash
-helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --set 'extraArgs={--recommender-interval=1s}' --wait
-```
+   ```bash
+   helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --set 'extraArgs={--recommender-interval=1s}' --wait
+   ```
 
-Install the VHAPE watcher:
+3. Install the VHAPE watcher:
 
-```bash
-helm upgrade --install vhape-watcher vertical-pod-autoscaler/charts/vhape-watcher --namespace kube-system --wait
-```
+   ```bash
+   helm upgrade --install vhape-watcher vertical-pod-autoscaler/charts/vhape-watcher --namespace kube-system --wait
+   ```
 
-Create the policy with the `sma` heuristic for CPU and the `vpa` heuristic for memory:
+4. Create the policy with the `sma` heuristic for CPU and the `vpa` heuristic for memory:
 
-```bash
-kubectl apply -f reproduction/vhape/policies/sma-policy.yaml
-```
+   ```bash
+   kubectl apply -f reproduction/vhape/policies/sma-policy.yaml
+   ```
 
-Tell the watcher to create a recommendation object, with `sma-policy` and `Off`, for every Deployment of every
-namespace, as the script does in the other environment (see the
-[watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
+5. Tell the watcher to create a recommendation object, with `sma-policy` and `Off`, for every Deployment of
+   every namespace (see the [watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
 
-```bash
-kubectl apply -f reproduction/experiments/suite-2/watched-namespace-regex.yaml
-```
+   ```bash
+   kubectl apply -f reproduction/experiments/suite-2/watched-namespace-regex.yaml
+   ```
 
-Apply the same workloads:
+6. Apply the same workloads:
 
-```bash
-kubectl apply -f <workload manifests>
-```
+   ```bash
+   kubectl apply -f <workload manifests>
+   ```
 
 ## Between runs
 
