@@ -5,6 +5,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/tools/cache"
 
@@ -24,6 +25,7 @@ func NewInformers(
 	ignoredNamespaces []*vhapev1alpha1.VhapeIgnoredNamespace,
 	ignoredWorkloads []*vhapev1alpha1.VhapeIgnoredWorkload,
 	vpas []*vpav1.VerticalPodAutoscaler,
+	policies []*vhapev1alpha1.VhapePolicy,
 ) (*vpafake.Clientset, *watcherinformers.Informers) {
 	t.Helper()
 
@@ -60,6 +62,22 @@ func NewInformers(
 	for _, watchedRegex := range watchedNamespaceRegexes {
 		AddToIndexer(t, informers.VhapeWatchedNamespaceRegex.Informer().GetIndexer(), watchedRegex)
 	}
+	policyIndexer := informers.VhapePolicy.Informer().GetIndexer()
+	for _, policy := range policies {
+		AddToIndexer(t, policyIndexer, policy)
+	}
+	for _, watched := range watchedNamespaces {
+		if watched == nil {
+			continue
+		}
+		addDefaultPolicy(t, policyIndexer, watched.Spec.VhapePolicyName)
+	}
+	for _, watchedRegex := range watchedNamespaceRegexes {
+		if watchedRegex == nil {
+			continue
+		}
+		addDefaultPolicy(t, policyIndexer, watchedRegex.Spec.VhapePolicyName)
+	}
 	for _, ignoredNamespace := range ignoredNamespaces {
 		AddToIndexer(t, informers.VhapeIgnoredNamespace.Informer().GetIndexer(), ignoredNamespace)
 	}
@@ -79,6 +97,23 @@ func NewInformers(
 	}
 
 	return vhapeClient, informers
+}
+
+func addDefaultPolicy(t *testing.T, indexer cache.Indexer, name string) {
+	t.Helper()
+	if name == "" {
+		return
+	}
+
+	_, exists, err := indexer.GetByKey(name)
+	if err != nil {
+		t.Fatalf("get VhapePolicy %q from indexer: %v", name, err)
+	}
+	if exists {
+		return
+	}
+
+	AddToIndexer(t, indexer, &vhapev1alpha1.VhapePolicy{ObjectMeta: metav1.ObjectMeta{Name: name}})
 }
 
 func AddToIndexer(t *testing.T, indexer cache.Indexer, obj interface{}) {

@@ -31,8 +31,14 @@ func TestNew(t *testing.T) {
 	if informers.Namespace == nil {
 		t.Fatal("Namespace informer is nil")
 	}
+	if informers.HPA == nil {
+		t.Fatal("HPA informer is nil")
+	}
 	if informers.VPA == nil {
 		t.Fatal("VPA informer is nil")
+	}
+	if informers.VhapePolicy == nil {
+		t.Fatal("VhapePolicy informer is nil")
 	}
 	if informers.VhapeWatchedNamespace == nil {
 		t.Fatal("VhapeWatchedNamespace informer is nil")
@@ -94,7 +100,11 @@ func TestNewRegistersDeploymentIndexes(t *testing.T) {
 	}
 
 	vpa := &vpav1.VerticalPodAutoscaler{
-		ObjectMeta: metav1.ObjectMeta{Name: vpaName, Namespace: namespace},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        vpaName,
+			Namespace:   namespace,
+			Annotations: map[string]string{vhapev1alpha1.VhapePolicyAnnotation: "test-policy"},
+		},
 		Spec: vpav1.VerticalPodAutoscalerSpec{
 			TargetRef: &autoscalingv1.CrossVersionObjectReference{
 				APIVersion: appsv1.SchemeGroupVersion.String(),
@@ -130,6 +140,14 @@ func TestNewRegistersDeploymentIndexes(t *testing.T) {
 	}
 	if len(vpas) != 1 || vpas[0] != vpa {
 		t.Fatalf("indexed VPAs = %#v, want [%p]", vpas, vpa)
+	}
+
+	vpasForPolicy, err := informers.VPA.Informer().GetIndexer().ByIndex(VPAByVhapePolicyIndex, "test-policy")
+	if err != nil {
+		t.Fatalf("list VPAs by policy index: %v", err)
+	}
+	if len(vpasForPolicy) != 1 || vpasForPolicy[0] != vpa {
+		t.Fatalf("VPAs indexed by policy = %#v, want [%p]", vpasForPolicy, vpa)
 	}
 
 	ignoredWorkloads, err := informers.VhapeIgnoredWorkload.Informer().GetIndexer().ByIndex(IgnoredWorkloadByDeploymentIndex, key)

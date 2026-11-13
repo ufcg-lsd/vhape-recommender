@@ -3,6 +3,7 @@ package testutil
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv1 "k8s.io/api/autoscaling/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -55,6 +56,26 @@ func NewVPAWithTarget(name, namespace, targetAPIVersion, targetKind, targetName 
 			TargetRef: &autoscalingv1.CrossVersionObjectReference{
 				APIVersion: targetAPIVersion,
 				Kind:       targetKind,
+				Name:       targetName,
+			},
+		},
+	}
+}
+
+func NewHPA(name, namespace, targetName string) *autoscalingv2.HorizontalPodAutoscaler {
+	return &autoscalingv2.HorizontalPodAutoscaler{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: autoscalingv2.SchemeGroupVersion.String(),
+			Kind:       "HorizontalPodAutoscaler",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+				APIVersion: appsv1.SchemeGroupVersion.String(),
+				Kind:       "Deployment",
 				Name:       targetName,
 			},
 		},

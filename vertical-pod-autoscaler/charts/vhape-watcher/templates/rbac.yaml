@@ -29,6 +29,17 @@ rules:
       - list
       - watch
 
+  # HPAs watched and adjusted by VHAPE Watcher.
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+
   # VPA objects created and maintained by VHAPE Watcher.
   - apiGroups:
       - autoscaling.k8s.io
@@ -50,6 +61,7 @@ rules:
       - vhapewatchednamespaceregexes
       - vhapeignorednamespaces
       - vhapeignoredworkloads
+      - vhapepolicies
     verbs:
       - get
       - list

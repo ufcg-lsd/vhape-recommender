@@ -26,6 +26,7 @@ spec:
                 - rule: "self == oldSelf"
                   message: "VhapePolicy spec is immutable; create a new policy and update the VPA annotation"
               required:
+                - manageHpa
                 - resources
               properties:
                 resources:
@@ -138,3 +139,5 @@ spec:
                                   value:
                                     type: string
                                     pattern: '^[0-9]+(\.[0-9]+)?%$'
+                manageHpa:
+                  type: boolean
