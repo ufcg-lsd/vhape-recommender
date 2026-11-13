@@ -6,6 +6,8 @@ recommendations for a single resource, such as CPU or memory.
 
 Implementations should provide the following methods:
   - FeedSamples: periodically receives usage metrics for a container.
+  - LoadHistory: receives usage measured before the recommender started, such
+    as the history read from Prometheus, so a restart does not reset it.
   - GetSingleResourceRecommendation: returns a recommendation for one resource,
     taking the current resource constraints and history into account.
 
@@ -18,6 +20,8 @@ different resources may also be handled by different estimator implementations.
 package estimators
 
 import (
+	"time"
+
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
 )
@@ -33,7 +37,15 @@ type ContainerResourceConstraints struct {
 	Max 		   model.ResourceAmount
 }
 
+// TimedSample represents a resource usage sample associated with the time at
+// which it was collected.
+type TimedSample struct {
+	Value     model.ResourceAmount
+	Timestamp time.Time
+}
+
 type ResourceEstimator interface {
 	FeedSamples(containerName string, samples []model.ResourceAmount)
+	LoadHistory(containerName string, samples []TimedSample)
 	GetSingleResourceRecommendation(containerName string, constraints ContainerResourceConstraints) recommendation.SingleResourceRecommendation
 }

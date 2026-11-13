@@ -51,16 +51,6 @@ func (s *PercentileHysteresisSpec) NewEstimator(resourceName model.ResourceName)
 	)
 }
 
-// TimedSample represents a resource usage sample associated with the time at
-// which it was collected.
-//
-// The timestamp is used to keep only samples that fall within the estimator's
-// sliding window.
-type TimedSample struct {
-	Value     model.ResourceAmount
-	Timestamp time.Time
-}
-
 // PercentileHysteresisEstimator estimates resource recommendations using a
 // percentile of recent usage samples plus a configurable headroom.
 //
@@ -201,6 +191,42 @@ func (e *PercentileHysteresisEstimator) FeedSamples(containerName string, sample
 		"received", len(samples),
 		"inserted", inserted,
 		"totalCurrentSamples", len(e.samples[containerName]),
+	)
+
+	e.purgeSamples(containerName)
+}
+
+// LoadHistory stores usage samples that keep the time they were measured, such
+// as the history read from Prometheus when the recommender starts.
+//
+// The samples may come from several pods in any order, so the stored samples
+// are sorted again, since purgeSamples and windowCoverage expect them in
+// chronological order. Samples older than the sliding window are purged.
+func (e *PercentileHysteresisEstimator) LoadHistory(containerName string, samples []TimedSample) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	inserted := 0
+	for _, sample := range samples {
+		if sample.Value < 0 {
+			continue
+		}
+
+		e.samples[containerName] = append(e.samples[containerName], sample)
+		inserted++
+	}
+
+	stored := e.samples[containerName]
+	sort.SliceStable(stored, func(i, j int) bool {
+		return stored[i].Timestamp.Before(stored[j].Timestamp)
+	})
+
+	klog.V(4).InfoS(
+		"Hysteresis: history loaded",
+		"resource", e.resourceName,
+		"containerName", containerName,
+		"received", len(samples),
+		"inserted", inserted,
 	)
 
 	e.purgeSamples(containerName)
