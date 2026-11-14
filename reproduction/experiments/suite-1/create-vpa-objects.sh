@@ -1,22 +1,27 @@
 #!/usr/bin/env bash
-# Creates one VerticalPodAutoscaler object per Deployment of the namespaces that match a regular expression, as the VHAPE
-# watcher does with a VhapeWatchedNamespaceRegex (same name as the Deployment, updateMode Recreate, controlledValues
-# RequestsOnly for every container, owner reference to the Deployment), for the upstream VPA, which has no watcher
-# (suite 1).
-# The objects have no spec.recommenders, so the default upstream recommender handles them.
+# Creates one VerticalPodAutoscaler object per Deployment of the namespaces that match a regular expression (same name as
+# the Deployment, updateMode Recreate, controlledValues RequestsOnly for every container, owner reference to the
+# Deployment), in both environments of suite 1, so the objects come from the same script on both sides:
+#   vpa environment (upstream VPA recommender): no spec.recommenders, so the default upstream recommender handles them.
+#   vhape environment (VHAPE recommender): the same object the VHAPE watcher creates with a VhapeWatchedNamespaceRegex,
+#     annotation vhape/policy: vpa-policy and spec.recommenders [vhape-recommender].
 # It keeps running, checking every few seconds, and creates the object of every matching Deployment that has none: the
 # Deployments created later, in any matching namespace, and the ones whose object was deleted. The objects missing at a
 # check are created together, with a single kubectl call; a failed creation is logged and retried on the next check.
 # Stop it with Ctrl+C, or with kill %1 when started in the background with &; the objects are kept. The owner reference
 # makes Kubernetes delete the object together with its Deployment.
 # As with the watcher chart, the namespaces kube-system and monitoring are ignored.
-# Usage: create-vpa-objects.sh <namespace-regex>
+# Usage: create-vpa-objects.sh <vpa|vhape> <namespace-regex>
 #   namespace-regex: e.g. '^my-namespace$' for one namespace, '^exp-.*$' for several
 set -uo pipefail
 
-REGEX=${1:?usage: create-vpa-objects.sh <namespace-regex>}
+USAGE="usage: create-vpa-objects.sh <vpa|vhape> <namespace-regex>"
+ENVIRONMENT=${1:?$USAGE}
+REGEX=${2:?$USAGE}
 CHECK_INTERVAL=2  # seconds
 IGNORED_NAMESPACES=" kube-system monitoring "
+
+case "$ENVIRONMENT" in vpa | vhape) ;; *) echo "$USAGE" >&2; exit 1 ;; esac
 
 errors=$(mktemp)
 trap 'rm -f "$errors"' EXIT
@@ -34,9 +39,14 @@ list() {
   fi
 }
 
-# Prints the manifest of the object of a Deployment.
+# Prints the manifest of the object of a Deployment. The metadata and spec lines assign the object to its recommender.
 manifest() {
-  local namespace=$1 name=$2 uid=$3
+  local namespace=$1 name=$2 uid=$3 metadata="" spec=""
+  if [[ $ENVIRONMENT == vhape ]]; then
+    metadata="  labels: {app.kubernetes.io/managed-by: vhape-watcher, autoscaling.vhape.io/recommender: vhape-recommender}
+  annotations: {vhape/policy: vpa-policy}"
+    spec="  recommenders: [{name: vhape-recommender}]"
+  fi
   cat <<EOF
 ---
 apiVersion: autoscaling.k8s.io/v1
@@ -44,9 +54,11 @@ kind: VerticalPodAutoscaler
 metadata:
   name: $name
   namespace: $namespace
+$metadata
   ownerReferences:
   - {apiVersion: apps/v1, kind: Deployment, name: $name, uid: $uid, controller: true}
 spec:
+$spec
   targetRef: {apiVersion: apps/v1, kind: Deployment, name: $name}
   updatePolicy: {updateMode: Recreate}
   resourcePolicy:
@@ -56,7 +68,7 @@ spec:
 EOF
 }
 
-log "creating objects with updateMode Recreate for the Deployments of the namespaces matching '$REGEX'"
+log "creating objects with updateMode Recreate for the Deployments of the namespaces matching '$REGEX' ($ENVIRONMENT)"
 while true; do
   if objects=$(list verticalpodautoscalers NAMESPACE:.metadata.namespace,NAME:.metadata.name) &&
     deployments=$(list deployments NAMESPACE:.metadata.namespace,NAME:.metadata.name,UID:.metadata.uid); then
