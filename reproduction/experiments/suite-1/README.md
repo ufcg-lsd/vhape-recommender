@@ -26,7 +26,7 @@ workloads, started at the same time.
 | | Upstream VPA environment | VHAPE environment |
 |---|---|---|
 | Recommender | upstream VPA recommender 1.6.0 | VHAPE recommender with `vpa-policy` (`vpa: {}` for CPU and memory, i.e. the VPA defaults) |
-| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) | created by the VHAPE watcher |
+| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vpa` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` (the object the VHAPE watcher creates) |
 
 **Controlled variables:** identical in both environments.
 
@@ -43,7 +43,7 @@ workloads, started at the same time.
 
 The workloads are not part of this directory. Any set of workloads can be used, as long as:
 
-- they are Deployments (the VHAPE watcher only handles Deployments), and the same manifests, with the same namespaces,
+- they are Deployments (the script, like the VHAPE watcher, only handles Deployments), and the same manifests, with the same namespaces,
   are applied in both environments;
 - their containers define CPU and memory requests (the starting point that the recommendations change);
 - their memory usage is above 250Mi, the minimum memory recommendation of the VPA; below it, both recommenders return
@@ -111,18 +111,20 @@ relative error and largest relative error.
    helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=true --set recommender.replicas=1 --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
    ```
 
-2. Start the script that creates one recommendation object per Deployment of every namespace, like the VHAPE watcher
-   does in the other environment. It runs in the background and also handles Deployments created later; it can be
-   stopped once every workload has its recommendation object (the objects are kept):
-
-   ```bash
-   reproduction/experiments/suite-1/create-vpa-objects.sh '.*' &
-   ```
-
-3. Apply the workloads:
+2. Apply the workloads:
 
    ```bash
    kubectl apply -f <workload manifests>
+   ```
+
+3. Start the script that creates one recommendation object, with `Recreate` and no `spec.recommenders`, per
+   Deployment of every namespace. It runs in the background and also handles Deployments created later; it can be
+   stopped once every workload has its recommendation object (the objects are kept).
+   Start it once the initial pods of the workloads are running: with `Recreate`, an object created earlier can make the
+   updater evict pods while they are still being placed. Start it at the same point in both environments:
+
+   ```bash
+   reproduction/experiments/suite-1/create-vpa-objects.sh vpa '.*' &
    ```
 
 ### VHAPE environment
@@ -140,29 +142,24 @@ relative error and largest relative error.
    helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --wait
    ```
 
-3. Install the VHAPE watcher:
-
-   ```bash
-   helm upgrade --install vhape-watcher vertical-pod-autoscaler/charts/vhape-watcher --namespace kube-system --wait
-   ```
-
-4. Create the policy with the `vpa` heuristic:
+3. Create the policy with the `vpa` heuristic:
 
    ```bash
    kubectl apply -f reproduction/vhape/policies/vpa-policy.yaml
    ```
 
-5. Tell the watcher to create a recommendation object, with `vpa-policy` and `Recreate`, for every Deployment of
-   every namespace (see the [watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
-
-   ```bash
-   kubectl apply -f reproduction/experiments/suite-1/watched-namespace-regex.yaml
-   ```
-
-6. Apply the same workloads:
+4. Apply the same workloads:
 
    ```bash
    kubectl apply -f <workload manifests>
+   ```
+
+5. Start the same script with `vhape`: each object gets the annotation `vhape/policy: vpa-policy` and
+   `spec.recommenders: [vhape-recommender]`, the object the VHAPE watcher would create. The script is used instead of
+   the watcher so that the objects of both environments come from the same code, created at the same pace:
+
+   ```bash
+   reproduction/experiments/suite-1/create-vpa-objects.sh vhape '.*' &
    ```
 
 ## Between runs
