@@ -28,7 +28,7 @@ workloads, started at the same time.
 | | Tiny environment | VHAPE environment |
 |---|---|---|
 | Recommender | Tiny `serverless-recommender` (built by [`../../tiny/build.sh`](../../tiny/README.md)) | VHAPE recommender with `sma-policy` (`sma` with `N: 3, input: 2` for CPU, `vpa: {}` for memory) |
-| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) | created by the VHAPE watcher |
+| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `tiny` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` (the object the VHAPE watcher creates) |
 
 **Controlled variables:** identical in both environments.
 
@@ -47,7 +47,7 @@ workloads, started at the same time.
 
 The workloads are not part of this directory. Any set of workloads can be used, as long as:
 
-- they are Deployments (the VHAPE watcher only handles Deployments), and the same manifests, with the same namespaces,
+- they are Deployments (the script, like the VHAPE watcher, only handles Deployments), and the same manifests, with the same namespaces,
   are applied in both environments;
 - their containers define CPU and memory requests (the VHAPE recommender publishes them as the target until it has
   usage samples);
@@ -138,19 +138,19 @@ error and largest relative error.
    kubectl apply -f reproduction/tiny/deploy/tiny-recommender-paper.yaml
    ```
 
-5. Start the script that creates one recommendation object, with `updateMode: Off`, per Deployment of every
-   namespace, like the VHAPE watcher does in the other environment. It runs in the background and also handles
-   Deployments created later; it can be stopped once every workload has its recommendation object (the objects are
-   kept):
-
-   ```bash
-   reproduction/experiments/suite-2/create-vpa-objects.sh '.*' &
-   ```
-
-6. Apply the workloads:
+5. Apply the workloads:
 
    ```bash
    kubectl apply -f <workload manifests>
+   ```
+
+6. Start the script that creates one recommendation object, with `updateMode: Off` and no `spec.recommenders`, per
+   Deployment of every namespace. It runs in the background and also handles Deployments created later; it can be
+   stopped once every workload has its recommendation object (the objects are kept). Start it at the same point in
+   both environments, once the initial pods of the workloads are running, as in suite 1:
+
+   ```bash
+   reproduction/experiments/suite-2/create-vpa-objects.sh tiny '.*' &
    ```
 
 ### VHAPE environment
@@ -169,29 +169,24 @@ error and largest relative error.
    helm upgrade --install vhape-recommender vertical-pod-autoscaler/charts/vhape-recommender --namespace kube-system --set image.tag=paper --set 'extraArgs={--recommender-interval=1s}' --wait
    ```
 
-3. Install the VHAPE watcher:
-
-   ```bash
-   helm upgrade --install vhape-watcher vertical-pod-autoscaler/charts/vhape-watcher --namespace kube-system --wait
-   ```
-
-4. Create the policy with the `sma` heuristic for CPU and the `vpa` heuristic for memory:
+3. Create the policy with the `sma` heuristic for CPU and the `vpa` heuristic for memory:
 
    ```bash
    kubectl apply -f reproduction/vhape/policies/sma-policy.yaml
    ```
 
-5. Tell the watcher to create a recommendation object, with `sma-policy` and `Off`, for every Deployment of
-   every namespace (see the [watcher guide](../../../vertical-pod-autoscaler/vhape-docs/watcher-guide.md)):
-
-   ```bash
-   kubectl apply -f reproduction/experiments/suite-2/watched-namespace-regex.yaml
-   ```
-
-6. Apply the same workloads:
+4. Apply the same workloads:
 
    ```bash
    kubectl apply -f <workload manifests>
+   ```
+
+5. Start the same script with `vhape`: each object gets the annotation `vhape/policy: sma-policy` and
+   `spec.recommenders: [vhape-recommender]`, the object the VHAPE watcher would create. The script is used instead of
+   the watcher so that the objects of both environments come from the same code, created at the same pace:
+
+   ```bash
+   reproduction/experiments/suite-2/create-vpa-objects.sh vhape '.*' &
    ```
 
 ## Between runs

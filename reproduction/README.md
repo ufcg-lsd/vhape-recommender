@@ -15,7 +15,7 @@ All versions are pinned in [`versions.env`](versions.env).
 
 1. Build the images: `vhape/README.md` (official VHAPE build) and `tiny/build.sh`.
 2. Make the images available to the cluster nodes (registry, or `minikube image load`/`kind load`).
-3. Install the components of each environment: `experiments/README.md` (upstream VPA chart, VHAPE and watcher charts)
+3. Install the components of each environment: `experiments/README.md` (upstream VPA chart, VHAPE chart)
    and, for Tiny, `tiny/deploy/`.
 4. Keep the metrics-server `--metric-resolution` at its default of 60s (see `vhape/README.md`, section "Both").
 5. Apply a policy from `vhape/policies/` and create the VerticalPodAutoscaler objects (`experiments/suite-*/`).

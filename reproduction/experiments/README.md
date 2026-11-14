@@ -11,7 +11,8 @@ In every suite, the baseline and VHAPE run in two separate and identical cluster
 the same time; each cluster runs a single recommender. The README of each suite describes the experiment and gives the
 steps to run it from scratch.
 
-In the VHAPE environments, the VHAPE watcher creates the recommendation objects. In the baseline environments, which
-have no watcher, the `create-vpa-objects.sh` script of each suite ([`suite-1/`](suite-1/create-vpa-objects.sh) with
-`Recreate`, [`suite-2/`](suite-2/create-vpa-objects.sh) with `Off`) creates the same objects for the Deployments of the
-namespaces that match a regular expression.
+In both environments of a suite, the `create-vpa-objects.sh` script of the suite ([`suite-1/`](suite-1/create-vpa-objects.sh)
+with `Recreate`, [`suite-2/`](suite-2/create-vpa-objects.sh) with `Off`) creates one recommendation object per Deployment
+of the namespaces that match a regular expression. Its first argument picks the environment: the baseline (`vpa` or
+`tiny`) or `vhape`, which creates the object the VHAPE watcher would create. The same script is used on both sides, instead
+of the watcher on the VHAPE side, so that the objects of both environments come from the same code.
