@@ -2,19 +2,23 @@ package logic
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 
+	autoscaling "k8s.io/api/autoscaling/v1"
 	"k8s.io/apimachinery/pkg/types"
 	vpa_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.k8s.io/v1"
 	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
 	vhape_listers "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/client/listers/autoscaling.vhape.io/v1alpha1"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/initialrequests"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/history"
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/recommendation"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/scalingrules"
 	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/model"
+	vpa_utils "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/utils/vpa"
 	"k8s.io/klog/v2"
 )
 
@@ -27,6 +31,11 @@ type PodResourceRecommender interface {
 	) (RecommendedPodResources, error)
 
 	Free(vpaID model.VpaID)
+
+	// ReleaseHistory drops the usage history read at startup. It is called once,
+	// after the first recommendation cycle, which creates and seeds the
+	// estimators of every VPA.
+	ReleaseHistory()
 }
 
 // PodRecommendationLimits contains global pod minimum recommendation limits.
@@ -78,15 +87,28 @@ type podResourceRecommender struct {
 	// Estimators keep usage history in memory, so they must be reused across
 	// recommendation cycles for the same VPA.
 	estimators map[model.VpaID]*ResourceEstimators
+
+	// startupHistory holds the usage read from Prometheus at startup, when the
+	// recommender runs with --storage=prometheus. It seeds estimators when they
+	// are created and is released after the first recommendation cycle.
+	historyMu      sync.RWMutex
+	startupHistory map[model.PodID]*history.PodHistory
 }
 
 // CreatePodResourceRecommender returns the primary recommender.
-func CreatePodResourceRecommender(config PodRecommendationLimits, policyLister vhape_listers.VhapePolicyLister, metricsClient input_metrics.MetricsClient) PodResourceRecommender {
+// startupHistory may be nil, in which case estimators start without history.
+func CreatePodResourceRecommender(
+	config PodRecommendationLimits,
+	policyLister vhape_listers.VhapePolicyLister,
+	metricsClient input_metrics.MetricsClient,
+	startupHistory map[model.PodID]*history.PodHistory,
+) PodResourceRecommender {
 	return &podResourceRecommender{
-		config:        config,
-		policyLister:  policyLister,
-		metricsClient: metricsClient,
-		estimators:    make(map[model.VpaID]*ResourceEstimators),
+		config:         config,
+		policyLister:   policyLister,
+		metricsClient:  metricsClient,
+		estimators:     make(map[model.VpaID]*ResourceEstimators),
+		startupHistory: startupHistory,
 	}
 }
 
@@ -105,7 +127,7 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 		return nil, err
 	}
 
-	resourceEstimators, err := r.getOrCreateEstimators(vpa, policy)
+	resourceEstimators, created, err := r.getOrCreateEstimators(vpa, policy)
 	if err != nil {
 		return nil, err
 	}
@@ -113,6 +135,10 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 	recommendations := make(RecommendedPodResources)
 	if len(containerStates) == 0 {
 		return recommendations, nil
+	}
+
+	if created {
+		r.loadStartupHistory(vpa, matchingPods, containerStates, resourceEstimators)
 	}
 
 	usage, err := r.collectCurrentUsage(matchingPods)
@@ -146,7 +172,89 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 	return recommendations, nil
 }
 
-// getOrCreateEstimators returns the estimators associated with a VPA.
+// loadStartupHistory seeds newly created estimators with the usage read at
+// startup, so they do not wait for a full coverage window again after a restart.
+//
+// A pod belongs to the VPA when it is one of its live pods or when its last
+// known labels match the VPA selector. The labels cover pods that no longer
+// exist, such as replicas replaced by a rollout. The live pods cover pods
+// whose labels Prometheus does not know, which is common, since the pod labels
+// metric usually exists only for pods that Prometheus scrapes.
+func (r *podResourceRecommender) loadStartupHistory(
+	vpa *model.Vpa,
+	matchingPods []model.PodID,
+	containerStates model.ContainerNameToAggregateStateMap,
+	est *ResourceEstimators,
+) {
+	r.historyMu.RLock()
+	defer r.historyMu.RUnlock()
+
+	if len(r.startupHistory) == 0 {
+		return
+	}
+
+	livePods := make(map[model.PodID]struct{}, len(matchingPods))
+	for _, podID := range matchingPods {
+		livePods[podID] = struct{}{}
+	}
+
+	cpuSamples := make(map[string][]estimators.TimedSample)
+	memorySamples := make(map[string][]estimators.TimedSample)
+	pods := 0
+	for podID, podHistory := range r.startupHistory {
+		// Pods that no longer run are matched by their last known labels or by
+		// the controllers that owned them.
+		_, isLive := livePods[podID]
+		matchesLabels := vpa.PodSelector != nil &&
+			vpa_utils.PodLabelsMatchVPA(podID.Namespace, podHistory.LastLabels, vpa.ID.Namespace, vpa.PodSelector)
+		matchesOwner := podID.Namespace == vpa.ID.Namespace && isOwnedBy(podHistory.Owners, vpa.TargetRef)
+		if !isLive && !matchesLabels && !matchesOwner {
+			continue
+		}
+
+		pods++
+		for containerName, samples := range podHistory.Samples {
+			if _, found := containerStates[containerName]; !found {
+				continue
+			}
+			for _, sample := range samples {
+				timed := estimators.TimedSample{Value: sample.Usage, Timestamp: sample.MeasureStart}
+				switch sample.Resource {
+				case model.ResourceCPU:
+					cpuSamples[containerName] = append(cpuSamples[containerName], timed)
+				case model.ResourceMemory:
+					memorySamples[containerName] = append(memorySamples[containerName], timed)
+				}
+			}
+		}
+	}
+
+	for containerName, samples := range cpuSamples {
+		est.CPU.estimator.LoadHistory(containerName, samples)
+	}
+	for containerName, samples := range memorySamples {
+		est.Memory.estimator.LoadHistory(containerName, samples)
+	}
+
+	klog.V(3).InfoS(
+		"Estimators seeded from usage history",
+		"vpa", klog.KRef(vpa.ID.Namespace, vpa.ID.VpaName),
+		"pods", pods,
+	)
+}
+
+// isOwnedBy reports whether the VPA target is one of the controllers that own a pod.
+func isOwnedBy(owners []history.PodOwner, targetRef *autoscaling.CrossVersionObjectReference) bool {
+	if targetRef == nil {
+		return false
+	}
+	return slices.ContainsFunc(owners, func(owner history.PodOwner) bool {
+		return owner.Kind == targetRef.Kind && owner.Name == targetRef.Name
+	})
+}
+
+// getOrCreateEstimators returns the estimators associated with a VPA, and
+// whether they were just created.
 // The estimators are recreated when the VPA annotation points to another policy.
 //
 // The heuristics configured in the policy are resolved here, so their parameters
@@ -155,7 +263,7 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 func (r *podResourceRecommender) getOrCreateEstimators(
 	vpa *model.Vpa,
 	policy *vhape_types.VhapePolicy,
-) (*ResourceEstimators, error) {
+) (*ResourceEstimators, bool, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -167,12 +275,12 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 			"policy", klog.KObj(policy),
 			"policyUID", policy.UID,
 		)
-		return cached, nil
+		return cached, false, nil
 	}
 
 	cpuHeuristic, cpuHeuristicName, err := estimators.BuildHeuristic(policy.Spec.Resources.CPU.ScalingHeuristic)
 	if err != nil {
-		return nil, fmt.Errorf(
+		return nil, false, fmt.Errorf(
 			"VhapePolicy %q: invalid spec.resources.cpu: %w",
 			policy.Name, err,
 		)
@@ -180,18 +288,18 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 
 	memoryHeuristic, memHeuristicName, err := estimators.BuildHeuristic(policy.Spec.Resources.Memory.ScalingHeuristic)
 	if err != nil {
-		return nil, fmt.Errorf(
+		return nil, false, fmt.Errorf(
 			"VhapePolicy %q: invalid spec.resources.memory: %w",
 			policy.Name, err,
 		)
 	}
 	cpuRules, err := scalingrules.Build(policy.Spec.Resources.CPU.ScalingRules)
 	if err != nil {
-		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.cpu.scalingRules: %w", policy.Name, err)
+		return nil, false, fmt.Errorf("VhapePolicy %q: invalid spec.resources.cpu.scalingRules: %w", policy.Name, err)
 	}
 	memoryRules, err := scalingrules.Build(policy.Spec.Resources.Memory.ScalingRules)
 	if err != nil {
-		return nil, fmt.Errorf("VhapePolicy %q: invalid spec.resources.memory.scalingRules: %w", policy.Name, err)
+		return nil, false, fmt.Errorf("VhapePolicy %q: invalid spec.resources.memory.scalingRules: %w", policy.Name, err)
 	}
 
 	if isCached {
@@ -228,7 +336,7 @@ func (r *podResourceRecommender) getOrCreateEstimators(
 	)
 
 	r.estimators[vpa.ID] = created
-	return created, nil
+	return created, true, nil
 }
 
 // recommendContainerResources calculates a full resource recommendation for one container.
@@ -375,6 +483,19 @@ func (r *podResourceRecommender) Free(vpaID model.VpaID) {
 		"VPA estimators released",
 		"vpa", klog.KRef(vpaID.Namespace, vpaID.VpaName),
 	)
+}
+
+func (r *podResourceRecommender) ReleaseHistory() {
+	r.historyMu.Lock()
+	defer r.historyMu.Unlock()
+
+	if r.startupHistory == nil {
+		return
+	}
+
+	r.startupHistory = nil
+
+	klog.V(3).InfoS("Usage history released")
 }
 
 // FilterControlledResources returns estimations from 'estimation' only for resources present in 'controlledResources'.

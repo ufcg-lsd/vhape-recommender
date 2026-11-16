@@ -278,3 +278,55 @@ func TestPercentileHysteresisSpecRejectsMalformedParameters(t *testing.T) {
 		})
 	}
 }
+
+func TestPercentileHysteresisLoadHistoryMergesSamplesInChronologicalOrder(t *testing.T) {
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Hour, 30*time.Minute)
+	now := time.Now()
+
+	// Two pods, each in chronological order, but not merged.
+	estimator.LoadHistory("app", []TimedSample{
+		{Value: 100, Timestamp: now.Add(-50 * time.Minute)},
+		{Value: 300, Timestamp: now.Add(-10 * time.Minute)},
+		{Value: 200, Timestamp: now.Add(-40 * time.Minute)},
+		{Value: 400, Timestamp: now.Add(-5 * time.Minute)},
+	})
+
+	stored := estimator.samples["app"]
+	assert.Len(t, stored, 4)
+	for i := 1; i < len(stored); i++ {
+		assert.False(t, stored[i].Timestamp.Before(stored[i-1].Timestamp), "samples out of order at %d", i)
+	}
+	assert.Equal(t, 45*time.Minute, estimator.windowCoverage("app"))
+}
+
+func TestPercentileHysteresisLoadHistoryDropsExpiredAndNegativeSamples(t *testing.T) {
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 0.5, 0, time.Hour, 30*time.Minute)
+	now := time.Now()
+
+	estimator.LoadHistory("app", []TimedSample{
+		{Value: 100, Timestamp: now.Add(-2 * time.Hour)},
+		{Value: -1, Timestamp: now.Add(-20 * time.Minute)},
+		{Value: 200, Timestamp: now.Add(-10 * time.Minute)},
+	})
+
+	assert.Equal(t, []TimedSample{{Value: 200, Timestamp: now.Add(-10 * time.Minute)}}, estimator.samples["app"])
+}
+
+// History reaches the minimum coverage at once, and live samples keep being
+// appended after it.
+func TestPercentileHysteresisRecommendsFromHistoryAndLiveSamples(t *testing.T) {
+	estimator := NewPercentileHysteresisEstimator(model.ResourceCPU, 1, 0, time.Hour, 30*time.Minute)
+	now := time.Now()
+
+	estimator.LoadHistory("app", []TimedSample{
+		{Value: 100, Timestamp: now.Add(-50 * time.Minute)},
+		{Value: 200, Timestamp: now.Add(-10 * time.Minute)},
+	})
+	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{CurrentRequest: 50, Min: 1})
+	assert.Equal(t, model.ResourceAmount(200), got.Target)
+
+	estimator.FeedSamples("app", []model.ResourceAmount{300})
+	got = estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{CurrentRequest: 50, Min: 1})
+	assert.Equal(t, model.ResourceAmount(300), got.Target)
+	assert.Equal(t, model.ResourceAmount(300), estimator.samples["app"][2].Value)
+}

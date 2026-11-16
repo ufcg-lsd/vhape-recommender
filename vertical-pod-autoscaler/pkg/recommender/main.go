@@ -21,9 +21,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
+	prommodel "github.com/prometheus/common/model"
 	"github.com/spf13/pflag"
 	apiv1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -31,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/informers"
 	kube_client "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
@@ -67,6 +70,7 @@ var (
 	checkpointsGCInterval  = flag.Duration("checkpoints-gc-interval", 10*time.Minute, `How often orphaned checkpoints should be garbage collected`)
 	address                = flag.String("address", ":8942", "The address to expose Prometheus metrics.")
 	storage                = flag.String("storage", "", `Specifies storage mode. Supported values: prometheus, checkpoint (default)`)
+	metricsSource          = flag.String("metrics-source", metricsSourceMetricsServer, `Where the current container usage is read from. Supported values: metrics-server, external, prometheus`)
 	memorySaver            = flag.Bool("memory-saver", false, `If true, only track pods which have an associated VPA`)
 	updateWorkerCount      = flag.Int("update-worker-count", 10, "Number of concurrent workers to update VPA recommendations and checkpoints. When increasing this setting, make sure the client-side rate limits ('kube-api-qps' and 'kube-api-burst') are either increased or turned off as well. Determines the minimum number of VPA checkpoints written per recommender loop.")
 	podMinCPUMillicores    = flag.Float64("pod-recommendation-min-cpu-millicores", 25, "Minimum CPU recommendation for a pod.")
@@ -78,16 +82,16 @@ var (
 	prometheusAddress         = flag.String("prometheus-address", "http://prometheus.monitoring.svc", `Where to reach for Prometheus metrics`)
 	prometheusInsecure        = flag.Bool("prometheus-insecure", false, `Skip tls verify if https is used in the prometheus-address`)
 	prometheusJobName         = flag.String("prometheus-cadvisor-job-name", "kubernetes-cadvisor", `Name of the prometheus job name which scrapes the cAdvisor metrics`)
-	historyLength             = flag.String("history-length", "8d", `How much time back prometheus have to be queried to get historical metrics`)
-	historyResolution         = flag.String("history-resolution", "1h", `Resolution at which Prometheus is queried for historical metrics`)
+	historyLength             = flag.String("history-length", "24h", `How much time back prometheus have to be queried to get historical metrics`)
+	historyResolution         = flag.String("history-resolution", "1m", `Resolution at which Prometheus is queried for historical metrics. When not set, the --recommender-interval is used`)
 	queryTimeout              = flag.String("prometheus-query-timeout", "5m", `How long to wait before killing long queries`)
 	podLabelPrefix            = flag.String("pod-label-prefix", "pod_label_", `Which prefix to look for pod labels in metrics`)
-	podLabelsMetricName       = flag.String("metric-for-pod-labels", "up{job=\"kubernetes-pods\"}", `Which metric to look for pod labels in metrics`)
+	podLabelsMetricName       = flag.String("metric-for-pod-labels", "", `Which metric to look for pod labels in metrics, as a range selector such as up{job="kubernetes-pods"}[24h:5m]. Empty skips the pod labels, and pods that no longer run are matched to their VPA through their owners`)
 	podNamespaceLabel         = flag.String("pod-namespace-label", "kubernetes_namespace", `Label name to look for pod namespaces`)
 	podNameLabel              = flag.String("pod-name-label", "kubernetes_pod_name", `Label name to look for pod names`)
 	ctrNamespaceLabel         = flag.String("container-namespace-label", "namespace", `Label name to look for container namespaces`)
-	ctrPodNameLabel           = flag.String("container-pod-name-label", "pod_name", `Label name to look for container pod names`)
-	ctrNameLabel              = flag.String("container-name-label", "name", `Label name to look for container names`)
+	ctrPodNameLabel           = flag.String("container-pod-name-label", "pod", `Label name to look for container pod names`)
+	ctrNameLabel              = flag.String("container-name-label", "container", `Label name to look for container names`)
 	username                  = flag.String("username", "", "The username used in the prometheus server basic auth. Can also be set via the PROMETHEUS_USERNAME environment variable")
 	password                  = flag.String("password", "", "The password used in the prometheus server basic auth. Can also be set via the PROMETHEUS_PASSWORD environment variable")
 	prometheusBearerToken     = flag.String("prometheus-bearer-token", "", "The bearer token used in the Prometheus server bearer token auth")
@@ -125,6 +129,13 @@ var (
 	roundCPUMillicores      = flag.Int("round-cpu-millicores", 1, `CPU recommendation rounding factor in millicores.`)
 	roundMemoryBytes        = flag.Int("round-memory-bytes", 1, `Memory recommendation rounding factor in bytes.`)
 	checkpointsWriteTimeout = flag.Duration("checkpoints-timeout", time.Minute, `Timeout for writing checkpoints since the start of the recommender's main loop`)
+)
+
+// Supported values of --metrics-source.
+const (
+	metricsSourceMetricsServer = "metrics-server"
+	metricsSourceExternal      = "external"
+	metricsSourcePrometheus    = "prometheus"
 )
 
 const (
@@ -172,6 +183,25 @@ func main() {
 			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 		}
 		*prometheusBearerToken = strings.TrimSpace(string(fileContent))
+	}
+
+	if *useExternalMetrics {
+		if pflag.CommandLine.Changed("metrics-source") && *metricsSource != metricsSourceExternal {
+			klog.ErrorS(nil, "--use-external-metrics and --metrics-source are mutually exclusive and can't be set together.")
+			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+		}
+		klog.InfoS("--use-external-metrics is deprecated, use --metrics-source=external instead.")
+		*metricsSource = metricsSourceExternal
+	}
+
+	if !slices.Contains([]string{metricsSourceMetricsServer, metricsSourceExternal, metricsSourcePrometheus}, *metricsSource) {
+		klog.ErrorS(nil, "Unknown --metrics-source. Supported values: metrics-server, external, prometheus.", "metricsSource", *metricsSource)
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
+
+	if *metricsSource == metricsSourcePrometheus && *metricsFetcherInterval < time.Second {
+		klog.ErrorS(nil, "--recommender-interval must be at least 1s with --metrics-source=prometheus.", "recommenderInterval", *metricsFetcherInterval)
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
 	ctx := context.Background()
@@ -296,22 +326,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 	globalMaxAllowed := initGlobalMaxAllowed()
 	// CappingPostProcessor, should always come in the last position for post-processing
 	postProcessors = append(postProcessors, routines.NewCappingRecommendationProcessor(globalMaxAllowed))
-	var source input_metrics.PodMetricsLister
-	if *useExternalMetrics {
-		resourceMetrics := map[apiv1.ResourceName]string{}
-		if externalCpuMetric != nil && *externalCpuMetric != "" {
-			resourceMetrics[apiv1.ResourceCPU] = *externalCpuMetric
-		}
-		if externalMemoryMetric != nil && *externalMemoryMetric != "" {
-			resourceMetrics[apiv1.ResourceMemory] = *externalMemoryMetric
-		}
-		externalClientOptions := &input_metrics.ExternalClientOptions{ResourceMetrics: resourceMetrics, ContainerNameLabel: *ctrNameLabel}
-		klog.V(1).InfoS("Using External Metrics", "options", externalClientOptions)
-		source = input_metrics.NewExternalClient(config, clusterState, *externalClientOptions)
-	} else {
-		klog.V(1).InfoS("Using Metrics Server")
-		source = input_metrics.NewPodMetricsesSource(resourceclient.NewForConfigOrDie(config))
-	}
+	source := newPodMetricsLister(config, clusterState)
 
 	ignoredNamespaces := strings.Split(commonFlag.IgnoredVpaObjectNamespaces, ",")
 
@@ -337,6 +352,22 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 	}.Make()
 	controllerFetcher.Start(ctx, scaleCacheLoopPeriod)
 
+	// With Prometheus storage, the history is read once and shared by the
+	// cluster state and the VHAPE estimators.
+	var clusterHistory map[model.PodID]*history.PodHistory
+	if !useCheckpoints {
+		historyConfig := prometheusConfig()
+		historyConfig.Namespace = commonFlag.VpaObjectNamespace
+		provider, err := history.NewPrometheusHistoryProvider(historyConfig)
+		if err != nil {
+			klog.ErrorS(err, "Could not initialize history provider")
+			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+		}
+		if clusterHistory, err = provider.GetClusterHistory(); err != nil {
+			klog.ErrorS(err, "Cannot get cluster history")
+		}
+	}
+
 	recommender := routines.RecommenderFactory{
 		ClusterState:       clusterState,
 		ClusterStateFeeder: clusterStateFeeder,
@@ -351,6 +382,7 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 			},
 			vhapePolicyLister,
 			metricsClient,
+			clusterHistory,
 		),
 		RecommendationFormat: logic.RecommendationFormat{
 			HumanizeMemory:     *humanizeMemory,
@@ -364,42 +396,10 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		UpdateWorkerCount:            *updateWorkerCount,
 	}.Make()
 
-	promQueryTimeout, err := time.ParseDuration(*queryTimeout)
-	if err != nil {
-		klog.ErrorS(err, "Could not parse --prometheus-query-timeout as a time.Duration")
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
-	}
-
 	if useCheckpoints {
 		recommender.GetClusterStateFeeder().InitFromCheckpoints(ctx)
 	} else {
-		config := history.PrometheusHistoryProviderConfig{
-			Address:                *prometheusAddress,
-			Insecure:               *prometheusInsecure,
-			QueryTimeout:           promQueryTimeout,
-			HistoryLength:          *historyLength,
-			HistoryResolution:      *historyResolution,
-			PodLabelPrefix:         *podLabelPrefix,
-			PodLabelsMetricName:    *podLabelsMetricName,
-			PodNamespaceLabel:      *podNamespaceLabel,
-			PodNameLabel:           *podNameLabel,
-			CtrNamespaceLabel:      *ctrNamespaceLabel,
-			CtrPodNameLabel:        *ctrPodNameLabel,
-			CtrNameLabel:           *ctrNameLabel,
-			CadvisorMetricsJobName: *prometheusJobName,
-			Namespace:              commonFlag.VpaObjectNamespace,
-			Authentication: history.PrometheusCredentials{
-				BearerToken: *prometheusBearerToken,
-				Username:    *username,
-				Password:    *password,
-			},
-		}
-		provider, err := history.NewPrometheusHistoryProvider(config)
-		if err != nil {
-			klog.ErrorS(err, "Could not initialize history provider")
-			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
-		}
-		recommender.GetClusterStateFeeder().InitFromHistoryProvider(provider)
+		recommender.GetClusterStateFeeder().InitFromHistoryProvider(history.FetchedHistory(clusterHistory))
 	}
 
 	// Start updating health check endpoint.
@@ -410,6 +410,73 @@ func run(ctx context.Context, healthCheck *metrics.HealthCheck, commonFlag *comm
 		recommender.RunOnce()
 		healthCheck.UpdateLastActivity()
 	}
+}
+
+// newPodMetricsLister returns the source of the current container usage chosen by --metrics-source.
+func newPodMetricsLister(config *rest.Config, clusterState model.ClusterState) input_metrics.PodMetricsLister {
+	switch *metricsSource {
+	case metricsSourceExternal:
+		resourceMetrics := map[apiv1.ResourceName]string{}
+		if externalCpuMetric != nil && *externalCpuMetric != "" {
+			resourceMetrics[apiv1.ResourceCPU] = *externalCpuMetric
+		}
+		if externalMemoryMetric != nil && *externalMemoryMetric != "" {
+			resourceMetrics[apiv1.ResourceMemory] = *externalMemoryMetric
+		}
+		externalClientOptions := &input_metrics.ExternalClientOptions{ResourceMetrics: resourceMetrics, ContainerNameLabel: *ctrNameLabel}
+		klog.V(1).InfoS("Using External Metrics", "options", externalClientOptions)
+		return input_metrics.NewExternalClient(config, clusterState, *externalClientOptions)
+	case metricsSourcePrometheus:
+		klog.V(1).InfoS("Using Prometheus Metrics", "address", *prometheusAddress, "cpuRateWindow", *metricsFetcherInterval)
+		return input_metrics.NewPrometheusClient(prometheusConfig(), *metricsFetcherInterval/2)
+	default:
+		// --metrics-source is validated at startup, so this is metrics-server.
+		klog.V(1).InfoS("Using Metrics Server")
+		return input_metrics.NewPodMetricsesSource(resourceclient.NewForConfigOrDie(config))
+	}
+}
+
+// prometheusConfig returns the Prometheus configuration of the recommender.
+// Despite its type, it is shared by the history read with --storage=prometheus
+// and by --metrics-source=prometheus.
+func prometheusConfig() history.PrometheusHistoryProviderConfig {
+	promQueryTimeout, err := time.ParseDuration(*queryTimeout)
+	if err != nil {
+		klog.ErrorS(err, "Could not parse --prometheus-query-timeout as a time.Duration")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
+
+	config := history.PrometheusHistoryProviderConfig{
+		Address:                *prometheusAddress,
+		Insecure:               *prometheusInsecure,
+		QueryTimeout:           promQueryTimeout,
+		HistoryLength:          *historyLength,
+		HistoryResolution:      *historyResolution,
+		PodLabelPrefix:         *podLabelPrefix,
+		PodLabelsMetricName:    *podLabelsMetricName,
+		PodNamespaceLabel:      *podNamespaceLabel,
+		PodNameLabel:           *podNameLabel,
+		CtrNamespaceLabel:      *ctrNamespaceLabel,
+		CtrPodNameLabel:        *ctrPodNameLabel,
+		CtrNameLabel:           *ctrNameLabel,
+		CadvisorMetricsJobName: *prometheusJobName,
+		ReadPodOwners:          true,
+		Authentication: history.PrometheusCredentials{
+			BearerToken: *prometheusBearerToken,
+			Username:    *username,
+			Password:    *password,
+		},
+	}
+	if !pflag.CommandLine.Changed("history-resolution") {
+		config.HistoryResolution = prommodel.Duration(*metricsFetcherInterval).String()
+	}
+	// When the current usage is also read from Prometheus, the history uses the
+	// same CPU usage rate window, so that samples read at startup and in each
+	// cycle cover the same window. Otherwise it keeps using its resolution.
+	if *metricsSource == metricsSourcePrometheus {
+		config.CPURateWindow = *metricsFetcherInterval
+	}
+	return config
 }
 
 func initGlobalMaxAllowed() apiv1.ResourceList {
