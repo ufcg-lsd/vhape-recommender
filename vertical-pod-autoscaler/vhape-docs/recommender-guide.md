@@ -106,6 +106,8 @@ status:
 
 To collect these recommendations as Prometheus metrics, see [Enabling VHAPE metrics collection](metrics-collection.md).
 
+To deploy a dedicated Prometheus instance for the VHAPE Recommender, see [VHAPE Prometheus installation](prometheus-installation.md) and the [VHAPE Prometheus guide](prometheus-guide.md).
+
 ## Operational notes
 
 ### Changes to the associated VHAPE policy restart estimators

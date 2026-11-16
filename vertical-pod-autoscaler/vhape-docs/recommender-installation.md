@@ -91,3 +91,5 @@ kubectl apply -f vertical-pod-autoscaler/charts/vhape-recommender/crds/vhapepoli
 See the [VHAPE Recommender guide](recommender-guide.md) to setup the VHAPE recommender and inspect recommendations.
 
 To export recommendations as Prometheus metrics, see [Enabling VHAPE metrics collection](metrics-collection.md).
+
+To deploy a dedicated Prometheus instance for the VHAPE Recommender, see [VHAPE Prometheus installation](prometheus-installation.md).
