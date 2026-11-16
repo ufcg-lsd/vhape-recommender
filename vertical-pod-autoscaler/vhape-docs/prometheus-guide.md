@@ -74,24 +74,4 @@ To disable persistent storage and use `emptyDir` instead:
 --set storage.enabled=false
 ```
 
-## Security
-
-The Prometheus container runs as user `nobody` (UID 65534) with `runAsNonRoot: true`. The ClusterRole grants read-only access to nodes, node metrics, services, endpoints, and pods.
-
-## Operational notes
-
-### Configuration changes restart the Pod
-
-The Deployment includes a `checksum/config` annotation derived from the ConfigMap. When the scrape configuration changes, the annotation changes, and Kubernetes rolls out a new Pod automatically.
-
-### VHAPE Recommender connection
-
-The VHAPE Recommender must be configured with `--prometheus-address` pointing to the Service created by this chart:
-
-```
-http://vhape-prometheus.monitoring.svc:9090
-```
-
-The recommender also requires `--prometheus-cadvisor-job-name=kubernetes-cadvisor`, which matches the job name hardcoded in this chart's scrape configuration.
-
 For installation instructions, see [VHAPE Prometheus installation](prometheus-installation.md).
