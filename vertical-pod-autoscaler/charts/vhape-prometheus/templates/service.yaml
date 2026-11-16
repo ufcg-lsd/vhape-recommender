@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-k8s
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "vhape-prometheus.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "vhape-prometheus.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
