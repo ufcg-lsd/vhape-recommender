@@ -1,6 +1,6 @@
 apiVersion: v2
 name: vhape-prometheus
-description: Prometheus dedicado ao VHAPE — coleta filtrada de métricas de infraestrutura K8s
+description: Dedicated Prometheus for VHAPE — filtered collection of Kubernetes infrastructure metrics
 type: application
 version: 0.1.0
 appVersion: "v2.54.1"

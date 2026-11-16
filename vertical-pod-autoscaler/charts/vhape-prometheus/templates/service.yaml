@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: prometheus-k8s
+  name: vhape-prometheus
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "vhape-prometheus.labels" . | nindent 4 }}

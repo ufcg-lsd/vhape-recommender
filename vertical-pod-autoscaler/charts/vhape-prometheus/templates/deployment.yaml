@@ -7,6 +7,8 @@ metadata:
     {{- include "vhape-prometheus.labels" . | nindent 4 }}
 spec:
   replicas: 1
+  strategy:
+    type: {{ if .Values.storage.enabled }}Recreate{{ else }}RollingUpdate{{ end }}
   selector:
     matchLabels:
       {{- include "vhape-prometheus.selectorLabels" . | nindent 6 }}
@@ -30,7 +32,6 @@ spec:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
             - "--storage.tsdb.retention.time={{ .Values.retention }}"
-            - "--web.enable-lifecycle"
           ports:
             - containerPort: 9090
               name: http

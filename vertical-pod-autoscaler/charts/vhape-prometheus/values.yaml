@@ -14,23 +14,23 @@ resources:
     memory: 1Gi
 
 storage:
-  enabled: false
+  enabled: true
   # storageClassName: ""
   size: 10Gi
 
 scrape:
-  # Intervalo para métricas de CPU/memória (/metrics/resource, /metrics/cadvisor)
+  # Interval for CPU/memory metrics (/metrics/resource, /metrics/cadvisor)
   resourceInterval: 15s
-  # Intervalo para métricas de estado (KSM, node-exporter, probes)
+  # Interval for state metrics (KSM, node-exporter, probes)
   stateInterval: 30s
 
-# Namespaces onde procurar KSM e node-exporter via service discovery
+# Namespaces where KSM and node-exporter are discovered via service discovery
 serviceDiscoveryNamespaces:
   - kube-system
   - monitoring
 
-# -- Subcharts opcionais --
-# Desabilite se o cluster já tem KSM / node-exporter instalados
+# -- Optional subcharts --
+# Disable if the cluster already has KSM / node-exporter installed
 kube-state-metrics:
   enabled: true
   extraArgs:
