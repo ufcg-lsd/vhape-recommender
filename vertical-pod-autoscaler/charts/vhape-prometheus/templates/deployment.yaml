@@ -32,6 +32,9 @@ spec:
             - "--config.file=/etc/prometheus/prometheus.yml"
             - "--storage.tsdb.path=/prometheus"
             - "--storage.tsdb.retention.time={{ .Values.retention }}"
+            {{- with .Values.retentionSize }}
+            - "--storage.tsdb.retention.size={{ . }}"
+            {{- end }}
           ports:
             - containerPort: 9090
               name: http

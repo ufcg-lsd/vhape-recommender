@@ -64,9 +64,10 @@ Available flags:
 |------|---------|-------------|
 | `image.repository` | `prom/prometheus` | Prometheus container image |
 | `image.tag` | Chart `appVersion` | Image tag |
-| `retention` | `15d` | TSDB retention period |
+| `retention` | `30d` | TSDB retention period |
+| `retentionSize` | `40GB` | TSDB size-based retention; drops oldest blocks before the disk fills up |
 | `storage.enabled` | `true` | Create a PersistentVolumeClaim for TSDB data |
-| `storage.size` | `10Gi` | PVC size |
+| `storage.size` | `50Gi` | PVC size |
 | `storage.storageClassName` | (cluster default) | Storage class for the PVC |
 | `scrape.resourceInterval` | `15s` | Scrape interval for CPU/memory metrics |
 | `scrape.stateInterval` | `30s` | Scrape interval for state metrics (KSM, node-exporter) |

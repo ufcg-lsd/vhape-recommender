@@ -7,13 +7,13 @@ The VHAPE Prometheus chart deploys a dedicated Prometheus instance configured to
 The VHAPE Recommender computes CPU and memory recommendations from time-series data. Using a shared Prometheus introduces two problems:
 
 - **Scrape interval mismatch.** Shared instances typically scrape at 30s or 60s intervals. VHAPE benefits from 15s intervals on resource metrics to reduce recommendation drift.
-- **Metric availability.** VHAPE requires specific metrics from the kubelet, kube-state-metrics, and node-exporter. A shared Prometheus may not collect all of them, or may apply relabeling that drops required labels.
+- **Metric availability.** VHAPE requires specific metrics from the kubelet and kube-state-metrics. A shared Prometheus may not collect all of them, or may apply relabeling that drops required labels.
 
 The dedicated instance solves both by shipping a scrape configuration tailored to VHAPE.
 
 ## Scrape configuration
 
-The chart configures six scrape jobs. Each job collects a filtered set of metrics using `metric_relabel_configs` to keep only what VHAPE needs.
+The chart configures seven scrape jobs. Each job collects a filtered set of metrics using `metric_relabel_configs` to keep only what VHAPE needs.
 
 ### Resource metrics (15s interval)
 
@@ -31,9 +31,12 @@ These jobs scrape the kubelet on each node at the interval defined by `scrape.re
 | `kube-state-metrics` | KSM endpoints | Pod ownership, container info, resource requests/limits, restart counts, deployment/statefulset/daemonset/HPA status, node allocatable/conditions/labels |
 | `node-exporter` | node-exporter endpoints | `node_cpu_seconds_total`, `node_memory_MemAvailable_bytes`, `node_memory_MemTotal_bytes`, pressure metrics, `node_vmstat_oom_kill` |
 | `kubelet-probes` | `/metrics/probes` | `prober_probe_total` |
+| `vhape-recommender` | pod discovery | Recommendation metrics (`vhape_recommender_recommendation_*`) exported by the VHAPE Recommender |
 | `prometheus` | `localhost:9090` | Prometheus self-monitoring |
 
 These jobs use the interval defined by `scrape.stateInterval` (default: 30s), which is also the global `scrape_interval`.
+
+The recommender itself only queries cAdvisor metrics (`container_*`) and kube-state-metrics (`kube_*`) to compute recommendations. The node-exporter and vhape-recommender jobs are collected for observability dashboards and do not affect recommendations. Disabling the node-exporter subchart does not impact the recommender.
 
 ## Subcharts
 
@@ -56,10 +59,13 @@ The chart creates a PersistentVolumeClaim by default (`storage.enabled: true`). 
 
 The deployment strategy switches to `Recreate` when storage is enabled to avoid PVC mount conflicts during rolling updates.
 
+When `retentionSize` is set (default: `40GB`), Prometheus drops the oldest blocks before the disk fills up, preventing write failures. Set `retentionSize` to a value below `storage.size` to leave room for the WAL.
+
 Configure the PVC size at install time:
 
 ```bash
---set storage.size=50Gi
+--set storage.size=100Gi
+--set retentionSize=80GB
 ```
 
 To use a specific storage class:

@@ -3,7 +3,8 @@ image:
   tag: ""  # defaults to appVersion
   pullPolicy: IfNotPresent
 
-retention: 15d
+retention: 30d
+retentionSize: 40GB
 
 resources:
   requests:
@@ -16,7 +17,7 @@ resources:
 storage:
   enabled: true
   # storageClassName: ""
-  size: 10Gi
+  size: 50Gi
 
 scrape:
   # Interval for CPU/memory metrics (/metrics/resource, /metrics/cadvisor)
