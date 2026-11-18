@@ -69,3 +69,13 @@ type ContainerSampleEstimator interface {
 	ResourceEstimator
 	FeedContainerSamples(containerName string, samples []ContainerSample)
 }
+
+// RecommendationAvailability is optionally implemented by a ResourceEstimator
+// that may have no recommendation for a container yet. The recommender leaves out
+// of the VPA status every container for which one of its estimators reports
+// none, and divides the pod minimum by the containers that are left, as Tiny
+// Autoscalers does with the containers that have no samples. Estimators that do
+// not implement it always have a recommendation.
+type RecommendationAvailability interface {
+	HasRecommendation(containerName string) bool
+}
