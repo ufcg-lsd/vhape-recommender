@@ -146,6 +146,10 @@ func (r *recommender) UpdateVPAs() {
 	cnt := metrics_recommender.NewObjectCounter()
 	defer cnt.Observe()
 
+	// The usage of every container is fetched once for all the VPAs of the cycle.
+	r.podResourceRecommender.RefreshUsage(context.Background())
+	defer r.podResourceRecommender.ReleaseUsage()
+
 	// Create a channel to send VPA updates to workers
 	vpaUpdates := make(chan *vpaautoscalingv1.VerticalPodAutoscaler, len(r.clusterState.ObservedVPAs()))
 

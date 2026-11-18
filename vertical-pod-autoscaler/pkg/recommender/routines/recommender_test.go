@@ -41,9 +41,15 @@ import (
 )
 
 type mockPodResourceRecommender struct {
-	err   error
-	freed []model.VpaID
+	err      error
+	freed    []model.VpaID
+	refresh  atomic.Int32
+	released atomic.Int32
 }
+
+func (m *mockPodResourceRecommender) RefreshUsage(context.Context) { m.refresh.Add(1) }
+
+func (m *mockPodResourceRecommender) ReleaseUsage() { m.released.Add(1) }
 
 func (m *mockPodResourceRecommender) GetRecommendedPodResources(
 	containerStates model.ContainerNameToAggregateStateMap,
@@ -576,4 +582,18 @@ func TestRecordRecommendationsExportsEveryObservedVPA(t *testing.T) {
 	clusterState.SetObservedVPAs(apiVPAs[:1])
 	recordRecommendations(clusterState)
 	assert.ElementsMatch(t, []string{"vpa-a", "vpa-a"}, exportedRecommendationVPAs(t))
+}
+
+func TestUpdateVPAsFetchesTheUsageOncePerCycle(t *testing.T) {
+	podRecommender := &mockPodResourceRecommender{}
+	r := &recommender{
+		clusterState:           model.NewClusterState(time.Minute),
+		podResourceRecommender: podRecommender,
+		updateWorkerCount:      4,
+	}
+
+	r.UpdateVPAs()
+
+	assert.Equal(t, int32(1), podRecommender.refresh.Load())
+	assert.Equal(t, int32(1), podRecommender.released.Load())
 }

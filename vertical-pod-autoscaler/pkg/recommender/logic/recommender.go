@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -27,6 +28,16 @@ type PodResourceRecommender interface {
 	) (RecommendedPodResources, error)
 
 	Free(vpaID model.VpaID)
+
+	// RefreshUsage fetches the current usage of every container once, for all the
+	// VPAs of a recommendation cycle. Until ReleaseUsage, GetRecommendedPodResources
+	// takes the usage of the matching pods from this snapshot instead of fetching
+	// it again.
+	RefreshUsage(ctx context.Context)
+
+	// ReleaseUsage drops the snapshot taken by RefreshUsage. Without a snapshot,
+	// GetRecommendedPodResources fetches the usage on its own.
+	ReleaseUsage()
 }
 
 // PodRecommendationLimits contains global pod minimum recommendation limits.
@@ -78,6 +89,11 @@ type podResourceRecommender struct {
 	// Estimators keep usage history in memory, so they must be reused across
 	// recommendation cycles for the same VPA.
 	estimators map[model.VpaID]*ResourceEstimators
+
+	// usage is the snapshot of the current cycle, taken by RefreshUsage; it is
+	// only read while the VPAs of the cycle are processed.
+	usageMu sync.RWMutex
+	usage   *usageSnapshot
 }
 
 // CreatePodResourceRecommender returns the primary recommender.
