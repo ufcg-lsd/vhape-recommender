@@ -1,15 +1,19 @@
 # VHAPE Prometheus
 
-The VHAPE Prometheus chart deploys a dedicated Prometheus instance configured to collect only the metrics required by the VHAPE Recommender. It replaces the need for a shared, cluster-wide Prometheus for VHAPE workloads.
+The VHAPE Prometheus chart deploys a dedicated Prometheus instance configured to collect only the metrics required by the VHAPE Recommender.
+
+For installation instructions, see [VHAPE Prometheus installation](prometheus-installation.md).
 
 ## Why a dedicated Prometheus
 
-The VHAPE Recommender computes CPU and memory recommendations from time-series data. Using a shared Prometheus introduces two problems:
+The VHAPE Recommender computes CPU and memory recommendations from time-series data. The dedicated Prometheus instance ensures:
 
-- **Scrape interval mismatch.** Shared instances typically scrape at 30s or 60s intervals. VHAPE benefits from 15s intervals on resource metrics to reduce recommendation drift.
-- **Metric availability.** VHAPE requires specific metrics from the kubelet and kube-state-metrics. A shared Prometheus may not collect all of them, or may apply relabeling that drops required labels.
+- **Controlled scrape intervals.** The chart scrapes resource metrics at 15s intervals by default. More data points per evaluation window smooths out short-lived spikes and produces more stable recommendations.
+- **Guaranteed metric availability.** VHAPE requires specific metrics from the kubelet and kube-state-metrics with specific labels preserved. The chart ships a scrape configuration tailored to these requirements.
 
-The dedicated instance solves both by shipping a scrape configuration tailored to VHAPE.
+## How it works
+
+The chart deploys a single-replica Prometheus with a pre-configured scrape configuration. The VHAPE Recommender connects to this instance via `--prometheus-address`. For the full list of deployed resources, see the [installation guide](prometheus-installation.md).
 
 ## Scrape configuration
 
@@ -40,44 +44,20 @@ The recommender itself only queries cAdvisor metrics (`container_*`) and kube-st
 
 ## Subcharts
 
-The chart includes kube-state-metrics and prometheus-node-exporter as optional Helm dependencies. Both are enabled by default.
-
-Disable them if the cluster already runs these components:
-
-```bash
---set kube-state-metrics.enabled=false
---set prometheus-node-exporter.enabled=false
-```
-
-When disabled, Prometheus still scrapes the existing KSM and node-exporter instances through service discovery. The `serviceDiscoveryNamespaces` value controls which namespaces are searched (default: `kube-system` and `monitoring`).
+The chart includes kube-state-metrics and prometheus-node-exporter as optional Helm subcharts. Both are enabled by default but can be disabled if the cluster already runs these components — Prometheus still scrapes existing instances through service discovery.
 
 The kube-state-metrics subchart is configured with `--metric-labels-allowlist=nodes=[*]` to expose node labels, which VHAPE uses for node-level context.
+
+For subchart configuration, see the [installation guide](prometheus-installation.md).
 
 ## Storage
 
 The chart creates a PersistentVolumeClaim by default (`storage.enabled: true`). The PVC uses `ReadWriteOnce` access mode.
 
-The deployment strategy switches to `Recreate` when storage is enabled to avoid PVC mount conflicts during rolling updates.
+The deployment strategy switches to `Recreate` when storage is enabled because a `ReadWriteOnce` PVC can only be mounted by one Pod at a time. With the default `RollingUpdate` strategy, Kubernetes tries to start the new Pod before terminating the old one — but the new Pod stays in `Pending` because it cannot mount the PVC while the old Pod still holds it. `Recreate` avoids this by terminating the old Pod first, which releases the PVC so the new Pod can mount it and start normally.
 
 When `retentionSize` is set (default: `40GB`), Prometheus drops the oldest blocks before the disk fills up, preventing write failures. Set `retentionSize` to a value below `storage.size` to leave room for the WAL.
 
-Configure the PVC size at install time:
+Persistent storage can be disabled with `storage.enabled=false`. In that case the chart uses an `emptyDir` volume — an ephemeral volume allocated on the node that is deleted when the Pod is removed. All TSDB data is lost on restarts, so this is only recommended for testing.
 
-```bash
---set storage.size=100Gi
---set retentionSize=80GB
-```
-
-To use a specific storage class:
-
-```bash
---set storage.storageClassName=gp3
-```
-
-To disable persistent storage and use `emptyDir` instead:
-
-```bash
---set storage.enabled=false
-```
-
-For installation instructions, see [VHAPE Prometheus installation](prometheus-installation.md).
+For PVC sizing, storage class configuration, and all available flags, see the [installation guide](prometheus-installation.md).
