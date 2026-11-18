@@ -734,3 +734,34 @@ func TestGetOrCreateEstimatorsSkipsHeuristicResolutionOnCacheHit(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Same(t, cached, est)
 }
+
+type mockContainerSampleEstimator struct {
+	mockResourceEstimator
+	containerSamples map[string][][]estimators.ContainerSample
+}
+
+func (m *mockContainerSampleEstimator) FeedContainerSamples(containerName string, samples []estimators.ContainerSample) {
+	if m.containerSamples == nil {
+		m.containerSamples = map[string][][]estimators.ContainerSample{}
+	}
+	m.containerSamples[containerName] = append(m.containerSamples[containerName], samples)
+}
+
+func TestFeedEstimatorChoosesTheChannel(t *testing.T) {
+	pod := model.PodID{Namespace: "default", PodName: "pod-1"}
+	values := []model.ResourceAmount{100}
+	samples := []estimators.ContainerSample{{Pod: pod, MeasureStart: time.Unix(10, 0), Window: time.Minute, Usage: 100}}
+
+	plain := &mockResourceEstimator{}
+	feedEstimator(plain, "app", values, samples)
+	assert.Equal(t, [][]model.ResourceAmount{values}, plain.feedCalls["app"])
+
+	full := &mockContainerSampleEstimator{}
+	feedEstimator(full, "app", values, samples)
+	assert.Equal(t, [][]estimators.ContainerSample{samples}, full.containerSamples["app"])
+	assert.Empty(t, full.feedCalls["app"], "FeedSamples is not called when the full samples are taken")
+
+	none := &mockContainerSampleEstimator{}
+	feedEstimator(none, "app", nil, nil)
+	assert.Empty(t, none.containerSamples)
+}

@@ -137,12 +137,8 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 	}
 
 	for containerName := range containerStates {
-		if cpuSamples := usage.CPU[containerName]; len(cpuSamples) > 0 {
-			resourceEstimators.CPU.estimator.FeedSamples(containerName, cpuSamples)
-		}
-		if memorySamples := usage.Memory[containerName]; len(memorySamples) > 0 {
-			resourceEstimators.Memory.estimator.FeedSamples(containerName, memorySamples)
-		}
+		feedEstimator(resourceEstimators.CPU.estimator, containerName, usage.CPU[containerName], usage.CPUSamples[containerName])
+		feedEstimator(resourceEstimators.Memory.estimator, containerName, usage.Memory[containerName], usage.MemorySamples[containerName])
 	}
 
 	for containerName, state := range containerStates {
@@ -424,4 +420,17 @@ func MapToListOfRecommendedContainerResources(resources RecommendedPodResources,
 	return &vpa_types.RecommendedPodResources{
 		ContainerRecommendations: containerResources,
 	}
+}
+
+// feedEstimator gives the samples of a container to an estimator: the full
+// samples if it implements ContainerSampleEstimator, only the values otherwise.
+func feedEstimator(estimator estimators.ResourceEstimator, containerName string, values []model.ResourceAmount, samples []estimators.ContainerSample) {
+	if len(values) == 0 {
+		return
+	}
+	if full, ok := estimator.(estimators.ContainerSampleEstimator); ok {
+		full.FeedContainerSamples(containerName, samples)
+		return
+	}
+	estimator.FeedSamples(containerName, values)
 }
