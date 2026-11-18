@@ -278,9 +278,11 @@ func (e *VPAEstimator) addMemorySample(history *vpaContainerHistory, instance in
 // multiplier. Constraints are applied last, like WithCPUMinResource and
 // WithMemoryMinResource in the VPA, whose pod minimum matches constraints.Min.
 //
-// If no samples are available, the recommendation falls back to
-// constraints.CurrentRequest. If CurrentRequest is not set, constraints.Min is
-// used instead.
+// If no samples are available, the recommendation is constraints.Min for the
+// target and both bounds, as in the VPA: the percentile of an empty histogram is
+// 0, the confidence is 0 (the upper bound factor turns 0 into NaN, the lower
+// bound factor into 0) and WithCPUMinResource / WithMemoryMinResource raise the
+// three values to the minimum. constraints.CurrentRequest is not used.
 func (e *VPAEstimator) GetSingleResourceRecommendation(containerName string, constraints ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -292,16 +294,11 @@ func (e *VPAEstimator) GetSingleResourceRecommendation(containerName string, con
 			"containerName", containerName,
 		)
 
-		fallback := constraints.CurrentRequest
-		if fallback <= 0 {
-			fallback = constraints.Min
-		}
-
 		return recommendation.SingleResourceRecommendation{
-			Target:         fallback,
-			LowerBound:     fallback,
-			UpperBound:     fallback,
-			UncappedTarget: fallback,
+			Target:         constraints.Min,
+			LowerBound:     constraints.Min,
+			UpperBound:     constraints.Min,
+			UncappedTarget: constraints.Min,
 		}
 	}
 

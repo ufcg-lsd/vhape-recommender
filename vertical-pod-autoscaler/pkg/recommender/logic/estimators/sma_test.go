@@ -63,7 +63,7 @@ func TestSMASpecRejectsMalformedParameters(t *testing.T) {
 	}
 }
 
-func TestSMAFallsBackWithoutSamples(t *testing.T) {
+func TestSMAReturnsMinimumWithoutSamples(t *testing.T) {
 	estimator := NewSMAEstimator(model.ResourceCPU, 3, 2, time.Hour)
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{
@@ -71,19 +71,10 @@ func TestSMAFallsBackWithoutSamples(t *testing.T) {
 		Min:            100,
 	})
 
-	assert.Equal(t, model.ResourceAmount(250), got.Target)
+	assert.Equal(t, model.ResourceAmount(100), got.Target)
 	assert.Equal(t, got.Target, got.LowerBound)
 	assert.Equal(t, got.Target, got.UpperBound)
 	assert.Equal(t, got.Target, got.UncappedTarget)
-}
-
-func TestSMAFallsBackToMinimumWithoutCurrentRequest(t *testing.T) {
-	estimator := NewSMAEstimator(model.ResourceCPU, 3, 2, time.Hour)
-
-	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{Min: 100})
-
-	assert.Equal(t, model.ResourceAmount(100), got.Target)
-	assert.Equal(t, got.Target, got.UpperBound)
 }
 
 func TestSMAIgnoresNegativeSamples(t *testing.T) {

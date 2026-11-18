@@ -122,15 +122,28 @@ func TestVPASpecRejectsMalformedParameters(t *testing.T) {
 	}
 }
 
-func TestVPAFallsBackWithoutSamples(t *testing.T) {
-	estimator := newDefaultVPAEstimator(model.ResourceCPU)
+func TestVPAWithoutSamplesMatchesUpstreamModel(t *testing.T) {
+	for _, tt := range []struct {
+		resource model.ResourceName
+		minimum  model.ResourceAmount
+	}{
+		{model.ResourceCPU, 25},
+		{model.ResourceMemory, 250 * 1024 * 1024},
+	} {
+		t.Run(string(tt.resource), func(t *testing.T) {
+			estimator := newDefaultVPAEstimator(tt.resource)
+			wantTarget, wantLower, wantUpper := newVPAReference(1).expected(tt.resource, tt.minimum)
 
-	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{CurrentRequest: 250, Min: 25})
+			// The current request is ignored: the VPA returns the minimum without samples.
+			got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{CurrentRequest: 10 * tt.minimum, Min: tt.minimum})
 
-	assert.Equal(t, model.ResourceAmount(250), got.Target)
-	assert.Equal(t, got.Target, got.LowerBound)
-	assert.Equal(t, got.Target, got.UpperBound)
-	assert.Equal(t, got.Target, got.UncappedTarget)
+			assert.Equal(t, tt.minimum, wantTarget)
+			assert.Equal(t, wantTarget, got.Target)
+			assert.Equal(t, wantLower, got.LowerBound)
+			assert.Equal(t, wantUpper, got.UpperBound)
+			assert.Equal(t, wantTarget, got.UncappedTarget)
+		})
+	}
 }
 
 func TestVPAIgnoresNegativeSamples(t *testing.T) {
@@ -139,7 +152,7 @@ func TestVPAIgnoresNegativeSamples(t *testing.T) {
 
 	got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{CurrentRequest: 250, Min: 25})
 
-	assert.Equal(t, model.ResourceAmount(250), got.Target)
+	assert.Equal(t, model.ResourceAmount(25), got.Target)
 }
 
 func TestVPACPUMatchesUpstreamModel(t *testing.T) {

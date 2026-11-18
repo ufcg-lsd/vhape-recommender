@@ -165,9 +165,10 @@ func (e *SMAEstimator) FeedSamples(containerName string, samples []model.Resourc
 // multiplier scales the result for the bounds. Constraints are applied last,
 // like WithMinResources in the original.
 //
-// If no samples are available, the recommendation falls back to
-// constraints.CurrentRequest. If CurrentRequest is not set, constraints.Min is
-// used instead.
+// If no samples are available, the recommendation is constraints.Min for the
+// target and both bounds. Tiny publishes no recommendation in this case, but the
+// ResourceEstimator interface always returns one; the minimum keeps that value
+// low and the analysis drops it. constraints.CurrentRequest is not used.
 func (e *SMAEstimator) GetSingleResourceRecommendation(containerName string, constraints ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -179,16 +180,11 @@ func (e *SMAEstimator) GetSingleResourceRecommendation(containerName string, con
 			"containerName", containerName,
 		)
 
-		fallback := constraints.CurrentRequest
-		if fallback <= 0 {
-			fallback = constraints.Min
-		}
-
 		return recommendation.SingleResourceRecommendation{
-			Target:         fallback,
-			LowerBound:     fallback,
-			UpperBound:     fallback,
-			UncappedTarget: fallback,
+			Target:         constraints.Min,
+			LowerBound:     constraints.Min,
+			UpperBound:     constraints.Min,
+			UncappedTarget: constraints.Min,
 		}
 	}
 
