@@ -109,10 +109,22 @@ func (s *VPASpec) NewEstimator(resourceName model.ResourceName) ResourceEstimato
 // adds the safety margin and widens the bounds with the confidence multiplier,
 // following CreatePodResourceRecommender.
 //
-// Differences from the VPA that come from the estimator interface: sample
-// timestamps are the time FeedSamples is called, container instances are
-// identified by their position in the samples slice, OOM events are not
-// received, and history is kept in memory only (no checkpoints).
+// The recommender feeds it through FeedContainerSamples, with the pod and the
+// measurement time of every sample, so it keeps the state of each pod as
+// ContainerState does: a CPU sample is added and counted only if it is newer than
+// the last one of its pod, and memory keeps one peak per pod and aggregation
+// interval, both on the measurement time. As in the VPA, the sample count and
+// the first and last sample times that give the confidence come from the CPU
+// rule, which every sample of a pod follows in both estimators.
+//
+// FeedSamples, which carries only the values, is kept for callers without the
+// full samples: sample times are then the time of the call, pods are identified
+// by their position in the slice and repeated batches are discarded.
+//
+// Remaining differences from the VPA: OOM events are not received and history
+// is kept in memory only (no checkpoints). The state of a pod is kept after the
+// pod is gone, while the VPA deletes it with the pod; pod names are not reused,
+// so this only keeps memory.
 type VPAEstimator struct {
 	mu                     sync.Mutex
 	resourceName           model.ResourceName
@@ -132,6 +144,18 @@ type vpaContainerHistory struct {
 	memoryWindows     []vpaMemoryWindow
 	lastBatch         []model.ResourceAmount
 	lastAccepted      time.Time
+	pods              map[model.PodID]*vpaPodState
+}
+
+// vpaPodState is the state ContainerState keeps for one pod, for one resource.
+type vpaPodState struct {
+	// lastCountedStart is LastCPUSampleStart: a sample is counted only if it
+	// is newer.
+	lastCountedStart time.Time
+	// lastMemoryStart is lastMemorySampleStart: older memory samples are
+	// discarded.
+	lastMemoryStart time.Time
+	memoryWindow    vpaMemoryWindow
 }
 
 // vpaMemoryWindow tracks the memory peak of one container instance in the
@@ -183,14 +207,20 @@ func (e *VPAEstimator) FeedSamples(containerName string, samples []model.Resourc
 	e.feedSamplesAt(containerName, samples, time.Now())
 }
 
-func (e *VPAEstimator) feedSamplesAt(containerName string, samples []model.ResourceAmount, now time.Time) {
+func (e *VPAEstimator) history(containerName string) *vpaContainerHistory {
 	history := e.containers[containerName]
 	if history == nil {
 		history = &vpaContainerHistory{
 			histogram: util.NewDecayingHistogram(e.histogramOptions, e.spec.HistogramDecayHalfLife.Duration),
+			pods:      make(map[model.PodID]*vpaPodState),
 		}
 		e.containers[containerName] = history
 	}
+	return history
+}
+
+func (e *VPAEstimator) feedSamplesAt(containerName string, samples []model.ResourceAmount, now time.Time) {
+	history := e.history(containerName)
 
 	if slices.Equal(samples, history.lastBatch) && now.Sub(history.lastAccepted) < e.repeatedSampleInterval {
 		klog.V(5).InfoS(
@@ -211,7 +241,10 @@ func (e *VPAEstimator) feedSamplesAt(containerName string, samples []model.Resou
 		}
 
 		if e.resourceName == model.ResourceMemory {
-			e.addMemorySample(history, instance, sample, now)
+			for len(history.memoryWindows) <= instance {
+				history.memoryWindows = append(history.memoryWindows, vpaMemoryWindow{})
+			}
+			e.addMemorySample(history, &history.memoryWindows[instance], sample, now)
 		} else {
 			history.histogram.AddSample(model.CoresFromCPUAmount(sample), vpaCPUSampleWeight, now)
 		}
@@ -236,16 +269,72 @@ func (e *VPAEstimator) feedSamplesAt(containerName string, samples []model.Resou
 	)
 }
 
+// FeedContainerSamples stores new usage samples for the given container, keeping
+// the state of each pod as ContainerState.AddSample does in the VPA.
+//
+// For CPU, a sample is added to the histogram, at its measurement time, only if
+// it is newer than the last sample of its pod; duplicate and out-of-order
+// samples are discarded. For memory, a sample older than the last one of its
+// pod is discarded, and the others update the peak of the pod in the current
+// aggregation interval. In both estimators a sample is counted, and moves the
+// first and last sample times, by the CPU rule, as the VPA counts samples on the
+// CPU aggregation only.
+func (e *VPAEstimator) FeedContainerSamples(containerName string, samples []ContainerSample) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	history := e.history(containerName)
+	inserted := 0
+	for _, sample := range samples {
+		if sample.Usage < 0 {
+			continue
+		}
+		pod := history.pods[sample.Pod]
+		if pod == nil {
+			pod = &vpaPodState{}
+			history.pods[sample.Pod] = pod
+		}
+		ts := sample.MeasureStart
+		counted := ts.After(pod.lastCountedStart)
+
+		if e.resourceName == model.ResourceMemory {
+			if !ts.Before(pod.lastMemoryStart) {
+				pod.lastMemoryStart = ts
+				e.addMemorySample(history, &pod.memoryWindow, sample.Usage, ts)
+			}
+		} else if counted {
+			history.histogram.AddSample(model.CoresFromCPUAmount(sample.Usage), vpaCPUSampleWeight, ts)
+		}
+
+		if !counted {
+			continue
+		}
+		pod.lastCountedStart = ts
+		if history.firstSampleStart.IsZero() || ts.Before(history.firstSampleStart) {
+			history.firstSampleStart = ts
+		}
+		if ts.After(history.lastSampleStart) {
+			history.lastSampleStart = ts
+		}
+		history.totalSamplesCount++
+		inserted++
+	}
+
+	klog.V(4).InfoS(
+		"VPA: container samples inserted",
+		"resource", e.resourceName,
+		"containerName", containerName,
+		"received", len(samples),
+		"inserted", inserted,
+		"totalSamplesCount", history.totalSamplesCount,
+	)
+}
+
 // addMemorySample keeps one memory peak per aggregation interval for the given
 // container instance, following ContainerState.addMemorySample: the peak is
 // recorded at the end of its interval, and a higher usage within the interval
 // replaces the previous peak in the histogram.
-func (e *VPAEstimator) addMemorySample(history *vpaContainerHistory, instance int, usage model.ResourceAmount, ts time.Time) {
-	for len(history.memoryWindows) <= instance {
-		history.memoryWindows = append(history.memoryWindows, vpaMemoryWindow{})
-	}
-	window := &history.memoryWindows[instance]
-
+func (e *VPAEstimator) addMemorySample(history *vpaContainerHistory, window *vpaMemoryWindow, usage model.ResourceAmount, ts time.Time) {
 	if window.windowEnd.IsZero() {
 		window.windowEnd = ts
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	input_metrics "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/input/metrics"
+	"k8s.io/autoscaler/vertical-pod-autoscaler/pkg/recommender/logic/estimators"
 	"k8s.io/klog/v2"
 
 	vhape_types "k8s.io/autoscaler/vertical-pod-autoscaler/pkg/apis/autoscaling.vhape.io/v1alpha1"
@@ -13,10 +14,14 @@ import (
 
 const vhapePolicyAnnotation = "vhape/policy"
 
-// containerUsage stores current resource usage samples grouped by container name.
+// containerUsage stores current resource usage samples grouped by container name:
+// the values, for FeedSamples, and the full samples, for FeedContainerSamples, in
+// the same order.
 type containerUsage struct {
-	CPU    map[string][]model.ResourceAmount
-	Memory map[string][]model.ResourceAmount
+	CPU           map[string][]model.ResourceAmount
+	Memory        map[string][]model.ResourceAmount
+	CPUSamples    map[string][]estimators.ContainerSample
+	MemorySamples map[string][]estimators.ContainerSample
 }
 
 // fetchPolicy loads the VhapePolicy referenced by the VPA annotation.
@@ -100,8 +105,10 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 	}
 
 	usage := containerUsage{
-		CPU:    make(map[string][]model.ResourceAmount),
-		Memory: make(map[string][]model.ResourceAmount),
+		CPU:           make(map[string][]model.ResourceAmount),
+		Memory:        make(map[string][]model.ResourceAmount),
+		CPUSamples:    make(map[string][]estimators.ContainerSample),
+		MemorySamples: make(map[string][]estimators.ContainerSample),
 	}
 
 	for _, snap := range snapshots {
@@ -110,11 +117,21 @@ func (r *podResourceRecommender) collectCurrentUsage(matchingPods []model.PodID)
 		}
 
 		containerName := snap.ID.ContainerName
+		sample := func(amount model.ResourceAmount) estimators.ContainerSample {
+			return estimators.ContainerSample{
+				Pod:          snap.ID.PodID,
+				MeasureStart: snap.SnapshotTime,
+				Window:       snap.SnapshotWindow,
+				Usage:        amount,
+			}
+		}
 		if cpu, ok := snap.Usage[model.ResourceCPU]; ok {
 			usage.CPU[containerName] = append(usage.CPU[containerName], cpu)
+			usage.CPUSamples[containerName] = append(usage.CPUSamples[containerName], sample(cpu))
 		}
 		if memory, ok := snap.Usage[model.ResourceMemory]; ok {
 			usage.Memory[containerName] = append(usage.Memory[containerName], memory)
+			usage.MemorySamples[containerName] = append(usage.MemorySamples[containerName], sample(memory))
 		}
 	}
 

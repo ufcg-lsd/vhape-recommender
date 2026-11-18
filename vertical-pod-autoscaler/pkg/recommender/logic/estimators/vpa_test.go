@@ -1,6 +1,7 @@
 package estimators
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -273,4 +274,134 @@ func TestVPAFeedsMultipleContainers(t *testing.T) {
 
 	assert.Equal(t, 1, estimator.containers["app"].totalSamplesCount)
 	assert.Equal(t, 1, estimator.containers["sidecar"].totalSamplesCount)
+}
+
+// vpaPodReference feeds the upstream VPA model with one ContainerState per pod,
+// as the cluster state of the VPA does.
+type vpaPodReference struct {
+	aggregate *model.AggregateContainerState
+	pods      map[model.PodID]*model.ContainerState
+}
+
+func newVPAPodReference() *vpaPodReference {
+	return &vpaPodReference{aggregate: model.NewAggregateContainerState(), pods: map[model.PodID]*model.ContainerState{}}
+}
+
+func (r *vpaPodReference) add(resource model.ResourceName, sample ContainerSample) {
+	state := r.pods[sample.Pod]
+	if state == nil {
+		state = model.NewContainerState(nil, r.aggregate)
+		r.pods[sample.Pod] = state
+	}
+	state.AddSample(&model.ContainerUsageSample{MeasureStart: sample.MeasureStart, Usage: sample.Usage, Resource: resource})
+}
+
+func (r *vpaPodReference) asReference() *vpaReference {
+	return &vpaReference{aggregate: r.aggregate}
+}
+
+// churnTimeline is three days of a Deployment whose pods are replaced over time,
+// sampled every minute, with repeated deliveries of the same reading and a late
+// (out-of-order) reading, as the metrics API may return them.
+func churnTimeline() [][]ContainerSample {
+	mib := model.ResourceAmount(1024 * 1024)
+	var cycles [][]ContainerSample
+	for minute := 0; minute < 3*24*60; minute += 7 {
+		ts := vpaTestStart.Add(time.Duration(minute) * time.Minute)
+		// Every 5 hours one pod is replaced; between 2 and 4 pods are alive.
+		generation := minute / 300
+		alive := 2 + generation%3
+		var cycle []ContainerSample
+		for i := 0; i < alive; i++ {
+			pod := model.PodID{Namespace: "ns", PodName: fmt.Sprintf("app-%d", generation+i)}
+			usage := model.ResourceAmount(100+((minute*(i+3))%400)) * mib
+			cycle = append(cycle, ContainerSample{Pod: pod, MeasureStart: ts, Window: time.Minute, Usage: usage})
+		}
+		cycles = append(cycles, cycle)
+		if minute%91 == 0 {
+			cycles = append(cycles, cycle) // the same reading delivered again
+		}
+		if minute%133 == 0 && len(cycles) > 3 {
+			cycles = append(cycles, cycles[len(cycles)-3]) // a late reading
+		}
+	}
+	return cycles
+}
+
+func TestVPAContainerSamplesMatchUpstreamModel(t *testing.T) {
+	for _, resource := range []model.ResourceName{model.ResourceCPU, model.ResourceMemory} {
+		t.Run(string(resource), func(t *testing.T) {
+			estimator := newDefaultVPAEstimator(resource)
+			ref := newVPAPodReference()
+
+			for _, cycle := range churnTimeline() {
+				estimator.FeedContainerSamples("app", cycle)
+				for _, sample := range cycle {
+					ref.add(resource, sample)
+					// The VPA counts samples on the CPU aggregation; the CPU
+					// sample of the pod comes with the same measurement time.
+					if resource == model.ResourceMemory {
+						ref.add(model.ResourceCPU, ContainerSample{Pod: sample.Pod, MeasureStart: sample.MeasureStart, Usage: 100})
+					}
+				}
+			}
+
+			history := estimator.containers["app"]
+			want := ref.aggregate.AggregateCPUUsage
+			if resource == model.ResourceMemory {
+				want = ref.aggregate.AggregateMemoryPeaks
+			}
+			for _, p := range []float64{0.5, 0.9, 0.95} {
+				assert.Equal(t, want.Percentile(p), history.histogram.Percentile(p), "percentile %v", p)
+			}
+			assert.Equal(t, ref.aggregate.TotalSamplesCount, history.totalSamplesCount)
+			assert.Equal(t, ref.aggregate.FirstSampleStart, history.firstSampleStart)
+			assert.Equal(t, ref.aggregate.LastSampleStart, history.lastSampleStart)
+
+			minimum := model.ResourceAmount(25)
+			if resource == model.ResourceMemory {
+				minimum = 250 * 1024 * 1024
+			}
+			got := estimator.GetSingleResourceRecommendation("app", ContainerResourceConstraints{Min: minimum})
+			target, lower, upper := ref.asReference().expected(resource, minimum)
+			assert.Equal(t, target, got.Target)
+			assert.Equal(t, lower, got.LowerBound)
+			assert.Equal(t, upper, got.UpperBound)
+		})
+	}
+}
+
+func TestVPAContainerSamplesKeepThePeakOfEachPod(t *testing.T) {
+	estimator := newDefaultVPAEstimator(model.ResourceMemory)
+	podA := model.PodID{Namespace: "ns", PodName: "a"}
+	podB := model.PodID{Namespace: "ns", PodName: "b"}
+	podC := model.PodID{Namespace: "ns", PodName: "c"}
+
+	estimator.FeedContainerSamples("app", []ContainerSample{
+		{Pod: podA, MeasureStart: vpaTestStart, Usage: 500},
+		{Pod: podB, MeasureStart: vpaTestStart, Usage: 200},
+	})
+	// pod-a is gone and pod-c is new: pod-c is now first in the slice, but its
+	// peak must not be compared with the peak of pod-a.
+	estimator.FeedContainerSamples("app", []ContainerSample{
+		{Pod: podC, MeasureStart: vpaTestStart.Add(time.Minute), Usage: 100},
+		{Pod: podB, MeasureStart: vpaTestStart.Add(time.Minute), Usage: 200},
+	})
+
+	history := estimator.containers["app"]
+	assert.Equal(t, model.ResourceAmount(500), history.pods[podA].memoryWindow.peak)
+	assert.Equal(t, model.ResourceAmount(200), history.pods[podB].memoryWindow.peak)
+	assert.Equal(t, model.ResourceAmount(100), history.pods[podC].memoryWindow.peak)
+	assert.Equal(t, 4, history.totalSamplesCount)
+}
+
+func TestVPAImplementsContainerSampleEstimator(t *testing.T) {
+	var estimator ResourceEstimator = newDefaultVPAEstimator(model.ResourceCPU)
+	_, ok := estimator.(ContainerSampleEstimator)
+	assert.True(t, ok)
+
+	for _, other := range []ResourceEstimator{NewSMAEstimator(model.ResourceCPU, 3, 2, time.Hour)} {
+		_, ok := other.(ContainerSampleEstimator)
+		assert.False(t, ok, "%T keeps receiving FeedSamples", other)
+	}
 }

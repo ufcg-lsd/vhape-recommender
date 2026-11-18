@@ -174,3 +174,23 @@ func TestCollectCurrentUsageKeepsAnEmptySnapshot(t *testing.T) {
 	assert.Empty(t, usage.CPU)
 	assert.Equal(t, 1, mc.calls, "an empty snapshot is still the snapshot of the cycle")
 }
+
+func TestCollectCurrentUsageKeepsTheFullSamplesInOrder(t *testing.T) {
+	podA := model.PodID{Namespace: "default", PodName: "pod-a"}
+	podB := model.PodID{Namespace: "default", PodName: "pod-b"}
+	snapshots := cycleSnapshots(podB, podA)
+	for _, snap := range snapshots {
+		snap.SnapshotTime = time.Unix(100, 0)
+		snap.SnapshotWindow = 30 * time.Second
+	}
+	r := &podResourceRecommender{metricsClient: &mockMetricsClient{snapshots: snapshots}}
+
+	usage, err := r.collectCurrentUsage([]model.PodID{podA, podB})
+	assert.NoError(t, err)
+	assert.Equal(t, []estimators.ContainerSample{
+		{Pod: podB, MeasureStart: time.Unix(100, 0), Window: 30 * time.Second, Usage: 100},
+		{Pod: podA, MeasureStart: time.Unix(100, 0), Window: 30 * time.Second, Usage: 200},
+	}, usage.CPUSamples["app"])
+	assert.Equal(t, []model.ResourceAmount{1000, 2000}, usage.Memory["app"])
+	assert.Equal(t, usage.Memory["app"][1], usage.MemorySamples["app"][1].Usage)
+}
