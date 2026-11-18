@@ -29,9 +29,11 @@ import (
 type mockMetricsClient struct {
 	snapshots []*input_metrics.ContainerMetricsSnapshot
 	err       error
+	calls     int
 }
 
 func (m *mockMetricsClient) GetContainersMetrics(_ context.Context) ([]*input_metrics.ContainerMetricsSnapshot, error) {
+	m.calls++
 	return m.snapshots, m.err
 }
 

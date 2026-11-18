@@ -1,6 +1,7 @@
 package logic
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -107,4 +108,69 @@ func TestFetchPolicyReturnsErrorWhenPolicyDoesNotExist(t *testing.T) {
 	assert.Nil(t, policy)
 	assert.Error(t, err)
 	assert.ErrorContains(t, err, `fetch policy "missing"`)
+}
+
+func cycleSnapshots(pods ...model.PodID) []*input_metrics.ContainerMetricsSnapshot {
+	snapshots := make([]*input_metrics.ContainerMetricsSnapshot, len(pods))
+	for i, podID := range pods {
+		snapshots[i] = &input_metrics.ContainerMetricsSnapshot{
+			ID:    model.ContainerID{PodID: podID, ContainerName: "app"},
+			Usage: model.Resources{model.ResourceCPU: model.ResourceAmount(100 * (i + 1)), model.ResourceMemory: model.ResourceAmount(1000 * (i + 1))},
+		}
+	}
+	return snapshots
+}
+
+func TestCollectCurrentUsageReadsTheSnapshotOfTheCycle(t *testing.T) {
+	podA := model.PodID{Namespace: "default", PodName: "pod-a"}
+	podB := model.PodID{Namespace: "default", PodName: "pod-b"}
+	podC := model.PodID{Namespace: "other", PodName: "pod-c"}
+	mc := &mockMetricsClient{snapshots: cycleSnapshots(podB, podC, podA)}
+	r := &podResourceRecommender{metricsClient: mc}
+
+	withoutSnapshot, err := r.collectCurrentUsage([]model.PodID{podA, podB})
+	assert.NoError(t, err)
+
+	r.RefreshUsage(context.Background())
+	assert.Equal(t, 2, mc.calls)
+	for range 3 {
+		usage, err := r.collectCurrentUsage([]model.PodID{podA, podB})
+		assert.NoError(t, err)
+		// Same samples, in the order of the metrics list (pod-b before pod-a).
+		assert.Equal(t, withoutSnapshot, usage)
+		assert.Equal(t, []model.ResourceAmount{100, 300}, usage.CPU["app"])
+	}
+	assert.Equal(t, 2, mc.calls, "the VPAs of the cycle must not fetch the metrics again")
+
+	r.ReleaseUsage()
+	_, err = r.collectCurrentUsage([]model.PodID{podA})
+	assert.NoError(t, err)
+	assert.Equal(t, 3, mc.calls, "without the snapshot, each VPA fetches the metrics")
+}
+
+func TestCollectCurrentUsageFetchesOnItsOwnWhenTheCycleFetchFails(t *testing.T) {
+	podA := model.PodID{Namespace: "default", PodName: "pod-a"}
+	mc := &mockMetricsClient{err: assert.AnError}
+	r := &podResourceRecommender{metricsClient: mc}
+
+	r.RefreshUsage(context.Background())
+	assert.Nil(t, r.usage)
+
+	mc.err = nil
+	mc.snapshots = cycleSnapshots(podA)
+	usage, err := r.collectCurrentUsage([]model.PodID{podA})
+	assert.NoError(t, err)
+	assert.Equal(t, []model.ResourceAmount{100}, usage.CPU["app"])
+	assert.Equal(t, 2, mc.calls)
+}
+
+func TestCollectCurrentUsageKeepsAnEmptySnapshot(t *testing.T) {
+	mc := &mockMetricsClient{}
+	r := &podResourceRecommender{metricsClient: mc}
+
+	r.RefreshUsage(context.Background())
+	usage, err := r.collectCurrentUsage([]model.PodID{{Namespace: "default", PodName: "pod-a"}})
+	assert.NoError(t, err)
+	assert.Empty(t, usage.CPU)
+	assert.Equal(t, 1, mc.calls, "an empty snapshot is still the snapshot of the cycle")
 }

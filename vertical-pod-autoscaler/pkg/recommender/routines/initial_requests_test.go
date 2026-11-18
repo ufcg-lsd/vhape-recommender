@@ -38,6 +38,10 @@ func (r *annotationCapturingPodResourceRecommender) GetRecommendedPodResources(
 
 func (r *annotationCapturingPodResourceRecommender) Free(model.VpaID) {}
 
+func (r *annotationCapturingPodResourceRecommender) RefreshUsage(context.Context) {}
+
+func (r *annotationCapturingPodResourceRecommender) ReleaseUsage() {}
+
 func (f *staticPodTemplateFetcher) Fetch(_ context.Context, _ *vpa_types.VerticalPodAutoscaler) (labels.Selector, error) {
 	return labels.Everything(), nil
 }
