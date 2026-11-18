@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"sort"
 	"sync"
 	"time"
 
@@ -85,6 +86,8 @@ type SMAEstimator struct {
 	samples                map[string][]TimedSample
 	lastBatch              map[string][]model.ResourceAmount
 	lastAccepted           map[string]time.Time
+	// lastPodSample is LastCPUSampleStart of each pod, per container.
+	lastPodSample map[string]map[model.PodID]time.Time
 }
 
 func NewSMAEstimator(
@@ -102,7 +105,65 @@ func NewSMAEstimator(
 		samples:                make(map[string][]TimedSample),
 		lastBatch:              make(map[string][]model.ResourceAmount),
 		lastAccepted:           make(map[string]time.Time),
+		lastPodSample:          make(map[string]map[model.PodID]time.Time),
 	}
+}
+
+// FeedContainerSamples stores new usage samples for the given container, as the
+// VPA recommender used by Tiny Autoscalers does (model/container.go,
+// addCPUSample, and util/observation.go): a sample is kept only if it is newer
+// than the last one of its pod, at its measurement time, and each kept sample is
+// appended and the whole buffer sorted by time with sort.Sort, as
+// Observation.Add does, so samples with the same time end up in the same order.
+func (e *SMAEstimator) FeedContainerSamples(containerName string, samples []ContainerSample) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	lastPodSample := e.lastPodSample[containerName]
+	if lastPodSample == nil {
+		lastPodSample = make(map[model.PodID]time.Time)
+		e.lastPodSample[containerName] = lastPodSample
+	}
+
+	inserted := 0
+	for _, sample := range samples {
+		if sample.Usage < 0 || !sample.MeasureStart.After(lastPodSample[sample.Pod]) {
+			continue
+		}
+		lastPodSample[sample.Pod] = sample.MeasureStart
+		e.samples[containerName] = append(e.samples[containerName], TimedSample{
+			Value:     sample.Usage,
+			Timestamp: sample.MeasureStart,
+		})
+		sort.Sort(samplesByTime(e.samples[containerName]))
+		inserted++
+	}
+
+	klog.V(4).InfoS(
+		"SMA: container samples inserted",
+		"resource", e.resourceName,
+		"containerName", containerName,
+		"received", len(samples),
+		"inserted", inserted,
+		"totalCurrentSamples", len(e.samples[containerName]),
+	)
+}
+
+// samplesByTime orders samples by time only, as Items in util/observation.go of
+// Tiny Autoscalers.
+type samplesByTime []TimedSample
+
+func (s samplesByTime) Len() int           { return len(s) }
+func (s samplesByTime) Less(i, j int) bool { return s[i].Timestamp.Before(s[j].Timestamp) }
+func (s samplesByTime) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+
+// HasRecommendation reports whether the container has samples. Tiny Autoscalers
+// publishes no recommendation for a container without samples (routines/vpa.go,
+// GetContainerNameToAggregateStateMap), so the recommender leaves it out.
+func (e *SMAEstimator) HasRecommendation(containerName string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(e.samples[containerName]) > 0
 }
 
 // FeedSamples stores new usage samples for the given container.
@@ -166,9 +227,10 @@ func (e *SMAEstimator) FeedSamples(containerName string, samples []model.Resourc
 // like WithMinResources in the original.
 //
 // If no samples are available, the recommendation is constraints.Min for the
-// target and both bounds. Tiny publishes no recommendation in this case, but the
-// ResourceEstimator interface always returns one; the minimum keeps that value
-// low and the analysis drops it. constraints.CurrentRequest is not used.
+// target and both bounds. The recommender does not ask for it in this case, as
+// HasRecommendation reports none and the container is left out, like in Tiny;
+// the minimum is only returned to callers that ask anyway.
+// constraints.CurrentRequest is not used.
 func (e *SMAEstimator) GetSingleResourceRecommendation(containerName string, constraints ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
 	e.mu.Lock()
 	defer e.mu.Unlock()

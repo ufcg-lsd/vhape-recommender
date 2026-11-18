@@ -141,13 +141,21 @@ func (r *podResourceRecommender) GetRecommendedPodResources(
 		feedEstimator(resourceEstimators.Memory.estimator, containerName, usage.Memory[containerName], usage.MemorySamples[containerName])
 	}
 
+	available := make(model.ContainerNameToAggregateStateMap, len(containerStates))
 	for containerName, state := range containerStates {
+		if hasRecommendation(resourceEstimators.CPU.estimator, containerName) &&
+			hasRecommendation(resourceEstimators.Memory.estimator, containerName) {
+			available[containerName] = state
+		}
+	}
+
+	for containerName, state := range available {
 		recommendation, err := r.recommendContainerResources(
 			containerName,
 			state,
 			vpa,
 			resourceEstimators,
-			len(containerStates),
+			len(available),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("VPA %q/%q: recommend resources for container %q: %w", vpa.ID.Namespace, vpa.ID.VpaName, containerName, err)
@@ -433,4 +441,14 @@ func feedEstimator(estimator estimators.ResourceEstimator, containerName string,
 		return
 	}
 	estimator.FeedSamples(containerName, values)
+}
+
+// hasRecommendation reports whether an estimator has a recommendation for a
+// container; only estimators implementing RecommendationAvailability may have
+// none.
+func hasRecommendation(estimator estimators.ResourceEstimator, containerName string) bool {
+	if availability, ok := estimator.(estimators.RecommendationAvailability); ok {
+		return availability.HasRecommendation(containerName)
+	}
+	return true
 }

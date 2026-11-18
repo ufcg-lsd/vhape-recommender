@@ -1,7 +1,9 @@
 package estimators
 
 import (
+	"fmt"
 	"math"
+	"sort"
 	"testing"
 	"time"
 
@@ -214,4 +216,71 @@ func TestResourceAmountFromFloat(t *testing.T) {
 	assert.Equal(t, model.ResourceAmount(0), resourceAmountFromFloat(-1))
 	assert.Equal(t, model.ResourceAmount(12), resourceAmountFromFloat(12.9))
 	assert.Equal(t, model.MaxResourceAmount, resourceAmountFromFloat(math.Inf(1)))
+}
+
+func TestSMAContainerSamplesFollowTheSampleRulesOfTiny(t *testing.T) {
+	estimator := NewSMAEstimator(model.ResourceCPU, 3, 2, time.Hour)
+	podA := model.PodID{Namespace: "ns", PodName: "a"}
+	podB := model.PodID{Namespace: "ns", PodName: "b"}
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	at := func(minutes int) time.Time { return t0.Add(time.Duration(minutes) * time.Minute) }
+
+	assert.False(t, estimator.HasRecommendation("app"))
+
+	estimator.FeedContainerSamples("app", []ContainerSample{{Pod: podA, MeasureStart: at(2), Usage: 100}})
+	// The same reading again, and a late reading of the same pod: discarded.
+	estimator.FeedContainerSamples("app", []ContainerSample{{Pod: podA, MeasureStart: at(2), Usage: 100}})
+	estimator.FeedContainerSamples("app", []ContainerSample{{Pod: podA, MeasureStart: at(1), Usage: 900}})
+	// The same value at a new time is a new reading.
+	estimator.FeedContainerSamples("app", []ContainerSample{{Pod: podA, MeasureStart: at(4), Usage: 100}})
+	// Another pod with an earlier time is kept, in time order.
+	estimator.FeedContainerSamples("app", []ContainerSample{{Pod: podB, MeasureStart: at(3), Usage: 300}})
+	// Negative usage is discarded.
+	estimator.FeedContainerSamples("app", []ContainerSample{{Pod: podB, MeasureStart: at(5), Usage: -1}})
+
+	assert.True(t, estimator.HasRecommendation("app"))
+	assert.Equal(t, []TimedSample{
+		{Value: 100, Timestamp: at(2)},
+		{Value: 300, Timestamp: at(3)},
+		{Value: 100, Timestamp: at(4)},
+	}, estimator.samples["app"])
+}
+
+func TestSMAContainerSamplesUseTheMeasurementTimeForConfidence(t *testing.T) {
+	estimator := NewSMAEstimator(model.ResourceCPU, 3, 2, time.Hour)
+	pod := model.PodID{Namespace: "ns", PodName: "a"}
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for minute := 0; minute < 2*24*60; minute++ {
+		estimator.FeedContainerSamples("app", []ContainerSample{{Pod: pod, MeasureStart: t0.Add(time.Duration(minute) * time.Minute), Usage: 100}})
+	}
+	// Two days of one sample per minute: confidence close to 2, from the
+	// measurement times and not from the time of the calls.
+	assert.InDelta(t, 2.0, confidence(estimator.samples["app"]), 0.001)
+}
+
+func TestSMAContainerSamplesOrderTiesAsTiny(t *testing.T) {
+	estimator := NewSMAEstimator(model.ResourceCPU, 3, 2, time.Hour)
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	// 30 cycles of 3 pods measured at the same time: every cycle is a tie, and
+	// the buffer grows past the size where sort.Sort keeps the arrival order.
+	var tiny samplesByTime
+	for cycle := 0; cycle < 30; cycle++ {
+		ts := t0.Add(time.Duration(cycle) * time.Minute)
+		var batch []ContainerSample
+		for pod := 0; pod < 3; pod++ {
+			usage := model.ResourceAmount(100*pod + cycle)
+			batch = append(batch, ContainerSample{
+				Pod:          model.PodID{Namespace: "ns", PodName: fmt.Sprintf("p%d", pod)},
+				MeasureStart: ts,
+				Usage:        usage,
+			})
+			// Observation.Add of Tiny: append, then sort the whole buffer.
+			tiny = append(tiny, TimedSample{Value: usage, Timestamp: ts})
+			sort.Sort(tiny)
+		}
+		estimator.FeedContainerSamples("app", batch)
+	}
+
+	assert.Equal(t, []TimedSample(tiny), estimator.samples["app"])
 }

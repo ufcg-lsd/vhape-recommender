@@ -765,3 +765,55 @@ func TestFeedEstimatorChoosesTheChannel(t *testing.T) {
 	feedEstimator(none, "app", nil, nil)
 	assert.Empty(t, none.containerSamples)
 }
+
+type mockAvailabilityEstimator struct {
+	mockResourceEstimator
+	available   map[string]bool
+	constraints map[string]estimators.ContainerResourceConstraints
+}
+
+func (m *mockAvailabilityEstimator) HasRecommendation(containerName string) bool {
+	return m.available[containerName]
+}
+
+func (m *mockAvailabilityEstimator) GetSingleResourceRecommendation(containerName string, c estimators.ContainerResourceConstraints) recommendation.SingleResourceRecommendation {
+	if m.constraints == nil {
+		m.constraints = map[string]estimators.ContainerResourceConstraints{}
+	}
+	m.constraints[containerName] = c
+	return m.mockResourceEstimator.GetSingleResourceRecommendation(containerName, c)
+}
+
+func TestGetRecommendedPodResourcesLeavesOutContainersWithoutRecommendation(t *testing.T) {
+	lister := newVhapePolicyLister(newTestPolicyObject("my-policy", newTestPolicySpec()))
+	vpa := newTestVPA("default", "vpa", "my-policy")
+	cpu := &mockAvailabilityEstimator{available: map[string]bool{"app": true, "sidecar": false}}
+	memory := &mockResourceEstimator{}
+	r := &podResourceRecommender{
+		config:        PodRecommendationLimits{PodMinCPUMillicores: 50, PodMinMemoryMb: 100},
+		policyLister:  lister,
+		metricsClient: &mockMetricsClient{},
+		estimators: map[model.VpaID]*ResourceEstimators{vpa.ID: {
+			CPU:       resourceEstimator{estimator: cpu},
+			Memory:    resourceEstimator{estimator: memory},
+			policyUID: types.UID("uid-my-policy"),
+		}},
+	}
+	controlled := &vpa_types.ContainerResourcePolicy{ControlledResources: &[]v1.ResourceName{v1.ResourceCPU, v1.ResourceMemory}}
+	containerStates := model.ContainerNameToAggregateStateMap{}
+	for _, name := range []string{"app", "sidecar"} {
+		state := model.NewAggregateContainerState()
+		state.UpdateFromPolicy(controlled)
+		containerStates[name] = state
+	}
+
+	got, err := r.GetRecommendedPodResources(containerStates, vpa, nil)
+
+	assert.NoError(t, err)
+	assert.Contains(t, got, "app")
+	assert.NotContains(t, got, "sidecar", "a container whose estimator has no recommendation is left out, as in Tiny")
+	assert.Zero(t, memory.recommendCalls["sidecar"])
+	// The pod minimum is divided by the containers that are left (one), as Tiny
+	// divides it by the containers with samples.
+	assert.Equal(t, model.CPUAmountFromCores(0.05), cpu.constraints["app"].Min)
+}

@@ -400,7 +400,7 @@ func TestVPAImplementsContainerSampleEstimator(t *testing.T) {
 	_, ok := estimator.(ContainerSampleEstimator)
 	assert.True(t, ok)
 
-	for _, other := range []ResourceEstimator{NewSMAEstimator(model.ResourceCPU, 3, 2, time.Hour)} {
+	for _, other := range []ResourceEstimator{NewPercentileHysteresisEstimator(model.ResourceCPU, 0.9, 0.1, time.Hour, time.Hour)} {
 		_, ok := other.(ContainerSampleEstimator)
 		assert.False(t, ok, "%T keeps receiving FeedSamples", other)
 	}
