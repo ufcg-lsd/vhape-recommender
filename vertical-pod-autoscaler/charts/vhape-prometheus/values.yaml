@@ -1,0 +1,41 @@
+image:
+  repository: prom/prometheus
+  tag: ""  # defaults to appVersion
+  pullPolicy: IfNotPresent
+
+retention: 30d
+retentionSize: 40GB
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+storage:
+  enabled: true
+  # storageClassName: ""
+  size: 50Gi
+
+scrape:
+  # Interval for CPU/memory metrics (/metrics/resource, /metrics/cadvisor)
+  resourceInterval: 15s
+  # Interval for state metrics (KSM, node-exporter, probes)
+  stateInterval: 30s
+
+# Namespaces where KSM and node-exporter are discovered via service discovery
+serviceDiscoveryNamespaces:
+  - kube-system
+  - monitoring
+
+# -- Optional subcharts --
+# Disable if the cluster already has KSM / node-exporter installed
+kube-state-metrics:
+  enabled: true
+  extraArgs:
+    - --metric-labels-allowlist=nodes=[*]
+
+prometheus-node-exporter:
+  enabled: true

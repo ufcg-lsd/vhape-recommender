@@ -1,0 +1,16 @@
+apiVersion: v2
+name: vhape-prometheus
+description: Dedicated Prometheus for VHAPE — filtered collection of Kubernetes infrastructure metrics
+type: application
+version: 0.1.0
+appVersion: "v2.54.1"
+
+dependencies:
+  - name: kube-state-metrics
+    version: "5.*"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: kube-state-metrics.enabled
+  - name: prometheus-node-exporter
+    version: "4.*"
+    repository: https://prometheus-community.github.io/helm-charts
+    condition: prometheus-node-exporter.enabled
