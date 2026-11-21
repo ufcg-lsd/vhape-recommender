@@ -41,6 +41,52 @@ The estimator is responsible for deciding:
 - how it calculates `Target`, `LowerBound`, `UpperBound`, and `UncappedTarget`;
 - how it applies `constraints.Min`, `constraints.Max`, and `constraints.CurrentRequest`, when relevant.
 
+`FeedSamples` is called once per recommendation cycle with the usage values of the container in the Pods of the
+workload. The usage of all Pods is fetched once per cycle and shared by every VPA object.
+
+#### Optional: receive the full samples
+
+An estimator that needs more than the usage values, such as the Pod each sample comes from or the time of the
+measurement, also implements `ContainerSampleEstimator`:
+
+```go
+type ContainerSampleEstimator interface {
+	ResourceEstimator
+	FeedContainerSamples(containerName string, samples []ContainerSample)
+}
+
+type ContainerSample struct {
+	Pod          model.PodID          // the Pod the container runs in
+	MeasureStart time.Time            // time of the measurement, as reported by the metrics API
+	Window       time.Duration        // length of the measurement interval
+	Usage        model.ResourceAmount // measured usage of the resource
+}
+```
+
+The recommender then calls `FeedContainerSamples` instead of `FeedSamples`, with the samples in the same order. The
+estimator uses the fields it needs and ignores the others. New information is added as new fields of
+`ContainerSample`, so estimators that already use it are not affected. `FeedSamples` must still be implemented, since
+it is part of `ResourceEstimator`. The `vpa` and `sma` heuristics use this interface to keep per-Pod state and to
+discard measurements already received.
+
+#### Optional: report when there is no recommendation yet
+
+By default, every container of the workload is published in the VPA status, with whatever
+`GetSingleResourceRecommendation` returns. An estimator that may have no recommendation for a container yet, for
+example before its first sample, also implements `RecommendationAvailability`:
+
+```go
+type RecommendationAvailability interface {
+	HasRecommendation(containerName string) bool
+}
+```
+
+A container is published only when both its CPU and its memory estimators have a recommendation. An estimator that
+does not implement this interface always counts as having one. The pod-level minimum
+(`--pod-recommendation-min-cpu-millicores` and `--pod-recommendation-min-memory-mb`) is divided among the published
+containers only, and the result is passed as `constraints.Min`. The `sma` heuristic uses this interface to leave out
+containers without samples.
+
 ### Step 2. Create the config struct
 
 In the same file, add a struct with the parameters as they appear in the `VhapePolicy`, using JSON tags. It must implement `HeuristicSpec`:

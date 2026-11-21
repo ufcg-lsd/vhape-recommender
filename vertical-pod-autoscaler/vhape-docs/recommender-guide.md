@@ -27,6 +27,8 @@ The VPA object selects the VHAPE Recommender through `spec.recommenders[].name` 
 
 The selected policy defines the heuristic configuration used for CPU and memory and can optionally apply per-resource scaling rules to constrain a recommendation.
 
+In each recommendation cycle, the recommender fetches the usage of all Pods once and shares it among the VPA objects. The samples of the Pods of each workload are fed to the CPU and memory estimators of its policy. A container is published in the VPA status only when both estimators have a recommendation for it; heuristics that may have none yet, such as `sma` before the first sample of a container, report it to the recommender (see [VHAPE Recommender development](recommender-development.md#optional-report-when-there-is-no-recommendation-yet)).
+
 For policy configuration, heuristics, scaling rules, and recommendation constraints, see [VhapePolicy](vhape-policy.md).
 
 ## Setup guide
@@ -122,14 +124,16 @@ In the upstream VPA recommender, recommendation bounds can come from multiple pl
 
 | Source                                               | Scope                                              | Where it is applied                                                                                                                                                                                                            |
 | ---------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `--pod-recommendation-min-cpu-millicores`            | Global minimum CPU recommendation per pod          | Applied during recommendation calculation. The pod-level value is divided by the number of containers and passed into the CPU estimators.                                                                                      |
-| `--pod-recommendation-min-memory-mb`                 | Global minimum memory recommendation per pod       | Applied during recommendation calculation. The pod-level value is divided by the number of containers and passed into the memory estimators.                                                                                   |
+| `--pod-recommendation-min-cpu-millicores`            | Global minimum CPU recommendation per pod          | Applied during recommendation calculation. The pod-level value is divided by the number of published containers and passed into the CPU estimators.                                                                            |
+| `--pod-recommendation-min-memory-mb`                 | Global minimum memory recommendation per pod       | Applied during recommendation calculation. The pod-level value is divided by the number of published containers and passed into the memory estimators.                                                                         |
 | `--container-recommendation-max-allowed-cpu`         | Global maximum CPU recommendation per container    | Applied after recommendation generation by the VPA capping/post-processing logic.                                                                                                                                              |
 | `--container-recommendation-max-allowed-memory`      | Global maximum memory recommendation per container | Applied after recommendation generation by the VPA capping/post-processing logic.                                                                                                                                              |
 | `spec.resourcePolicy.containerPolicies[].minAllowed` | Per-VPA, per-container minimum                     | Applied after recommendation generation by the VPA capping/post-processing logic.                                                                                                                                              |
 | `spec.resourcePolicy.containerPolicies[].maxAllowed` | Per-VPA, per-container maximum                     | Applied after recommendation generation by the VPA capping/post-processing logic. If both this and a global `--container-recommendation-max-allowed-*` value exist, the VPA-specific value takes precedence for that resource. |
 
 The important detail is that the upstream VPA does not apply all caps in the same place. Pod-level minimum flags are part of the recommender configuration and affect the estimator output itself.
+
+The published containers are the ones for which both the CPU and the memory estimators have a recommendation (see [How it works](#how-it-works)). With heuristics that always have one, they are all the containers of the workload, as in the upstream VPA.
 
 VHAPE currently preserves this split to stay compatible with the original VPA behavior while keeping the recommendation logic extensible. The recommender passes resource constraints to estimators, but each heuristic remains responsible for deciding how those constraints should affect its own recommendation. This leaves room for future heuristics to interpret and apply constraints according to their own semantics.
 
@@ -156,3 +160,7 @@ Check the VHAPE Recommender logs to identify why a recommendation is being const
 ```bash
 kubectl logs deployment/vhape-recommender -n kube-system
 ```
+
+### A container is missing from the recommendation
+
+A container is left out of `status.recommendation` while the CPU or the memory estimator of its policy has no recommendation for it. With the `sma` heuristic, this lasts until the first usage sample of the container is received. The other containers of the workload are published normally, and the pod-level minimum is divided among them only.
