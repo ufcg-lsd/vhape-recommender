@@ -32,7 +32,9 @@ workloads, started at the same time.
 
 - **Applying recommendations:** updater and admission controller of the upstream VPA 1.6.0, `updateMode: Recreate`
   (the updater evicts a pod whose requests are outside the recommended range; the admission controller sets the
-  recommended requests on the new pod).
+  recommended requests on the new pod). The objects are created with `updateMode: Off` before the workloads and
+  switched to `Recreate` once the initial pods are running, at the same point in both environments (see
+  [Recommendation objects](#recommendation-objects)).
 - **Controlled values:** requests only (`controlledValues: RequestsOnly`); limits stay as in the workload manifests.
 - **Recommender interval:** 1 min, the default of both recommenders.
 - **Replicas:** one replica of every component (upstream VPA components and VHAPE recommender).
@@ -90,6 +92,18 @@ relative error and largest relative error.
 
 ## Steps
 
+### Recommendation objects
+
+In both environments, the objects are created with `updateMode: Off` before the workloads are applied, and switched to
+`Recreate` once the initial pods of the workloads are running:
+
+- **Before the workloads**, so both recommenders receive samples from the first instant of every pod. The upstream
+  recommender keeps the samples of every pod, with or without an object (`--memory-saver=false`, its default); VHAPE
+  feeds only the estimators of existing objects.
+- **With `Off`**, so the updater does not evict pods while they are still being placed.
+- **Switched to `Recreate`** at the same point in both environments. Changing the update mode does not reset the
+  recommendation history of either recommender.
+
 ### In both environments
 
 1. Add the repository of the upstream VPA chart:
@@ -111,17 +125,30 @@ relative error and largest relative error.
    helm upgrade --install vertical-pod-autoscaler autoscalers/vertical-pod-autoscaler --version 0.9.0 --namespace kube-system --set recommender.enabled=true --set recommender.replicas=1 --set updater.replicas=1 --set admissionController.replicas=1 --set 'updater.extraArgs={--min-replicas=1}' --wait
    ```
 
-2. Apply the workloads:
+2. Start the script that creates one recommendation object, with `updateMode: Off` and no `spec.recommenders`, per
+   Deployment of every namespace. It runs in the background and also handles Deployments created later:
+
+   ```bash
+   reproduction/experiments/suite-1/create-vpa-objects.sh vpa '.*' Off &
+   ```
+
+3. Apply the workloads:
 
    ```bash
    kubectl apply -f <workload manifests>
    ```
 
-3. Start the script that creates one recommendation object, with `Recreate` and no `spec.recommenders`, per
-   Deployment of every namespace. It runs in the background and also handles Deployments created later; it can be
-   stopped once every workload has its recommendation object (the objects are kept).
-   Start it once the initial pods of the workloads are running: with `Recreate`, an object created earlier can make the
-   updater evict pods while they are still being placed. Start it at the same point in both environments:
+4. Once the initial pods of the workloads are running, at the same point in both environments, stop the script,
+   switch every object to `Recreate`, and start the script again with `Recreate`, so Deployments created later get
+   `Recreate` objects. It can be stopped once every workload has its recommendation object (the objects are kept):
+
+   ```bash
+   kill %1
+   ```
+
+   ```bash
+   kubectl get vpa -A --no-headers | while read ns name _; do kubectl patch vpa "$name" -n "$ns" --type=merge -p '{"spec":{"updatePolicy":{"updateMode":"Recreate"}}}'; done
+   ```
 
    ```bash
    reproduction/experiments/suite-1/create-vpa-objects.sh vpa '.*' &
@@ -148,15 +175,30 @@ relative error and largest relative error.
    kubectl apply -f reproduction/vhape/policies/vpa-policy.yaml
    ```
 
-4. Apply the same workloads:
+4. Start the same script with `vhape` and `Off`: each object gets the annotation `vhape/policy: vpa-policy` and
+   `spec.recommenders: [vhape-recommender]`, the object the VHAPE watcher would create. The script is used instead of
+   the watcher so that the objects of both environments come from the same code, created at the same pace:
+
+   ```bash
+   reproduction/experiments/suite-1/create-vpa-objects.sh vhape '.*' Off &
+   ```
+
+5. Apply the same workloads:
 
    ```bash
    kubectl apply -f <workload manifests>
    ```
 
-5. Start the same script with `vhape`: each object gets the annotation `vhape/policy: vpa-policy` and
-   `spec.recommenders: [vhape-recommender]`, the object the VHAPE watcher would create. The script is used instead of
-   the watcher so that the objects of both environments come from the same code, created at the same pace:
+6. At the same point as in the upstream VPA environment, stop the script, switch every object to `Recreate`, and start
+   the script again with `Recreate`:
+
+   ```bash
+   kill %1
+   ```
+
+   ```bash
+   kubectl get vpa -A --no-headers | while read ns name _; do kubectl patch vpa "$name" -n "$ns" --type=merge -p '{"spec":{"updatePolicy":{"updateMode":"Recreate"}}}'; done
+   ```
 
    ```bash
    reproduction/experiments/suite-1/create-vpa-objects.sh vhape '.*' &
