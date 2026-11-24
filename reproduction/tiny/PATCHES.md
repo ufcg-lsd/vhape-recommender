@@ -1,7 +1,7 @@
 # Compatibility patches applied to Tiny Autoscalers
 
 Tiny Autoscalers was written in 2021 on top of the VPA release `kubernetes/autoscaler@b03f204804c9` (Kubernetes 1.18
-era). To run it on a current cluster (the experiments used Kubernetes 1.35.1), four lines had to change. None of them
+era). To run it on a current cluster (the experiments used Kubernetes 1.37.0), four lines had to change. None of them
 touches the recommendation heuristic.
 
 | # | File | Applied |
