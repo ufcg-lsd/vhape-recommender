@@ -1,9 +1,7 @@
 # Reproducing the VHAPE experiments
 
-The paper evaluates whether VHAPE can reproduce two existing vertical recommenders for Kubernetes: the upstream
-Vertical Pod Autoscaler (VPA) recommender and Tiny Autoscalers. This directory holds what is needed to run those
-experiments again: the VHAPE policies, the Tiny Autoscalers code rebuilt for current Kubernetes, and the setup and steps
-of each experiment.
+This directory holds what is needed to run the experiments of the VHAPE paper again: the VHAPE policies, the Tiny
+Autoscalers code rebuilt for current Kubernetes, and the setup and steps of each experiment.
 
 | Path | Contents |
 |---|---|
@@ -58,15 +56,16 @@ only (the VPA also saves it in checkpoints, which survive a restart of the recom
 ## The experiment suites
 
 Each experiment is organized as a *suite*: a comparison between VHAPE and a baseline, run under the same conditions,
-with its own README and scripts. Suites 1 and 2 check each heuristic against the recommender it reproduces. Suite 3
-checks what VHAPE adds: a single VHAPE recommender running both heuristics, one per workload, against the two original
+with its own README and scripts. Suites 1 and 2 answer RQ1 of the paper: each compares the recommendations of one
+heuristic in VHAPE with those of the recommender it reproduces. Suite 3 answers RQ2: it compares the resource
+consumption of a single VHAPE recommender running both heuristics, one per workload, with that of the two original
 recommenders running side by side.
 
-| Suite | Baseline | VHAPE policy | Recommender interval | Update mode |
-|---|---|---|---|---|
-| [suite 1](experiments/suite-1/README.md) | upstream VPA 1.6.0 | [`vpa-policy`](policies/vpa-policy.yaml) (`vpa` for CPU and memory) | 1 min (default of both) | `Recreate` (recommendations applied) |
-| [suite 2](experiments/suite-2/README.md) | Tiny Autoscalers | [`sma-policy`](policies/sma-policy.yaml) (`sma` for CPU, `vpa` for memory) | 1s (Tiny's default) | `Off` (recommendations only) |
-| [suite 3](experiments/suite-3/README.md) | Tiny Autoscalers and upstream VPA 1.6.0, in the same cluster | `sma-policy` for the Deployments listed in [`w2c-workloads.txt`](experiments/suite-3/w2c-workloads.txt), `vpa-policy` for the others | 1 min (Tiny set to it) | `Off` (recommendations only) |
+| Suite | RQ | Baseline | VHAPE policy | Workloads | Compared | Recommender interval | Update mode |
+|---|---|---|---|---|---|---|---|
+| [suite 1](experiments/suite-1/README.md) | RQ1 | upstream VPA 1.6.0 | [`vpa-policy`](policies/vpa-policy.yaml) | all | CPU and memory targets | 1 min | `Recreate` |
+| [suite 2](experiments/suite-2/README.md) | RQ1 | Tiny Autoscalers | [`sma-policy`](policies/sma-policy.yaml) | short-duration | CPU targets | 1s | `Off` |
+| [suite 3](experiments/suite-3/README.md) | RQ2 | Tiny Autoscalers and upstream VPA 1.6.0, side by side | `sma-policy` for short-duration workloads, `vpa-policy` for the others | all | CPU and memory consumption of the recommenders | 1 min | `Off` |
 
 ### Environments
 
@@ -74,8 +73,8 @@ Each suite has two environments, the baseline and VHAPE, in two separate cluster
 The VHAPE cluster runs a single VHAPE recommender; the baseline cluster runs the baseline recommender (in suite 3, Tiny and the upstream VPA side by side).
 
 Both clusters must run the same workloads with the same usage over time, so that both recommenders receive the same
-samples. In the paper, both clusters were emulated, replaying the same trace of workloads and usage; any setup that
-gives both clusters the same usage can be used instead.
+samples. In the paper, both clusters were emulated, replaying the same trace; any setup that gives both clusters the
+same usage can be used instead.
 
 ### Running a suite
 
