@@ -86,8 +86,8 @@ relative error and largest relative error.
   ```
 
 - A VHAPE recommender image with the `vpa` heuristic, in a registry the VHAPE cluster can pull from: the published image
-  `vtexlsd/vhape-recommender:paper`, or one built from this branch as described in
-  [`../../vhape/README.md`](../../vhape/README.md#build-the-image).
+  `vtexlsd/vhape-recommender:paper`, or one built from this branch with the
+  [release guide](../../../vertical-pod-autoscaler/vhape-docs/release-guide.md).
 - The workload manifests (see [Workloads](#workloads)).
 
 ## Steps
@@ -172,7 +172,7 @@ In both environments, the objects are created with `updateMode: Off` before the 
 3. Create the policy with the `vpa` heuristic:
 
    ```bash
-   kubectl apply -f reproduction/vhape/policies/vpa-policy.yaml
+   kubectl apply -f reproduction/policies/vpa-policy.yaml
    ```
 
 4. Start the same script with `vhape` and `Off`: each object gets the annotation `vhape/policy: vpa-policy` and

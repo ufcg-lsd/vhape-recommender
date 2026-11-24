@@ -62,7 +62,7 @@ spec:
   updatePolicy: {updateMode: "Off"}
 ```
 
-A VHAPE object for the same Deployment can live in the same namespace (see `../vhape/README.md`); Tiny ignores it.
+A VHAPE object for the same Deployment can live in the same namespace; Tiny ignores it.
 
 ### Things to know
 

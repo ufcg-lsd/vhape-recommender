@@ -91,8 +91,8 @@ error and largest relative error.
   `vtexlsd/tiny-serverless-recommender:paper`, or one built
   with [`../../tiny/build.sh`](../../tiny/README.md#build).
 - A VHAPE recommender image with the `sma` and `vpa` heuristics, in a registry the VHAPE cluster can pull from: the
-  published image `vtexlsd/vhape-recommender:paper`, or one built from this branch as described in
-  [`../../vhape/README.md`](../../vhape/README.md#build-the-image).
+  published image `vtexlsd/vhape-recommender:paper`, or one built from this branch with the
+  [release guide](../../../vertical-pod-autoscaler/vhape-docs/release-guide.md).
 - The workload manifests (see [Workloads](#workloads)).
 
 ## Steps
@@ -172,7 +172,7 @@ error and largest relative error.
 3. Create the policy with the `sma` heuristic for CPU and the `vpa` heuristic for memory:
 
    ```bash
-   kubectl apply -f reproduction/vhape/policies/sma-policy.yaml
+   kubectl apply -f reproduction/policies/sma-policy.yaml
    ```
 
 4. Apply the same workloads:
