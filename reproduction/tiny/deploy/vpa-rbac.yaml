@@ -1,6 +1,6 @@
 # RBAC of the upstream VPA 1.6.0 (kubernetes/autoscaler, vertical-pod-autoscaler/deploy/vpa-rbac.yaml), unchanged.
-# Creates the vpa-recommender service account used by deploy/tiny-recommender.yaml; the Tiny recommender ran with
-# these roles in the paper experiments. The original 2021 file is printed by tiny/build.sh.
+# Creates the vpa-recommender service account used by the deploy/tiny-recommender-*.yaml manifests; the Tiny
+# recommender ran with these roles in the paper experiments. The original 2021 file is printed by tiny/build.sh.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
