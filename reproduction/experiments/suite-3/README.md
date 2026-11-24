@@ -1,35 +1,40 @@
 # Suite 3: Tiny and upstream VPA together vs VHAPE with both heuristics
 
-What is common to every suite (environments, controlled variables, workloads, error metrics) is described in
+The environments and the workloads common to every suite are described in
 [The experiment suites](../../README.md#the-experiment-suites), and the requirements in
 [Running a suite](../../README.md#running-a-suite).
 
 ## The experiment
 
-**Context.** Suites 1 and 2 compare each VHAPE heuristic with the recommender it reproduces, one at a time: every
-workload of a cluster uses the same heuristic. VHAPE, however, selects the heuristic per workload, through the policy
-of its recommendation object, so a single VHAPE recommender can serve workloads with different heuristics at the same
-time. Without VHAPE, the same setup needs one recommender per heuristic, running side by side in the cluster.
+Suite 3 answers RQ2.
 
-**Goal.** Show that a single VHAPE recommender, running `sma` for some workloads and `vpa` for the others, gives the same
-recommendations as Tiny and the upstream VPA recommender running together, each one handling its own workloads.
+**Context.** VHAPE selects the heuristic per workload, through the policy of its VerticalPodAutoscaler object, so a
+single VHAPE recommender can serve workloads with different heuristics at the same time. Without VHAPE, the same setup
+needs one recommender per heuristic, running side by side in the cluster.
 
-**Question.** Given the same workloads, split in the same way between the two heuristics, does VHAPE recommend the same
-resources over time as Tiny and the upstream VPA together?
+**Goal.** Compare the resource consumption of a single VHAPE recommender, running `sma` for the short-duration workloads
+and `vpa` for the others, with that of Tiny and the upstream VPA recommender running side by side, each one handling
+the same workloads.
 
-**Hypothesis.** The target recommendation of every workload is the same in both environments.
+**Question.** How much CPU and memory does a shared VHAPE recommender consume, compared with the separate Tiny and
+upstream VPA recommenders together?
+
+**Hypothesis.** The shared VHAPE recommender consumes less CPU and memory than the two separate recommenders together.
+
+**Workloads:** all the workloads: the short-duration ones go to the SMA heuristic, the long-duration ones to the VPA
+heuristic.
 
 ## Design
 
-**Independent variable:** the recommenders. Each workload is assigned to a heuristic by its name: the Deployments
-listed in [`w2c-workloads.txt`](w2c-workloads.txt) (one `namespace/name` per line) go to the SMA, every other
-Deployment goes to the VPA. The names in the list must match the namespace and name of the Deployments; to use other
-workloads, edit the list.
+**Independent variable:** separate recommenders or a shared one. Each workload is assigned to a heuristic by its name:
+the short-duration Deployments, listed in [`w2c-workloads.txt`](w2c-workloads.txt) (one `namespace/name` per line), go
+to the SMA, every other Deployment goes to the VPA. The names in the list must match the namespace and name of the
+Deployments; to use other workloads, edit the list.
 
 | | Tiny + VPA environment | VHAPE environment |
 |---|---|---|
 | Recommenders | Tiny `serverless-recommender` for the listed Deployments, upstream VPA recommender 1.6.0 for the others | one VHAPE recommender: `sma-policy` for the listed Deployments, `vpa-policy` for the others |
-| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `tiny-vpa` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` |
+| VerticalPodAutoscaler objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `tiny-vpa` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` |
 
 In the Tiny + VPA environment, each object is marked so that only one of the two recommenders handles it:
 
@@ -41,16 +46,17 @@ In the Tiny + VPA environment, each object is marked so that only one of the two
 **Controlled variables** specific to this suite:
 
 - **Update mode:** `Off`, as in suite 2, so both environments run the same pods.
+- **VerticalPodAutoscaler objects:** created before the workloads, as in suites 1 and 2, so every recommender receives
+  samples from the first instant of every pod.
 - **Recommender interval:** 1 min for every recommender. This is the default of the upstream VPA and of VHAPE; Tiny is
   set to 1 min in its manifest ([`tiny-recommender-suite-3.yaml`](../../tiny/deploy/tiny-recommender-suite-3.yaml)),
   instead of its default of 1s, so that all recommenders run at the same interval.
 
 ## Measurements
 
-The compared values are the target recommendations, read from the status of the recommendation object of each
-workload, paired by the time elapsed since the start of the run. Samples taken before a recommender publishes its
-first recommendation for a workload have no pair and are not compared. The results are reported separately for the
-listed workloads (VHAPE `sma` vs Tiny) and for the others (VHAPE `vpa` vs upstream VPA).
+The compared values are the CPU and memory consumption of the recommender pods, collected with Prometheus. In the
+Tiny + VPA environment, the consumption of the Tiny and upstream VPA recommender pods is summed at each collection
+interval; in the VHAPE environment, it is the consumption of the single VHAPE recommender pod.
 
 ## Steps
 
@@ -94,19 +100,18 @@ listed workloads (VHAPE `sma` vs Tiny) and for the others (VHAPE `vpa` vs upstre
    kubectl apply -f reproduction/tiny/deploy/tiny-recommender-suite-3.yaml
    ```
 
-5. Apply the workloads:
-
-   ```bash
-   kubectl apply -f <workload manifests>
-   ```
-
-6. Start the script that creates one recommendation object, with `updateMode: Off`, per Deployment of every namespace,
-   assigned to Tiny or to the upstream VPA as described in [Design](#design). It runs in the background and also
-   handles Deployments created later; it can be stopped once every workload has its recommendation object (the objects
-   are kept). Start it at the same point in both environments, once the initial pods of the workloads are running:
+5. Start the script. It marks each object for Tiny or for the upstream VPA (see [Design](#design)), runs in the
+   background and also handles Deployments created later; it can be stopped once every workload has its object (the
+   objects are kept):
 
    ```bash
    reproduction/experiments/suite-3/create-vpa-objects.sh tiny-vpa '.*' &
+   ```
+
+6. Apply the workloads:
+
+   ```bash
+   kubectl apply -f <workload manifests>
    ```
 
 ### VHAPE environment
@@ -130,15 +135,15 @@ listed workloads (VHAPE `sma` vs Tiny) and for the others (VHAPE `vpa` vs upstre
    kubectl apply -f reproduction/policies/sma-policy.yaml -f reproduction/policies/vpa-policy.yaml
    ```
 
-4. Apply the same workloads:
-
-   ```bash
-   kubectl apply -f <workload manifests>
-   ```
-
-5. Start the same script with `vhape`: each object gets `spec.recommenders: [vhape-recommender]` and the annotation
+4. Start the script with `vhape`. Each object gets `spec.recommenders: [vhape-recommender]` and the annotation
    `vhape/policy: sma-policy` (listed Deployments) or `vhape/policy: vpa-policy` (the others):
 
    ```bash
    reproduction/experiments/suite-3/create-vpa-objects.sh vhape '.*' &
+   ```
+
+5. Apply the same workloads:
+
+   ```bash
+   kubectl apply -f <workload manifests>
    ```

@@ -1,20 +1,22 @@
 # Suite 2: Tiny Autoscalers vs VHAPE `sma`
 
-What is common to every suite (environments, controlled variables, workloads, error metrics) is described in
+The environments and the workloads common to every suite are described in
 [The experiment suites](../../README.md#the-experiment-suites), and the requirements in
 [Running a suite](../../README.md#running-a-suite).
 
 ## The experiment
 
-**Goal.** Show that VHAPE, running `sma-policy` (`sma` for CPU, `vpa` for memory, as Tiny does), reproduces the
-recommendations of the Tiny recommender. If it does, the Tiny behavior is also available in VHAPE, by selecting these
-heuristics in a policy. The recommendations are not applied (`updateMode: Off`), as in the evaluation of Tiny in its
-repository.
+Suite 2 answers RQ1 for the `sma` heuristic.
 
-**Question.** Given the same workloads, does VHAPE with `sma-policy` recommend the same resources over time as the Tiny
-recommender?
+**Goal.** Show that VHAPE, running `sma-policy`, preserves the CPU recommendations of the Tiny Autoscalers SMA
+recommender. The recommendations are not applied (`updateMode: Off`).
 
-**Hypothesis.** The target recommendations are the same in both environments.
+**Question.** Given the same workloads, does VHAPE with `sma-policy` produce the same CPU target recommendations over
+time as Tiny?
+
+**Hypothesis.** The CPU targets are the same in both environments.
+
+**Workloads:** the short-duration workloads.
 
 ## Design
 
@@ -23,21 +25,23 @@ recommender?
 | | Tiny environment | VHAPE environment |
 |---|---|---|
 | Recommender | Tiny `serverless-recommender` | VHAPE recommender with `sma-policy` (`sma` with `N: 3, input: 2` for CPU, `vpa: {}` for memory) |
-| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `tiny` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` |
+| VerticalPodAutoscaler objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `tiny` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` |
 
 **Controlled variables** specific to this suite:
 
 - **Update mode:** `Off`. The updater and the admission controller do nothing with `Off` objects, so the requests of
   the pods stay as in the workload manifests and both environments run the same pods.
+- **VerticalPodAutoscaler objects:** created before the workloads, so both recommenders receive samples from the first
+  instant of every pod (VHAPE only feeds the heuristics of existing objects).
 - **Recommender interval:** 1s, the default of Tiny (VHAPE is set to 1s through the chart value `extraArgs`). Both
   recommenders poll every second but get a new reading once a minute, so the SMA window (`N: 3, input: 2`, six
   readings) covers about six minutes.
 
 ## Measurements
 
-The compared values are the target recommendations, read from the status of the recommendation object of each
-workload, paired by the time elapsed since the start of the run. Before a workload has usage samples, neither
-recommender publishes a recommendation for it; those first instants are not compared.
+The compared values are the CPU targets (in millicores), read from the status of the VerticalPodAutoscaler objects.
+Memory is not compared. The targets of both environments are matched by workload, container and emulation
+timestamp. For each pair, the absolute and relative errors are computed as described in the paper.
 
 ## Steps
 
@@ -75,26 +79,23 @@ recommender publishes a recommendation for it; those first instants are not comp
    kubectl apply -f reproduction/tiny/deploy/tiny-status-rbac.yaml
    ```
 
-4. Start Tiny, with the published image and without `--vpa-object-namespace`, so it handles the recommendation
-   objects of all namespaces (it is the only recommender in this cluster):
+4. Start Tiny:
 
    ```bash
    kubectl apply -f reproduction/tiny/deploy/tiny-recommender-paper.yaml
    ```
 
-5. Apply the workloads:
-
-   ```bash
-   kubectl apply -f <workload manifests>
-   ```
-
-6. Start the script that creates one recommendation object, with `updateMode: Off` and no `spec.recommenders`, per
-   Deployment of every namespace. It runs in the background and also handles Deployments created later; it can be
-   stopped once every workload has its recommendation object (the objects are kept). Start it at the same point in
-   both environments, once the initial pods of the workloads are running, as in suite 1:
+5. Start the script. It runs in the background and also handles Deployments created later; it can be stopped once
+   every workload has its object (the objects are kept):
 
    ```bash
    reproduction/experiments/suite-2/create-vpa-objects.sh tiny '.*' &
+   ```
+
+6. Apply the workloads:
+
+   ```bash
+   kubectl apply -f <workload manifests>
    ```
 
 ### VHAPE environment
@@ -119,16 +120,15 @@ recommender publishes a recommendation for it; those first instants are not comp
    kubectl apply -f reproduction/policies/sma-policy.yaml
    ```
 
-4. Apply the same workloads:
-
-   ```bash
-   kubectl apply -f <workload manifests>
-   ```
-
-5. Start the same script with `vhape`: each object gets the annotation `vhape/policy: sma-policy` and
-   `spec.recommenders: [vhape-recommender]`. The same script is used in both environments so that their objects come
-   from the same code, created at the same pace:
+4. Start the script with `vhape`. Each object gets the annotation `vhape/policy: sma-policy` and
+   `spec.recommenders: [vhape-recommender]`:
 
    ```bash
    reproduction/experiments/suite-2/create-vpa-objects.sh vhape '.*' &
+   ```
+
+5. Apply the same workloads:
+
+   ```bash
+   kubectl apply -f <workload manifests>
    ```
