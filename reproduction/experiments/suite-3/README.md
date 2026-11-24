@@ -1,5 +1,9 @@
 # Suite 3: Tiny and upstream VPA together vs VHAPE with both heuristics
 
+What is common to every suite (environments, controlled variables, workloads, error metrics) is described in
+[The experiment suites](../../README.md#the-experiment-suites), and the requirements in
+[Running a suite](../../README.md#running-a-suite).
+
 ## The experiment
 
 **Context.** Suites 1 and 2 compare each VHAPE heuristic with the recommender it reproduces, one at a time: every
@@ -17,17 +21,15 @@ resources over time as Tiny and the upstream VPA together?
 
 ## Design
 
-The experiment runs in two separate and identical clusters (same nodes and Kubernetes version), with the same
-workloads, started at the same time.
-
 **Independent variable:** the recommenders. Each workload is assigned to a heuristic by its name: the Deployments
 listed in [`w2c-workloads.txt`](w2c-workloads.txt) (one `namespace/name` per line) go to the SMA, every other
-Deployment goes to the VPA.
+Deployment goes to the VPA. The names in the list must match the namespace and name of the Deployments; to use other
+workloads, edit the list.
 
 | | Tiny + VPA environment | VHAPE environment |
 |---|---|---|
 | Recommenders | Tiny `serverless-recommender` for the listed Deployments, upstream VPA recommender 1.6.0 for the others | one VHAPE recommender: `sma-policy` for the listed Deployments, `vpa-policy` for the others |
-| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `tiny-vpa` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` (the object the VHAPE watcher creates) |
+| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `tiny-vpa` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` |
 
 In the Tiny + VPA environment, each object is marked so that only one of the two recommenders handles it:
 
@@ -36,73 +38,19 @@ In the Tiny + VPA environment, each object is marked so that only one of the two
 - **other Deployments:** the annotation `vhape/policy: vpa-policy`. Tiny skips objects with this annotation (compat
   patch, see [`../../tiny/PATCHES.md`](../../tiny/PATCHES.md)); the upstream VPA ignores it.
 
-In the VHAPE environment, the script is used instead of the VHAPE watcher because the watcher assigns one policy per
-namespace, and the namespaces of these workloads mix listed and unlisted Deployments.
+**Controlled variables** specific to this suite:
 
-**Controlled variables:** identical in both environments.
-
-- **Applying recommendations:** none, `updateMode: Off`, as in suite 2. The updater and the admission controller of the
-  upstream VPA 1.6.0 are installed but do nothing with `Off` objects, so both environments run the same pods.
-- **Controlled values:** requests only (`controlledValues: RequestsOnly`); with `Off` it has no effect.
+- **Update mode:** `Off`, as in suite 2, so both environments run the same pods.
 - **Recommender interval:** 1 min for every recommender. This is the default of the upstream VPA and of VHAPE; Tiny is
   set to 1 min in its manifest ([`tiny-recommender-suite-3.yaml`](../../tiny/deploy/tiny-recommender-suite-3.yaml)),
   instead of its default of 1s, so that all recommenders run at the same interval.
-- **Replicas:** one replica of every component.
-- **Metrics:** metrics-server with its default `--metric-resolution` of 60s.
-- **Workloads:** the same manifests (see [Workloads](#workloads)).
 
-## Workloads
+## Measurements
 
-The workloads are not part of this directory. They must meet the requirements of suites 1 and 2:
-
-- they are Deployments, and the same manifests, with the same namespaces, are applied in both environments;
-- their containers define CPU and memory requests;
-- their memory usage is above 250Mi, the minimum memory recommendation of Tiny and the VPA; below it, both environments
-  return the minimum and memory is not really compared;
-- their load does not repeat with a period that is a multiple of 1 min.
-
-The names in `w2c-workloads.txt` must match the namespace and name of the Deployments; a Deployment that is not listed
-goes to the VPA. To use other workloads, edit the list.
-
-## Dependent variables
-
-The comparison uses the target recommendation, read from the status of the recommendation object of each workload:
-
-- CPU target, in millicores;
-- memory target, in MiB;
-- absolute error between the targets of both environments;
-- relative error between the targets of both environments.
-
-The targets of both environments are collected in the same way and paired by the time elapsed since the start of the
-run. Samples taken before a recommender publishes its first recommendation for a workload have no pair and are not
-compared. The results are reported separately for the listed workloads (VHAPE `sma` vs Tiny) and for the others (VHAPE
-`vpa` vs upstream VPA).
-
-**Absolute error**, computed separately for CPU and memory: for each pair, the absolute difference between the two
-targets. Reported per workload and over all workloads: mean absolute error and largest absolute error.
-
-**Relative error**, computed separately for CPU and memory: the absolute error of each pair divided by the target in
-the Tiny + VPA environment (the reference), as a percentage. Reported per workload and over all workloads: mean
-relative error and largest relative error.
-
-## Requirements
-
-- Two clusters as described in [Design](#design), running Kubernetes 1.28 or later (required by VHAPE), each with the
-  metrics-server installed and its default `--metric-resolution` of 60s.
-- On the machine that runs the commands: `kubectl`, Helm 3, and this repository cloned on the `paper` branch (all
-  commands run from the repository root):
-
-  ```bash
-  git clone -b paper https://github.com/ufcg-lsd/vhape-recommender.git
-  ```
-
-- A Tiny image, in a registry the Tiny + VPA cluster can pull from: the published image
-  `vtexlsd/tiny-serverless-recommender:paper`, or one built with [`../../tiny/build.sh`](../../tiny/README.md#build)
-  (then change the image in `tiny-recommender-suite-3.yaml`).
-- A VHAPE recommender image with the `sma` and `vpa` heuristics, in a registry the VHAPE cluster can pull from: the
-  published image `vtexlsd/vhape-recommender:paper`, or one built from this branch with the
-  [release guide](../../../vertical-pod-autoscaler/vhape-docs/release-guide.md).
-- The workload manifests (see [Workloads](#workloads)).
+The compared values are the target recommendations, read from the status of the recommendation object of each
+workload, paired by the time elapsed since the start of the run. Samples taken before a recommender publishes its
+first recommendation for a workload have no pair and are not compared. The results are reported separately for the
+listed workloads (VHAPE `sma` vs Tiny) and for the others (VHAPE `vpa` vs upstream VPA).
 
 ## Steps
 
@@ -194,12 +142,3 @@ relative error and largest relative error.
    ```bash
    reproduction/experiments/suite-3/create-vpa-objects.sh vhape '.*' &
    ```
-
-## Between runs
-
-Each run uses new clusters, set up from scratch with the steps above, so no state (recommendation history,
-checkpoints, objects) carries over from one run to the next.
-
-## Duration and repetitions
-
-To be defined.

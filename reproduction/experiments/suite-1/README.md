@@ -1,13 +1,12 @@
 # Suite 1: upstream VPA vs VHAPE `vpa`
 
+What is common to every suite (environments, controlled variables, workloads, error metrics) is described in
+[The experiment suites](../../README.md#the-experiment-suites), and the requirements in
+[Running a suite](../../README.md#running-a-suite).
+
 ## The experiment
 
-**Context.** VHAPE is a fork of the Kubernetes Vertical Pod Autoscaler (VPA) whose recommender runs pluggable
-heuristics, selected per resource (CPU, memory) through a `VhapePolicy`. The upstream VPA has a single heuristic, fixed
-in its recommender and tuned by command-line flags. This branch adds the `vpa` heuristic, a reimplementation of the
-upstream VPA 1.6.0 recommender as a VHAPE heuristic.
-
-**Goal.** Show that VHAPE, running the `vpa` heuristic, reproduces the upstream VPA recommender when the
+**Goal.** Show that VHAPE, running the `vpa` heuristic, reproduces the upstream VPA 1.6.0 recommender when the
 recommendations are applied to the workloads. If it does, the upstream VPA behavior is also available in VHAPE, by
 selecting the `vpa` heuristic in a policy.
 
@@ -18,77 +17,26 @@ upstream VPA recommender?
 
 ## Design
 
-The experiment runs in two separate and identical clusters (same nodes and Kubernetes version), with the same
-workloads, started at the same time.
-
-**Independent variable:** the recommender. Each cluster runs a single one:
+**Independent variable:** the recommender.
 
 | | Upstream VPA environment | VHAPE environment |
 |---|---|---|
 | Recommender | upstream VPA recommender 1.6.0 | VHAPE recommender with `vpa-policy` (`vpa: {}` for CPU and memory, i.e. the VPA defaults) |
-| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vpa` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` (the object the VHAPE watcher creates) |
+| Recommendation objects | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vpa` | created by [`create-vpa-objects.sh`](create-vpa-objects.sh) `vhape` |
 
-**Controlled variables:** identical in both environments.
+**Controlled variables** specific to this suite:
 
-- **Applying recommendations:** updater and admission controller of the upstream VPA 1.6.0, `updateMode: Recreate`
-  (the updater evicts a pod whose requests are outside the recommended range; the admission controller sets the
-  recommended requests on the new pod). The objects are created with `updateMode: Off` before the workloads and
-  switched to `Recreate` once the initial pods are running, at the same point in both environments (see
+- **Update mode:** `Recreate` (the updater evicts a pod whose requests are outside the recommended range; the admission
+  controller sets the recommended requests on the new pod). The objects are created with `updateMode: Off` before the
+  workloads and switched to `Recreate` once the initial pods are running, at the same point in both environments (see
   [Recommendation objects](#recommendation-objects)).
-- **Controlled values:** requests only (`controlledValues: RequestsOnly`); limits stay as in the workload manifests.
 - **Recommender interval:** 1 min, the default of both recommenders.
-- **Replicas:** one replica of every component (upstream VPA components and VHAPE recommender).
-- **Metrics:** metrics-server with its default `--metric-resolution` of 60s, which the `vpa` heuristic expects.
-- **Workloads:** the same manifests (see [Workloads](#workloads)).
 
-## Workloads
+## Measurements
 
-The workloads are not part of this directory. Any set of workloads can be used, as long as:
-
-- they are Deployments (the script, like the VHAPE watcher, only handles Deployments), and the same manifests, with the same namespaces,
-  are applied in both environments;
-- their containers define CPU and memory requests (the starting point that the recommendations change);
-- their memory usage is above 250Mi, the minimum memory recommendation of the VPA; below it, both recommenders return
-  the minimum and memory is not really compared;
-- their load does not repeat with a period that is a multiple of 1 min; otherwise, with a 1 min interval, the
-  recommenders always read the same phases of the load.
-
-## Dependent variables
-
-The comparison uses the requests applied to the pods, i.e. the recommendations as they reach the workloads (the
-admission controller sets the target recommendation as the request of a pod when the updater evicts it):
-
-- CPU request of the pods, in millicores;
-- memory request of the pods, in MiB;
-- absolute error between the requests of both environments;
-- relative error between the requests of both environments.
-
-The requests of both environments are collected in the same way, every minute (the recommender interval), from the
-start of the run. The *n*-th sample of a workload in the VHAPE environment is paired with the *n*-th sample of the same
-workload in the upstream VPA environment.
-
-**Absolute error**, computed separately for CPU and memory: for each pair, the absolute difference between the two
-requests. Reported per workload and over all workloads: mean absolute error and largest absolute error.
-
-**Relative error**, computed separately for CPU and memory: the absolute error of each pair divided by the request in
-the upstream VPA environment (the reference), as a percentage. Reported per workload and over all workloads: mean
-relative error and largest relative error.
-
-## Requirements
-
-- Two clusters as described in [Design](#design), running Kubernetes 1.28 or later (required by VHAPE), each with the
-  metrics-server installed and its default `--metric-resolution` of 60s.
-- On the machine that runs the commands: `kubectl`, Helm 3, and this repository cloned on the `paper` branch (all
-  commands run from the repository root):
-
-  ```bash
-  git clone -b paper https://github.com/ufcg-lsd/vhape-recommender.git
-  ```
-
-- A VHAPE recommender image with the `vpa` heuristic, in a registry the VHAPE cluster can pull from: the published image
-  `vtexlsd/vhape-recommender:paper`, or one built from this branch with the
-  [release guide](../../../vertical-pod-autoscaler/vhape-docs/release-guide.md).
-- The workload manifests (see [Workloads](#workloads)).
+The compared values are the requests applied to the pods, i.e. the recommendations as they reach the workloads. They
+are collected every minute (the recommender interval) from the start of the run; the *n*-th sample of a workload in
+the VHAPE environment is paired with the *n*-th sample of the same workload in the upstream VPA environment.
 
 ## Steps
 
@@ -176,8 +124,8 @@ In both environments, the objects are created with `updateMode: Off` before the 
    ```
 
 4. Start the same script with `vhape` and `Off`: each object gets the annotation `vhape/policy: vpa-policy` and
-   `spec.recommenders: [vhape-recommender]`, the object the VHAPE watcher would create. The script is used instead of
-   the watcher so that the objects of both environments come from the same code, created at the same pace:
+   `spec.recommenders: [vhape-recommender]`. The same script is used in both environments so that their objects come
+   from the same code, created at the same pace:
 
    ```bash
    reproduction/experiments/suite-1/create-vpa-objects.sh vhape '.*' Off &
@@ -203,12 +151,3 @@ In both environments, the objects are created with `updateMode: Off` before the 
    ```bash
    reproduction/experiments/suite-1/create-vpa-objects.sh vhape '.*' &
    ```
-
-## Between runs
-
-Each run uses new clusters, set up from scratch with the steps above, so no state (recommendation history,
-checkpoints, objects) carries over from one run to the next.
-
-## Duration and repetitions
-
-To be defined.
