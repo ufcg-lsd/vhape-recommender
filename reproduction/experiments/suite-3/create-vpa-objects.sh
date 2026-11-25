@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Creates one VerticalPodAutoscaler object per Deployment of the namespaces that match a regular expression (same name as
 # the Deployment, updateMode Off, controlledValues RequestsOnly for every container, owner reference to the Deployment),
-# and assigns each Deployment to a recommender by its name (suite 3). The Deployments listed in w2c-workloads.txt, next
-# to this script, go to the SMA heuristic; every other Deployment goes to the VPA heuristic.
+# and assigns each Deployment to a recommender by its name (suite 3). The Deployments listed in the file given as the
+# third argument go to the SMA heuristic; every other Deployment goes to the VPA heuristic.
+#   The list has one namespace/name per line: the Deployments of the trace that use the SMA heuristic.
 #   tiny-vpa environment (Tiny and the upstream VPA recommender in the same cluster):
 #     listed:   spec.recommenders [tiny]; the upstream VPA skips objects that do not list its name, Tiny ignores the field.
 #     the rest: annotation vhape/policy; Tiny skips objects with this annotation, the upstream VPA ignores it.
@@ -17,14 +18,16 @@
 # Stop it with Ctrl+C, or with kill %1 when started in the background with &; the objects are kept. The owner reference
 # makes Kubernetes delete the object together with its Deployment.
 # As with the watcher chart, the namespaces kube-system and monitoring are ignored.
-# Usage: create-vpa-objects.sh <tiny-vpa|vhape> <namespace-regex>
+# Usage: create-vpa-objects.sh <tiny-vpa|vhape> <namespace-regex> <sma-list>
 #   namespace-regex: e.g. '^my-namespace$' for one namespace, '^exp-.*$' for several
+#   sma-list: file with the Deployments that go to the SMA heuristic, one namespace/name per line
 set -uo pipefail
 
-USAGE="usage: create-vpa-objects.sh <tiny-vpa|vhape> <namespace-regex>"
+USAGE="usage: create-vpa-objects.sh <tiny-vpa|vhape> <namespace-regex> <sma-list>"
 ENVIRONMENT=${1:?$USAGE}
 REGEX=${2:?$USAGE}
-LIST="$(dirname "$0")/w2c-workloads.txt"  # one namespace/name per line
+LIST=${3:?$USAGE}  # one namespace/name per line
+[[ -r $LIST ]] || { echo "cannot read the list $LIST" >&2; exit 1; }
 CHECK_INTERVAL=2  # seconds
 IGNORED_NAMESPACES=" kube-system monitoring "
 

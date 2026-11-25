@@ -27,9 +27,9 @@ heuristic.
 ## Design
 
 **Independent variable:** separate recommenders or a shared one. Each workload is assigned to a heuristic by its name:
-the short-duration Deployments, listed in [`w2c-workloads.txt`](w2c-workloads.txt) (one `namespace/name` per line), go
-to the SMA, every other Deployment goes to the VPA. The names in the list must match the namespace and name of the
-Deployments; to use other workloads, edit the list.
+the short-duration Deployments, listed in a file given to [`create-vpa-objects.sh`](create-vpa-objects.sh) (one
+`namespace/name` per line), go to the SMA, every other Deployment goes to the VPA. The names in the list must match the
+namespace and name of the Deployments.
 
 | | Tiny + VPA environment | VHAPE environment |
 |---|---|---|
@@ -105,7 +105,7 @@ interval; in the VHAPE environment, it is the consumption of the single VHAPE re
    objects are kept):
 
    ```bash
-   reproduction/experiments/suite-3/create-vpa-objects.sh tiny-vpa '.*' &
+   reproduction/experiments/suite-3/create-vpa-objects.sh tiny-vpa '.*' <sma-list> &
    ```
 
 6. Apply the workloads:
@@ -139,7 +139,7 @@ interval; in the VHAPE environment, it is the consumption of the single VHAPE re
    `vhape/policy: sma-policy` (listed Deployments) or `vhape/policy: vpa-policy` (the others):
 
    ```bash
-   reproduction/experiments/suite-3/create-vpa-objects.sh vhape '.*' &
+   reproduction/experiments/suite-3/create-vpa-objects.sh vhape '.*' <sma-list> &
    ```
 
 5. Apply the same workloads:
